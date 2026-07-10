@@ -16,9 +16,12 @@ test("addEdge flags hasData from non-empty input calldata", () => {
 
   const call = s.addEdge({ action: "txlist", group: "normal", color: "#0", from: A("a"), to: A("c"), tx: { value: "0", hash: "0x2", input: "0xa9059cbb0000" } });
   expect(call.hasData).toBe(true); // non-empty calldata == contract call
+  expect(call.rawInput).toBe("0xa9059cbb0000"); // full calldata kept verbatim
 
+  expect(plain.rawInput).toBe("0x"); // stored, but hasData false
   const none = s.addEdge({ action: "txlistinternal", group: "internal", color: "#0", from: A("a"), to: A("d"), tx: { value: "0", hash: "0x3" } });
   expect(none.hasData).toBe(false); // no input field (internal/token)
+  expect(none.rawInput).toBe(""); // non-string/absent input -> ""
 });
 
 test("bundleEdges flags hasData if any collapsed member carried calldata", () => {

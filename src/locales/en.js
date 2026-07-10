@@ -137,6 +137,7 @@ export default {
   "details.dataYes": "Yes — contract call ✱",
   "details.method": "Method",
   "details.methodUnknown": "unknown selector",
+  "details.inputRaw": "Raw input",
   "details.risk": "Risk",
   "risk.high": "High",
   "risk.med": "Medium",

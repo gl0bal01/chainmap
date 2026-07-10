@@ -140,6 +140,14 @@ export function renderEdgeDetails(container, edge, deps) {
     // Decoded leading static args (e.g. the real recipient of a transfer()).
     edge.methodArgs.forEach((a, i) => table.appendChild(detailRow(`#${i + 1} ${a.type}`, a.value)));
   }
+  if (edge.hasData && edge.rawInput) {
+    // Full raw calldata hex — untrusted, so rendered as textContent in a
+    // scrollable monospace block (never parsed as HTML).
+    const code = document.createElement("code");
+    code.textContent = edge.rawInput;
+    code.style.cssText = "display:block;max-height:8em;overflow:auto;word-break:break-all";
+    table.appendChild(detailRow(i18n.t("details.inputRaw"), code));
+  }
   table.appendChild(detailRow(i18n.t("details.block"), edge.blockNumber));
   table.appendChild(detailRow(i18n.t("details.date"), formatTimestamp(edge.timeStamp, i18n.getLocale())));
   table.appendChild(

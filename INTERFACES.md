@@ -86,7 +86,7 @@ Exports: `API_BASE`, `CHAINS: Chain[]`, `TX_TYPE_GROUPS`, `ROOT_COLOR`,
 
 Data shapes:
 - `NodeRecord = { address, depth, isRoot, alias:string|null }`
-- `EdgeRecord = { key, action, group, color, from, to, hash, symbol, tokenContract, tokenId, value, amountText, amountIndeterminate, timeStamp, blockNumber }`
+- `EdgeRecord = { key, action, group, color, from, to, hash, symbol, tokenContract, tokenId, value, amountText, amountIndeterminate, hasData, methodId, methodArgs, rawInput, timeStamp, blockNumber }`
 - `EdgeInput = { action, group, color, from, to, tx }` (store computes key + amount)
 
 Mutations: `addNode(address, {depth?,isRoot?}) → NodeRecord` (merge = min depth, sticky root);

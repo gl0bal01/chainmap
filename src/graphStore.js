@@ -39,6 +39,7 @@ import { decodeCall } from "./abiDecode.js";
  * @property {boolean} hasData             tx carried non-empty input calldata (contract call)
  * @property {string}  methodId            4-byte selector (0x+8 hex) when calldata present, else ""
  * @property {{type:string,value:string}[]} methodArgs decoded leading static args (empty if none/unknown)
+ * @property {string}  rawInput            raw tx `input` calldata hex ("" when none / non-string)
  * @property {string}  timeStamp
  * @property {string}  blockNumber
  */
@@ -166,6 +167,9 @@ export class GraphStore {
       hasData: !!(txInput && txInput !== "0x" && txInput.length > 2),
       methodId: txInput.length >= 10 ? txInput.slice(0, 10).toLowerCase() : "",
       methodArgs: (decodeCall(txInput) || {}).args || [],
+      // Full calldata kept verbatim so the investigator can inspect / copy the
+      // raw bytes (details panel shows it as textContent — never as HTML).
+      rawInput: txInput,
       timeStamp: tx.timeStamp || "",
       blockNumber: tx.blockNumber || "",
     };

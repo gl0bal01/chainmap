@@ -136,6 +136,7 @@ export default {
   "details.dataYes": "Oui — appel de contrat ✱",
   "details.method": "Méthode",
   "details.methodUnknown": "sélecteur inconnu",
+  "details.inputRaw": "Input brut",
   "details.risk": "Risque",
   "risk.high": "Élevé",
   "risk.med": "Moyen",
