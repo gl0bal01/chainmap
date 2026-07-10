@@ -3,6 +3,7 @@ node_modules/
 
 # Orchestration / tooling artifacts (not part of the app)
 .omc/
+.omo/
 .codegraph
 .claude/
 
