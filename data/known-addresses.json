@@ -1,0 +1,15 @@
+{
+  "1": {
+    "0x0000000000000000000000000000000000000000": { "label": "Null Address", "category": "burn" },
+    "0x000000000000000000000000000000000000dead": { "label": "Burn (0xdead)", "category": "burn" },
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": { "label": "WETH", "category": "contract" },
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { "label": "Circle: USDC", "category": "contract" },
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": { "label": "Tether: USDT", "category": "contract" },
+    "0x7a250d5630b4cf539739df2c5dacb4c659f2488d": { "label": "Uniswap V2: Router", "category": "router" },
+    "0x28c6c06298d514db089934071355e5743bf21d60": { "label": "Binance 14 (hot wallet)", "category": "exchange" },
+    "0x1a2a1c938ce3ec39b6d47113c7955baa9dd454f2": { "label": "Ronin: Bridge", "category": "bridge" },
+    "0x098b716b8aaf21512996dc57eb0615e2383e2f96": { "label": "Ronin Exploiter (Lazarus, OFAC)", "category": "sanctioned" },
+    "0xa160cdab225685da1d56aa342ad8841c3b53f291": { "label": "Tornado Cash: 100 ETH", "category": "mixer" },
+    "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf": { "label": "Tornado Cash: 10 ETH", "category": "mixer" }
+  }
+}

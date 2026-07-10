@@ -1,0 +1,17 @@
+# Dependencies (dev-only; the app runs with zero install)
+node_modules/
+
+# Orchestration / tooling artifacts (not part of the app)
+.omc/
+.codegraph
+.claude/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs / temp
+*.log

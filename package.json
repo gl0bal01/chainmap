@@ -1,0 +1,44 @@
+{
+  "name": "chainmap",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Client-side EVM fund-flow graph explorer for OSINT investigation and learning how blockchains work. Buildless; the app runs with zero install (node_modules is dev-only, for tests).",
+  "keywords": [
+    "blockchain",
+    "ethereum",
+    "evm",
+    "osint",
+    "followthemoney",
+    "transaction-graph",
+    "tx-graph",
+    "fund-flow",
+    "wallet-tracing",
+    "blockchain-forensics",
+    "aml",
+    "crypto",
+    "cryptocurrency",
+    "etherscan",
+    "graph",
+    "visualization",
+    "education",
+    "investigation"
+  ],
+  "homepage": "https://github.com/gl0bal01/chainmap#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gl0bal01/chainmap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gl0bal01/chainmap/issues"
+  },
+  "author": "gl0bal01 <gl0bal01@proton.me> (https://github.com/gl0bal01)",
+  "license": "MIT",
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.10.6",
+    "playwright-core": "^1.61.1"
+  }
+}

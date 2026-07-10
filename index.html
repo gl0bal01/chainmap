@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<!--
+  v2 dev entry. CSP: no inline SCRIPT; only runtime fetch host is api.etherscan.io.
+  Libraries vendored locally (no CDN). style-src allows inline for vis runtime styles.
+  Layout: graph is the primary surface; controls (left) + info (right) are collapsible
+  panels toggled from the app bar, so the map can go full-bleed.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob:;
+  connect-src 'self' https://api.etherscan.io;
+  font-src 'self';
+  object-src 'none';
+  base-uri 'self';
+  form-action 'self';
+">
+<title>Etherscan Tx Graph Explorer</title>
+<link rel="stylesheet" href="src/style.css">
+<script src="vendor/vis-network/vis-network.min.js"></script>
+<script src="vendor/jspdf/jspdf.umd.min.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <header id="appbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◈</span>
+      <h1 data-i18n="app.title">Etherscan Tx Graph Explorer</h1>
+    </div>
+    <div class="appbar-actions">
+      <label for="controlsChk" class="btn ghost sm" data-i18n="ui.controls">Controls</label>
+      <button id="langToggle" class="btn ghost sm" data-i18n="btn.lang" aria-label="Switch language">Français</button>
+      <label for="sidebarChk" class="btn ghost sm" data-i18n="ui.panel">Info</label>
+    </div>
+  </header>
+
+  <input type="checkbox" id="controlsChk" class="controls-chk" hidden>
+  <input type="checkbox" id="sidebarChk" class="sidebar-chk" hidden>
+
+  <div id="samplingBanner" class="banner" hidden data-i18n="sampling.banner"></div>
+
+  <main>
+    <aside id="controls">
+
+      <details class="panel" data-panel="scan" open>
+        <summary class="panel-title"><span data-i18n="panel.scan">Scan</span></summary>
+        <div class="panel-body">
+          <div class="fields">
+            <label class="field">
+              <span data-i18n="form.apiKey.label">Etherscan API key</span>
+              <input id="apiKey" type="password" data-i18n-placeholder="form.apiKey.placeholder" autocomplete="off">
+            </label>
+            <label class="field">
+              <span data-i18n="form.address.label">Address to analyze</span>
+              <input id="address" type="text" data-i18n-placeholder="form.address.placeholder" spellcheck="false">
+              <small id="addressDetect" class="detect" role="status" aria-live="polite"></small>
+            </label>
+            <div class="grid2">
+              <label class="field">
+                <span data-i18n="form.chain.label">Chain</span>
+                <select id="chainSelect"></select>
+              </label>
+              <label class="field">
+                <span data-i18n="form.addressFormat.label">Address display</span>
+                <select id="addressFormat">
+                  <option value="short" data-i18n="form.addressFormat.short">Short</option>
+                  <option value="full" data-i18n="form.addressFormat.full">Full</option>
+                </select>
+              </label>
+              <label class="field">
+                <span data-i18n="form.depth.label">Recursion depth (X)</span>
+                <input id="depth" type="number" min="1" max="6" value="2" inputmode="numeric">
+              </label>
+              <label class="field">
+                <span data-i18n="form.maxTx.label">Max tx / addr / level</span>
+                <input id="maxTxPerAddress" type="number" min="1" max="1000" value="20" inputmode="numeric">
+              </label>
+              <label class="field">
+                <span data-i18n="form.safetyCap.label">Total address cap</span>
+                <input id="safetyCap" type="number" min="1" max="5000" value="300" inputmode="numeric">
+              </label>
+              <label class="field">
+                <span data-i18n="form.rps.label">Requests / second</span>
+                <input id="rps" type="number" min="1" max="30" value="3" inputmode="numeric">
+              </label>
+            </div>
+          </div>
+          <div class="checks">
+            <label class="field check"><input type="checkbox" id="typeNormal" checked> <span data-i18n="form.types.normal">Normal transactions</span></label>
+            <label class="field check"><input type="checkbox" id="typeInternal" checked> <span data-i18n="form.types.internal">Internal transactions</span></label>
+            <label class="field check"><input type="checkbox" id="typeToken" checked> <span data-i18n="form.types.token">Token transfers</span></label>
+          </div>
+          <div class="actions">
+            <button id="startBtn" class="btn primary" data-i18n="btn.start">Start scan</button>
+            <button id="stopBtn" class="btn danger" disabled data-i18n="btn.stop">Stop</button>
+            <button id="resetBtn" class="btn" data-i18n="btn.reset">Clear graph</button>
+          </div>
+          <span id="status" class="status" role="status" aria-live="polite"></span>
+        </div>
+      </details>
+
+      <details class="panel" data-panel="filters">
+        <summary class="panel-title"><span data-i18n="panel.filters">Filters</span></summary>
+        <div class="panel-body">
+          <div class="grid2">
+            <label class="field">
+              <span data-i18n="filters.minAmount.label">Min amount / transfer</span>
+              <input id="minAmount" type="number" min="0" step="any" value="0" inputmode="decimal">
+            </label>
+            <label class="field">
+              <span data-i18n="form.degree.label">Min degree (hubs)</span>
+              <input id="degreeThreshold" type="number" min="1" value="15" inputmode="numeric">
+            </label>
+          </div>
+          <div class="checks">
+            <label class="field check"><input type="checkbox" id="hideZeroToggle"> <span data-i18n="filters.hideZero">Hide zero-value</span></label>
+            <label class="field check"><input type="checkbox" id="hideSpamToggle"> <span data-i18n="filters.hideSpam">Hide known spam tokens</span></label>
+            <label class="field check"><input type="checkbox" id="bundleToggle"> <span data-i18n="filters.bundle">Bundle edges (A→B)</span></label>
+            <label class="field check"><input type="checkbox" id="hubToggle"> <span data-i18n="filters.hubs">De-emphasize sink/faucet hubs</span></label>
+            <label class="field check"><input type="checkbox" id="roundTripToggle"> <span data-i18n="filters.roundtrip">Highlight round-trips (cycles)</span></label>
+            <label class="field check"><input type="checkbox" id="ageToggle"> <span data-i18n="filters.ageColor">Color edges by age</span></label>
+          </div>
+          <div class="actions">
+            <button id="selectHighDegreeBtn" class="btn sm" data-i18n="btn.selectHighDegree">Select high-degree</button>
+            <button id="deleteNodesBtn" class="btn sm" data-i18n="btn.deleteSelection">Delete selection</button>
+            <button id="rotateLeftBtn" class="btn icon sm" data-i18n-title="btn.rotateLeft" aria-label="Rotate counter-clockwise">⟲</button>
+            <button id="rotateRightBtn" class="btn icon sm" data-i18n-title="btn.rotateRight" aria-label="Rotate clockwise">⟳</button>
+            <button id="fitViewBtn" class="btn sm" data-i18n="btn.fitView">Fit graph</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" data-panel="investigate">
+        <summary class="panel-title"><span data-i18n="panel.investigate">Investigate</span></summary>
+        <div class="panel-body">
+          <div class="grid2">
+            <label class="field">
+              <span data-i18n="filters.dateFrom">From (date)</span>
+              <input id="dateFrom" type="datetime-local">
+            </label>
+            <label class="field">
+              <span data-i18n="filters.dateTo">To (date)</span>
+              <input id="dateTo" type="datetime-local">
+            </label>
+          </div>
+          <label class="field">
+            <span data-i18n="form.layout.label">Layout</span>
+            <select id="layoutSelect">
+              <option value="force" data-i18n="form.layout.force">Force-directed</option>
+              <option value="hierarchical" data-i18n="form.layout.hierarchical">Hierarchical (L→R)</option>
+            </select>
+          </label>
+          <div class="actions">
+            <button id="addNoteBtn" class="btn sm" data-i18n="btn.addNote">Add note</button>
+            <button id="clearNotesBtn" class="btn sm" data-i18n="btn.clearNotes">Clear notes</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" data-panel="workspace">
+        <summary class="panel-title"><span data-i18n="panel.workspace">Workspace</span></summary>
+        <div class="panel-body">
+          <div class="actions">
+            <button id="estimateBtn" class="btn sm" data-i18n="btn.estimate">Estimate scan</button>
+            <button id="saveBtn" class="btn sm" data-i18n="btn.save">Save</button>
+            <button id="loadBtn" class="btn sm" data-i18n="btn.load">Load</button>
+            <input id="loadFile" type="file" accept="application/json,.json" hidden>
+            <button id="demoBtn" class="btn accent sm" data-i18n="btn.demo">Demo mode</button>
+          </div>
+          <p class="hint" data-i18n="help.apiKey">No API key? Get a free one at etherscan.io/apis</p>
+        </div>
+      </details>
+
+      <details class="panel" data-panel="export">
+        <summary class="panel-title"><span data-i18n="panel.export">Export</span></summary>
+        <div class="panel-body">
+          <label class="field">
+            <span data-i18n="export.resolution.label">Image/PDF resolution</span>
+            <select id="exportResolution">
+              <option value="hd" data-i18n="export.resolution.hd">1920×1080 (HD)</option>
+              <option value="qhd" selected data-i18n="export.resolution.qhd">2560×1440 (QHD)</option>
+              <option value="uhd" data-i18n="export.resolution.uhd">3840×2160 (4K)</option>
+              <option value="auto" data-i18n="export.resolution.auto">Auto</option>
+            </select>
+          </label>
+          <div class="actions">
+            <button id="exportPngBtn" class="btn sm" data-i18n="btn.exportPng">Image (PNG)</button>
+            <button id="exportPdfBtn" class="btn sm" data-i18n="btn.exportPdf">PDF</button>
+            <button id="exportCsvBtn" class="btn sm" data-i18n="btn.exportCsv">Spreadsheet (CSV)</button>
+          </div>
+        </div>
+      </details>
+    </aside>
+
+    <div id="graph"></div>
+
+    <aside id="sidebar">
+      <section class="card">
+        <h3 data-i18n="legend.title">Legend</h3>
+        <div class="legend-row"><span class="dot dot-root"></span> <span data-i18n="legend.root">Searched address</span></div>
+        <div class="legend-row"><span class="dot dot-discovered"></span> <span data-i18n="legend.discovered">Discovered address</span></div>
+        <div class="legend-row"><span class="line line-normal"></span> <span data-i18n="legend.normal">Normal tx</span></div>
+        <div class="legend-row"><span class="line line-internal"></span> <span data-i18n="legend.internal">Internal tx</span></div>
+        <div class="legend-row"><span class="line line-token"></span> <span data-i18n="legend.token">Token transfer</span></div>
+        <div class="legend-row"><span class="line line-data"></span> <span data-i18n="legend.data">Contract call (input data)</span></div>
+        <div class="legend-row"><span class="dot dot-cycle"></span> <span data-i18n="legend.roundtrip">Round-trip (cycle)</span></div>
+        <div class="legend-row"><span class="line line-age"></span> <span data-i18n="legend.age">Edge age (old → recent)</span></div>
+      </section>
+      <section class="card">
+        <h3 data-i18n="details.title">Details</h3>
+        <div id="detailsContent" data-i18n="details.empty">Click a node or an arrow in the graph.</div>
+      </section>
+      <section class="card">
+        <h3 data-i18n="privacy.title">Privacy</h3>
+        <p id="privacyBody" data-i18n="privacy.body"></p>
+        <div id="requestIndicator" class="indicator" data-i18n="privacy.indicator.idle"></div>
+      </section>
+      <section class="card grow">
+        <h3 data-i18n="log.title">Log</h3>
+        <div id="logContent"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

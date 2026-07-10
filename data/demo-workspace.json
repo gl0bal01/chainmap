@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "chainId": "1",
+  "root": "0x098b716b8aaf21512996dc57eb0615e2383e2f96",
+  "layout": "force",
+  "filters": { "minAmount": 0, "hideZero": false, "hideSpam": false, "bundle": false, "minTime": 0, "maxTime": 0 },
+  "annotations": [
+    { "text": "Ronin Bridge hack (Mar 2022) — illustrative teaching reconstruction. Node addresses are REAL (click a node → open Etherscan); amounts & tx hashes are simplified.", "x": 0, "y": -280 }
+  ],
+  "nodes": [
+    { "address": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "depth": 0, "isRoot": true, "alias": null },
+    { "address": "0x1a2a1c938ce3ec39b6d47113c7955baa9dd454f2", "depth": 1, "isRoot": false, "alias": null },
+    { "address": "0xa160cdab225685da1d56aa342ad8841c3b53f291", "depth": 1, "isRoot": false, "alias": null },
+    { "address": "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf", "depth": 1, "isRoot": false, "alias": null },
+    { "address": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", "depth": 1, "isRoot": false, "alias": null },
+    { "address": "0x28c6c06298d514db089934071355e5743bf21d60", "depth": 1, "isRoot": false, "alias": null }
+  ],
+  "edges": [
+    { "key": "txlist|0xa1|0x1a2a1c938ce3ec39b6d47113c7955baa9dd454f2|0x098b716b8aaf21512996dc57eb0615e2383e2f96||", "action": "txlist", "group": "normal", "color": "#4f8ef7", "from": "0x1a2a1c938ce3ec39b6d47113c7955baa9dd454f2", "to": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "hash": "0xa1", "symbol": "ETH", "tokenContract": "", "tokenId": "", "value": "173600000000000000000000", "amountText": "173600", "amountIndeterminate": false, "hasData": false, "methodId": "", "methodArgs": [], "timeStamp": "1648200000", "blockNumber": "14442835" },
+    { "key": "txlist|0xa2|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0xa160cdab225685da1d56aa342ad8841c3b53f291||", "action": "txlist", "group": "normal", "color": "#4f8ef7", "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "to": "0xa160cdab225685da1d56aa342ad8841c3b53f291", "hash": "0xa2", "symbol": "ETH", "tokenContract": "", "tokenId": "", "value": "100000000000000000000", "amountText": "100", "amountIndeterminate": false, "hasData": true, "methodId": "0xb214faa5", "methodArgs": [], "timeStamp": "1648300000", "blockNumber": "14450000" },
+    { "key": "txlist|0xa3|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0xa160cdab225685da1d56aa342ad8841c3b53f291||", "action": "txlist", "group": "normal", "color": "#4f8ef7", "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "to": "0xa160cdab225685da1d56aa342ad8841c3b53f291", "hash": "0xa3", "symbol": "ETH", "tokenContract": "", "tokenId": "", "value": "100000000000000000000", "amountText": "100", "amountIndeterminate": false, "hasData": true, "methodId": "0xb214faa5", "methodArgs": [], "timeStamp": "1648386400", "blockNumber": "14456000" },
+    { "key": "txlist|0xa4|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0x910cbd523d972eb0a6f4cae4618ad62622b39dbf||", "action": "txlist", "group": "normal", "color": "#4f8ef7", "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "to": "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf", "hash": "0xa4", "symbol": "ETH", "tokenContract": "", "tokenId": "", "value": "10000000000000000000", "amountText": "10", "amountIndeterminate": false, "hasData": true, "methodId": "0xb214faa5", "methodArgs": [], "timeStamp": "1648472800", "blockNumber": "14462000" },
+    { "key": "txlist|0xa5|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0x7a250d5630b4cf539739df2c5dacb4c659f2488d||", "action": "txlist", "group": "normal", "color": "#4f8ef7", "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "to": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", "hash": "0xa5", "symbol": "ETH", "tokenContract": "", "tokenId": "", "value": "50000000000000000000", "amountText": "50", "amountIndeterminate": false, "hasData": true, "methodId": "0x7ff36ab5", "methodArgs": [{ "type": "uint256", "value": "90000000000" }], "timeStamp": "1648559200", "blockNumber": "14468000" },
+    { "key": "tokentx|0xa6|0x7a250d5630b4cf539739df2c5dacb4c659f2488d|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48|", "action": "tokentx", "group": "token", "color": "#4fd67a", "from": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", "to": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "hash": "0xa6", "symbol": "USDC", "tokenContract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", "tokenId": "", "value": "95000000000", "amountText": "95000", "amountIndeterminate": false, "hasData": false, "methodId": "", "methodArgs": [], "timeStamp": "1648559300", "blockNumber": "14468001" },
+    { "key": "txlist|0xa7|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0x28c6c06298d514db089934071355e5743bf21d60||", "action": "txlist", "group": "normal", "color": "#4f8ef7", "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "to": "0x28c6c06298d514db089934071355e5743bf21d60", "hash": "0xa7", "symbol": "ETH", "tokenContract": "", "tokenId": "", "value": "5000000000000000000000", "amountText": "5000", "amountIndeterminate": false, "hasData": false, "methodId": "", "methodArgs": [], "timeStamp": "1648645600", "blockNumber": "14474000" }
+  ]
+}
