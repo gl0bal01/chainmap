@@ -11,6 +11,7 @@ export default {
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Etherscan API key",
   "form.apiKey.placeholder": "Your Etherscan API key",
+  "form.rememberKey": "Remember API key on this browser",
   "form.chain.label": "Chain",
   "form.address.label": "Address to analyze",
   "form.address.placeholder": "0x…",

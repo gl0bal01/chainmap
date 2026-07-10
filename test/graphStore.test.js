@@ -178,6 +178,22 @@ describe("GraphStore.addEdge", () => {
     // Store now intentionally violates the endpoint invariant.
     expect(store.checkInvariants().ok).toBe(false);
   });
+
+  // CWE-20: a non-string `input` (malformed/tampered API response) must not
+  // throw inside addEdge — before the guard, [].slice().toLowerCase() crashed
+  // the whole scan.
+  test("non-string tx.input never throws; yields inert calldata fields", () => {
+    const store = new GraphStore();
+    // Array(10) is the case that actually crashed pre-fix: input.length >= 10
+    // took the slice branch, and [].slice().toLowerCase is not a function.
+    for (const bad of [null, 123, [], {}, ["0x", "a"], Array(10).fill("x")]) {
+      const edge = store.addEdge(edgeInput(A, B, ethTx({ hash: `0x${String(bad)}`, input: bad })));
+      expect(edge).not.toBeNull();
+      expect(edge.hasData).toBe(false);
+      expect(edge.methodId).toBe("");
+      expect(edge.methodArgs).toEqual([]);
+    }
+  });
 });
 
 describe("GraphStore.setAlias", () => {

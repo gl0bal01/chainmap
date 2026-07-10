@@ -77,7 +77,6 @@ export function createI18n(cfg) {
   /**
    * Translate a DOM subtree in place. Conventions:
    *   data-i18n="key"                 -> element.textContent
-   *   data-i18n-html="key"            -> element.innerHTML (value assumed trusted locale copy)
    *   data-i18n-placeholder="key"     -> element.placeholder
    *   data-i18n-title="key"           -> element.title
    *   data-i18n-aria-label="key"      -> aria-label attribute
@@ -88,9 +87,6 @@ export function createI18n(cfg) {
     if (!scope) return;
     scope.querySelectorAll("[data-i18n]").forEach((elem) => {
       elem.textContent = t(elem.getAttribute("data-i18n"));
-    });
-    scope.querySelectorAll("[data-i18n-html]").forEach((elem) => {
-      elem.innerHTML = t(elem.getAttribute("data-i18n-html"));
     });
     scope.querySelectorAll("[data-i18n-placeholder]").forEach((elem) => {
       elem.setAttribute("placeholder", t(elem.getAttribute("data-i18n-placeholder")));

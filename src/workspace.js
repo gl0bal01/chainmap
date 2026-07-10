@@ -13,6 +13,26 @@ import { lc, isValidAddress } from "./format.js";
 /** Bump when the on-disk workspace shape changes in a way older readers can't handle. */
 export const WORKSPACE_VERSION = 2;
 
+/** Keys never copied from an untrusted workspace record. JSON.parse + spread do
+ *  not pollute Object.prototype on modern engines, but these keys can still
+ *  linger as own properties and shadow behavior downstream — drop them at the
+ *  trust boundary. */
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Shallow-copy an object's own enumerable keys minus {@link DANGEROUS_KEYS},
+ * onto a fresh plain object. Used before spreading untrusted node/edge records.
+ * @param {object} raw
+ * @returns {object}
+ */
+function stripDangerousKeys(raw) {
+  const out = {};
+  for (const k of Object.keys(raw)) {
+    if (!DANGEROUS_KEYS.has(k)) out[k] = raw[k];
+  }
+  return out;
+}
+
 /**
  * @typedef {object} WorkspaceFilters
  * @property {number} [minAmount]
@@ -105,7 +125,7 @@ export function parseWorkspace(json) {
     if (!isValidAddress(address)) continue;
     const depth = Number(raw.depth);
     nodes.push({
-      ...raw,
+      ...stripDangerousKeys(raw),
       address,
       depth: Number.isFinite(depth) ? depth : 0,
       isRoot: raw.isRoot === true,
@@ -121,7 +141,7 @@ export function parseWorkspace(json) {
     const to = lc(raw.to);
     if (!key || !isValidAddress(from) || !isValidAddress(to)) continue;
     edges.push({
-      ...raw,
+      ...stripDangerousKeys(raw),
       key,
       from,
       to,

@@ -228,4 +228,29 @@ describe("parseWorkspace sanitization", () => {
     expect(result.ok).toBe(true);
     expect(result.data.nodes[0].alias).toBeNull();
   });
+
+  // CWE-1321: a crafted workspace must not smuggle __proto__/constructor/prototype
+  // keys onto sanitized records, and must never mutate Object.prototype.
+  test("strips prototype-polluting keys from nodes and edges", () => {
+    const raw = JSON.parse(
+      `{"nodes":[{"address":"${a}","depth":0,"__proto__":{"polluted":1},"constructor":"x"}],` +
+        `"edges":[{"key":"k1","from":"${a}","to":"${b}","__proto__":{"polluted":1},"prototype":"y"}]}`
+    );
+    // second node so the edge endpoints both exist
+    raw.nodes.push({ address: b, depth: 1 });
+
+    const result = parseWorkspace(raw);
+    expect(result.ok).toBe(true);
+    expect({}.polluted).toBeUndefined(); // Object.prototype untouched
+
+    const n0 = result.data.nodes[0];
+    const e0 = result.data.edges[0];
+    expect(Object.prototype.hasOwnProperty.call(n0, "constructor")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(n0, "__proto__")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(e0, "prototype")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(e0, "__proto__")).toBe(false);
+    // legitimate fields still round-trip
+    expect(n0.address).toBe(a);
+    expect(e0.key).toBe("k1");
+  });
 });

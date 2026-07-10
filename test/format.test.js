@@ -151,6 +151,25 @@ describe("csvEscape", () => {
     expect(csvEscape(null)).toBe("");
     expect(csvEscape(undefined)).toBe("");
   });
+
+  // CSV formula injection (CWE-1236): leading trigger chars get a ' prefix so
+  // a spreadsheet treats an attacker-controlled token symbol as inert text.
+  test("neutralizes leading = + - @ tab CR", () => {
+    expect(csvEscape("=CMD|' /C calc'!A0")).toBe("'=CMD|' /C calc'!A0");
+    expect(csvEscape("=1+1")).toBe("'=1+1");
+    expect(csvEscape("+cmd")).toBe("'+cmd");
+    expect(csvEscape("-2")).toBe("'-2");
+    expect(csvEscape("@SUM(A1)")).toBe("'@SUM(A1)");
+    expect(csvEscape("\tcmd")).toBe("'\tcmd");
+  });
+  test("prefix composes with quoting when the cell also needs quotes", () => {
+    // starts with '=' AND contains a comma -> prefix first, then RFC-4180 quote
+    expect(csvEscape("=HYPERLINK(1,2)")).toBe('"\'=HYPERLINK(1,2)"');
+  });
+  test("does not prefix an interior trigger char", () => {
+    expect(csvEscape("a=b")).toBe("a=b");
+    expect(csvEscape("USDC")).toBe("USDC");
+  });
 });
 
 describe("edgeDedupKey", () => {

@@ -142,6 +142,10 @@ export class GraphStore {
     if (this._edgeKeys.has(key)) return null;
 
     const amount = formatUnits(tx.value || "0", tx.tokenDecimal);
+    // Etherscan documents tx `input` as a hex string, but never trust the wire:
+    // a non-string (array/number/object) would make `.slice().toLowerCase()`
+    // throw and abort the whole scan. Coerce to a safe string first.
+    const txInput = typeof tx.input === "string" ? tx.input : "";
     /** @type {EdgeRecord} */
     const edge = {
       key,
@@ -159,9 +163,9 @@ export class GraphStore {
       amountIndeterminate: amount.indeterminate,
       // Non-empty input calldata => this transfer also invoked a contract. Only
       // normal (txlist) txs carry `input`; "0x" / empty means a plain transfer.
-      hasData: !!(tx.input && tx.input !== "0x" && tx.input.length > 2),
-      methodId: tx.input && tx.input.length >= 10 ? tx.input.slice(0, 10).toLowerCase() : "",
-      methodArgs: (decodeCall(tx.input) || {}).args || [],
+      hasData: !!(txInput && txInput !== "0x" && txInput.length > 2),
+      methodId: txInput.length >= 10 ? txInput.slice(0, 10).toLowerCase() : "",
+      methodArgs: (decodeCall(txInput) || {}).args || [],
       timeStamp: tx.timeStamp || "",
       blockNumber: tx.blockNumber || "",
     };

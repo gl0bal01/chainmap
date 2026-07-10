@@ -170,10 +170,26 @@ async function loadLocalData() {
 
 function wirePersistedInputs() {
   const apiKey = $("apiKey");
-  apiKey.value = localStorage.getItem(STORAGE_KEYS.apiKey) || "";
-  apiKey.addEventListener("change", () => {
-    localStorage.setItem(STORAGE_KEYS.apiKey, apiKey.value.trim());
-  });
+  const rememberKey = $("rememberKey");
+  // The key is a bearer credential. Persist to localStorage ONLY when the user
+  // opts in ("Remember"); otherwise keep it in sessionStorage (cleared when the
+  // tab closes). A key already saved from a previous session keeps the toggle on.
+  const persisted = localStorage.getItem(STORAGE_KEYS.apiKey);
+  apiKey.value = persisted ?? sessionStorage.getItem(STORAGE_KEYS.apiKey) ?? "";
+  if (rememberKey) rememberKey.checked = persisted != null;
+
+  const persistApiKey = () => {
+    const val = apiKey.value.trim();
+    if (rememberKey && rememberKey.checked) {
+      localStorage.setItem(STORAGE_KEYS.apiKey, val);
+      sessionStorage.removeItem(STORAGE_KEYS.apiKey);
+    } else {
+      sessionStorage.setItem(STORAGE_KEYS.apiKey, val);
+      localStorage.removeItem(STORAGE_KEYS.apiKey);
+    }
+  };
+  apiKey.addEventListener("change", persistApiKey);
+  if (rememberKey) rememberKey.addEventListener("change", persistApiKey);
 
   const fmt = $("addressFormat");
   fmt.value = localStorage.getItem(STORAGE_KEYS.addressFormat) || DEFAULTS.addressFormat;
@@ -410,7 +426,9 @@ async function startScan() {
   if (hubOn) view.refreshHubs();
 
   const inv = store.checkInvariants();
-  if (!inv.ok) console.warn("graphStore invariant violation:", inv.errors);
+  // Dev signal only — never dump inv.errors (they embed addresses / tx hashes)
+  // into the console where an extension or shoulder-surfer could read them.
+  if (!inv.ok) console.warn(`graphStore invariant violation: ${inv.errors.length} issue(s)`);
 }
 
 function resetGraph() {

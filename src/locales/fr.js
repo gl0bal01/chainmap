@@ -11,6 +11,7 @@ export default {
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Clé API Etherscan",
   "form.apiKey.placeholder": "Votre clé API Etherscan",
+  "form.rememberKey": "Mémoriser la clé API sur ce navigateur",
   "form.chain.label": "Chaîne",
   "form.address.label": "Adresse à analyser",
   "form.address.placeholder": "0x…",

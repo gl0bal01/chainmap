@@ -101,13 +101,20 @@ export function escapeHtml(s) {
 }
 
 /**
- * Escape a value for a CSV cell (quote + double internal quotes when it
- * contains comma/quote/newline). Null/undefined -> "".
+ * Escape a value for a CSV cell. Two layers:
+ *  1. CSV-formula-injection defense (CWE-1236): a cell starting with a formula
+ *     trigger (`= + - @`, tab, CR) is prefixed with a single quote so Excel /
+ *     LibreOffice / Sheets treat it as text, never a live formula. This matters
+ *     because token symbols come straight from attacker-deployable ERC-20
+ *     `symbol()` values (e.g. `=CMD|'/C calc'!A0`).
+ *  2. Standard RFC-4180 quoting when the (possibly prefixed) value contains
+ *     comma/quote/newline. Null/undefined -> "".
  * @param {*} v
  * @returns {string}
  */
 export function csvEscape(v) {
-  const s = String(v ?? "");
+  let s = String(v ?? "");
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
 }

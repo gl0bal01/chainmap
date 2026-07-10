@@ -84,6 +84,7 @@ beforeAll(async () => {
   globalThis.window = window;
   globalThis.document = window.document;
   globalThis.localStorage = window.localStorage;
+  globalThis.sessionStorage = window.sessionStorage;
   globalThis.navigator = window.navigator;
   globalThis.Node = window.Node; // browser builtin ui.js relies on (value instanceof Node)
   globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
