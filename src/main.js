@@ -53,6 +53,10 @@ const explorerFor = (chainId) => {
   const c = CHAINS.find((x) => String(x.id) === String(chainId));
   return c ? c.explorer : "etherscan.io";
 };
+const nativeSymbolFor = (chainId) => {
+  const c = CHAINS.find((x) => String(x.id) === String(chainId));
+  return c ? c.native : "ETH";
+};
 
 // --- i18n bootstrap ---------------------------------------------------------
 const dictionaries = { en, fr };
@@ -469,6 +473,11 @@ async function startScan() {
   if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
   if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
   if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
+
+  // Native-value txs (no tokenSymbol) must show THIS chain's ticker, not a
+  // hardcoded "ETH" — set before any edges are added so the whole scan is
+  // consistent (a graph is single-chain per scan).
+  store.setNativeSymbol(nativeSymbolFor(chainId));
 
   scanning = true;
   abortController = new AbortController();

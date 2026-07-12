@@ -199,6 +199,57 @@ describe("GraphStore.addEdge", () => {
   });
 });
 
+describe("GraphStore.setNativeSymbol", () => {
+  test("defaults to ETH for a native (no tokenSymbol) edge", () => {
+    const store = new GraphStore();
+    store.addNode(A);
+    store.addNode(B);
+    const edge = store.addEdge(edgeInput(A, B));
+    expect(edge.symbol).toBe("ETH");
+  });
+
+  test("a new native edge picks up the symbol set via setNativeSymbol", () => {
+    const store = new GraphStore();
+    store.addNode(A);
+    store.addNode(B);
+    store.setNativeSymbol("BNB");
+    const edge = store.addEdge(edgeInput(A, B));
+    expect(edge.symbol).toBe("BNB");
+  });
+
+  test("a token edge still uses tx.tokenSymbol, ignoring the native symbol", () => {
+    const store = new GraphStore();
+    store.addNode(A);
+    store.addNode(B);
+    store.setNativeSymbol("BNB");
+    const tx = ethTx({ hash: "0xtoken2", tokenSymbol: "USDC", tokenDecimal: "6" });
+    const edge = store.addEdge({ action: "tokentx", group: "token", color: "#0f0", from: A, to: B, tx });
+    expect(edge.symbol).toBe("USDC");
+  });
+
+  test("empty/nullish input falls back to ETH", () => {
+    const store = new GraphStore();
+    store.addNode(A);
+    store.addNode(B);
+    store.setNativeSymbol("BNB");
+    store.setNativeSymbol("");
+    const edge = store.addEdge(edgeInput(A, B));
+    expect(edge.symbol).toBe("ETH");
+  });
+
+  test("switching native symbol mid-scan only affects edges added afterward", () => {
+    const store = new GraphStore();
+    store.addNode(A);
+    store.addNode(B);
+    store.addNode(C);
+    const e1 = store.addEdge(edgeInput(A, B, ethTx({ hash: "0xnative1" })));
+    store.setNativeSymbol("POL");
+    const e2 = store.addEdge(edgeInput(B, C, ethTx({ hash: "0xnative2" })));
+    expect(e1.symbol).toBe("ETH");
+    expect(e2.symbol).toBe("POL");
+  });
+});
+
 describe("GraphStore.setAlias", () => {
   test("sets an alias on an existing node and emits alias:set", () => {
     const store = new GraphStore();
