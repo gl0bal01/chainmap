@@ -67,6 +67,33 @@ export function decodeCall(input) {
   return { methodId, signature, args };
 }
 
+/**
+ * Structurally decode raw calldata into its 4-byte selector + 32-byte (256-bit) words.
+ * Unlike decodeCall (which stops at the first dynamic ABI type), this ALWAYS decodes
+ * the full calldata layout — so an investigator sees every word even for unknown or
+ * dynamic-arg calls. Each word carries best-effort interpretations (uint, address).
+ * @param {string} input raw calldata ("0x" + selector + args)
+ * @returns {{ selector:string, words:{index:number, hex:string, uint:string|null, address:string|null}[] }|null}
+ *   null when there is no calldata.
+ */
+export function decodeCalldataWords(input) {
+  if (!input || typeof input !== "string" || input.length < 10) return null;
+  const selector = input.slice(0, 10).toLowerCase();
+  const body = input.slice(10);
+  const words = [];
+  for (let i = 0; i * 64 < body.length; i++) {
+    const chunk = body.slice(i * 64, i * 64 + 64);
+    const hex = "0x" + chunk;
+    let uint = null;
+    try { uint = BigInt("0x" + chunk).toString(); } catch { uint = null; }
+    // A word is a left-padded address iff the top 12 bytes (24 hex) are zero and the
+    // rest is 40 hex chars (i.e. a full 32-byte word holding a 20-byte address).
+    const address = /^0{24}[0-9a-fA-F]{40}$/.test(chunk) ? "0x" + chunk.slice(24).toLowerCase() : null;
+    words.push({ index: i, hex, uint, address });
+  }
+  return { selector, words };
+}
+
 /** Find a decoded arg by its role name. */
 function argByName(args, name) {
   const a = (args || []).find((x) => x && x.name === name);
