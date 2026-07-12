@@ -67,6 +67,7 @@ export function matchReleases(exit, candidates, opts) {
   const looseTol = typeof o.looseTol === "number" ? o.looseTol : 0.05;
   if (!exit || !Array.isArray(candidates)) return [];
   const recipient = lc(exit.recipient);
+  if (!recipient) return [];
   const exitTs = Number(exit.timeStamp);
   const exitAmt = Number(exit.amountText);
   const out = [];

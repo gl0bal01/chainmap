@@ -93,4 +93,34 @@ describe("matchReleases", () => {
     ]);
     expect(r.map((x) => x.hash)).toEqual(["0xe", "0xa", "0xw"]);
   });
+
+  test("boundary: dt === windowSecs is KEPT; dt === windowSecs+1 is excluded", () => {
+    const base = 1700000000;
+    const inWindow = matchReleases(EXIT, [cand({ timeStamp: String(base + 86400) })], { windowSecs: 86400 });
+    expect(inWindow).toHaveLength(1);
+    const outWindow = matchReleases(EXIT, [cand({ timeStamp: String(base + 86401) })], { windowSecs: 86400 });
+    expect(outWindow).toEqual([]);
+  });
+
+  test("boundary: dt === 0 (same second) is KEPT", () => {
+    expect(matchReleases(EXIT, [cand({ timeStamp: "1700000000" })])).toHaveLength(1);
+  });
+
+  test("boundary: amount delta exactly at exactTol (0.005) => exact; just over => amount+time", () => {
+    // exit amount 50; 0.005 tol => 50 +/- 0.25. 50.25 is exactly at the boundary (delta = 0.005) -> exact.
+    expect(matchReleases(EXIT, [cand({ amountText: "50.25" })])[0].confidence).toBe("exact");
+    // 50.26 -> delta = 0.0052 > 0.005 -> amount+time
+    expect(matchReleases(EXIT, [cand({ amountText: "50.26" })])[0].confidence).toBe("amount+time");
+  });
+
+  test("boundary: amount delta exactly at looseTol (0.05) => amount+time; just over => weak", () => {
+    // 50 * 1.05 = 52.5 => delta = 0.05 exactly -> amount+time
+    expect(matchReleases(EXIT, [cand({ amountText: "52.5" })])[0].confidence).toBe("amount+time");
+    // 52.6 => delta = 0.052 > 0.05 -> weak
+    expect(matchReleases(EXIT, [cand({ amountText: "52.6" })])[0].confidence).toBe("weak");
+  });
+
+  test("empty/malformed recipient yields no matches (no '' === '' spurious match)", () => {
+    expect(matchReleases({ recipient: "", amountText: "50", timeStamp: "1700000000" }, [cand({ to: "" })])).toEqual([]);
+  });
 });
