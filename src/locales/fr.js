@@ -233,4 +233,5 @@ export default {
   "palette.kindNode": "nœud",
   "palette.kindEdge": "tx",
   "palette.revealed": "Nœud masqué révélé {addr}",
+  "palette.edgeNotShown": "Arête non affichée actuellement",
 };

@@ -234,4 +234,5 @@ export default {
   "palette.kindNode": "node",
   "palette.kindEdge": "tx",
   "palette.revealed": "Revealed hidden node {addr}",
+  "palette.edgeNotShown": "Edge not currently shown",
 };

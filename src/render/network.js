@@ -38,6 +38,7 @@ import { edgeSeverity } from "../riskFlags.js";
  * @property {(opts:DisplayOptions)=>void} setDisplayOptions
  * @property {(address:string)=>boolean} hasRenderedNode is this node currently visible?
  * @property {(address:string)=>void} focusNode select + center a visible node (no-op if hidden)
+ * @property {(key:string)=>(string|null)} selectEdge resolve a raw edge key to the rendered id (bundle-aware) and select it; never throws
  * @property {()=>void} destroy
  */
 
@@ -370,6 +371,34 @@ export function createGraphView(container, store, deps) {
     network.focus(address, { scale: network.getScale(), animation: true });
   }
 
+  /** Resolve a RAW store edge key to whatever id is CURRENTLY RENDERED for it
+   *  and select it — never throws, unlike a bare `network.selectEdges`/
+   *  `setSelection`, which raise a RangeError for an id vis-network doesn't
+   *  currently know about (e.g. the raw key while bundling is on collapses it
+   *  into a `bundle:...` id, or the edge is filtered out of the active view).
+   *  bundling OFF: selects `key` itself if it's still in edgesDS.
+   *  bundling ON: selects the bundle whose memberKeys contains `key`.
+   *  Returns the id actually selected, or null if nothing was selected. */
+  function selectEdge(key) {
+    if (!bundled) {
+      if (edgesDS.get(key) == null) return null;
+      try {
+        network.selectEdges([key]);
+        return key;
+      } catch {
+        return null;
+      }
+    }
+    const bundle = bundledDS.get().find((b) => b.data && Array.isArray(b.data.memberKeys) && b.data.memberKeys.includes(key));
+    if (!bundle) return null;
+    try {
+      network.selectEdges([bundle.id]);
+      return bundle.id;
+    } catch {
+      return null;
+    }
+  }
+
   function addAnnotationAt(text, x, y) {
     const id = `note:${annCounter++}`;
     const ann = { id, text: String(text), x: x || 0, y: y || 0 };
@@ -475,6 +504,7 @@ export function createGraphView(container, store, deps) {
     setHubHidden,
     hasRenderedNode,
     focusNode,
+    selectEdge,
     addAnnotation,
     clearAnnotations,
     getAnnotations,

@@ -396,8 +396,14 @@ function buildSearchRecords() {
 function revealNode(address) {
   if (view.hasRenderedNode(address)) return;
 
-  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) {
+  // Only the toggle matching THIS node's own hub kind can be hiding it — clearing
+  // the other one too would be a no-op for this reveal and surprise the user by
+  // silently changing an unrelated filter.
+  const kind = hubMap.get(address);
+  if (kind === "faucet" && $("hideFaucetsChk").checked) {
     $("hideFaucetsChk").checked = false;
+    syncHubHidden();
+  } else if (kind === "sink" && $("hideSinksChk").checked) {
     $("hideSinksChk").checked = false;
     syncHubHidden();
   }
@@ -426,9 +432,19 @@ function revealAndFocus(record) {
   if (!edge) return;
   revealNode(edge.from);
   revealNode(edge.to);
-  view.network.setSelection({ nodes: [], edges: [record.id] });
-  showEdgeDetails(record.id);
   view.fit({ nodes: [edge.from, edge.to], animation: { duration: 400, easingFunction: "easeInOutQuad" } });
+  // selectEdge resolves record.id (a raw per-tx store key) to whatever id is
+  // actually rendered — itself when unbundled, or the owning bundle when
+  // bundling is on — and never throws, unlike a raw network.setSelection with a
+  // possibly-stale/collapsed id. showEdgeDetails already branches on
+  // memberKeys (see getEdgeData), so it's the same details path a normal click
+  // takes for either kind of id.
+  const rid = view.selectEdge(record.id);
+  if (rid) {
+    showEdgeDetails(rid);
+  } else {
+    logger.log({ level: "info", key: "palette.edgeNotShown" });
+  }
 }
 
 // ---------------------------------------------------------------------------
