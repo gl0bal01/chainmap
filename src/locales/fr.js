@@ -6,7 +6,7 @@ export default {
   "_meta.code": "fr",
 
   // --- app / header ---------------------------------------------------------
-  "app.title": "Etherscan Tx Graph Explorer",
+  "app.title": "ChainMap — Suivez l'argent",
 
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Clé API Etherscan",
