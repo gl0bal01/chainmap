@@ -24,6 +24,7 @@ export default {
   "detect.progress": "Sondage {done}/{total} chaînes…",
   "detect.result": "Active sur {chains} — utilise {chain}",
   "detect.none": "Aucune activité trouvée sur {n} chaînes sondées",
+  "detect.empty": "Entrez d'abord une adresse",
   "detect.notEvm": "Pas une adresse EVM — sondage impossible",
   "detect.cancelled": "Détection annulée",
   "form.addressFormat.label": "Affichage des adresses",

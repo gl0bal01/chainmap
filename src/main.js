@@ -622,6 +622,14 @@ async function startDetectChain() {
 
   const address = $("address").value.trim();
   const el = $("addressDetect");
+  if (!address) {
+    logger.log({ level: "error", key: "detect.empty" });
+    if (el) {
+      el.className = "detect warn";
+      el.textContent = t("detect.empty");
+    }
+    return;
+  }
   const det = detectAddress(address);
   if (!det.isEvm) {
     logger.log({ level: "error", key: "detect.notEvm" });
@@ -651,6 +659,7 @@ async function startDetectChain() {
   btn.textContent = t("btn.cancelDetect");
   btn.setAttribute("data-i18n", "btn.cancelDetect");
   $("startBtn").disabled = true;
+  $("address").disabled = true;
   indicator.setActive(true);
 
   try {
@@ -700,6 +709,7 @@ async function startDetectChain() {
     detecting = false;
     detectAbortController = null;
     $("startBtn").disabled = false;
+    $("address").disabled = false;
     // Restore the shared indicator to whatever the concurrent scan (if any)
     // needs; only turns fully idle when nothing else is running.
     indicator.setActive(scanning);

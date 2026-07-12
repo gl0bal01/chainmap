@@ -24,6 +24,7 @@ export default {
   "detect.progress": "Probing {done}/{total} chains…",
   "detect.result": "Active on {chains} — using {chain}",
   "detect.none": "No activity found on {n} probed chains",
+  "detect.empty": "Enter an address first",
   "detect.notEvm": "Not an EVM address — can't probe",
   "detect.cancelled": "Detection cancelled",
   "form.addressFormat.label": "Address display",
