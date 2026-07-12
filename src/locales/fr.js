@@ -84,6 +84,8 @@ export default {
   "btn.exportPdf": "PDF",
   "btn.exportCsv": "Tableur (CSV)",
   "btn.lang": "English",
+  "btn.hideFaucets": "Masquer les robinets",
+  "btn.hideSinks": "Masquer les puits",
 
   // --- export ---------------------------------------------------------------
   "export.label": "Export :",

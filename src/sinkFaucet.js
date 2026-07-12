@@ -88,3 +88,18 @@ export function classifyHubs(nodes, edges, opts) {
 export function hubDim(kind) {
   return kind === "sink" || kind === "faucet" ? 0.4 : 1;
 }
+
+/**
+ * Whether a node should be hidden given the active hide toggles. Pure — the
+ * caller (a vis DataView filter) decides what to do with the result; this
+ * function never touches the store.
+ * @param {HubKind|string|null|undefined} hubKind
+ * @param {{ faucet?:boolean, sink?:boolean }} [hide]
+ * @returns {boolean}
+ */
+export function shouldHideNode(hubKind, hide) {
+  if (!hide) return false;
+  if (hubKind === "faucet") return !!hide.faucet;
+  if (hubKind === "sink") return !!hide.sink;
+  return false;
+}

@@ -629,6 +629,15 @@ function wireControls() {
     if (hubOn) recomputeHubs();
     view.refreshHubs();
   });
+  // Hide faucets/sinks: a reversible display projection (setHubHidden only
+  // re-filters the node view — the store, and thus CSV/detail data, is
+  // untouched). Independent of the dim-only hubToggle above.
+  function applyHubHidden() {
+    if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) recomputeHubs();
+    view.setHubHidden({ faucet: $("hideFaucetsChk").checked, sink: $("hideSinksChk").checked });
+  }
+  $("hideFaucetsChk").addEventListener("change", applyHubHidden);
+  $("hideSinksChk").addEventListener("change", applyHubHidden);
   $("roundTripToggle").addEventListener("change", () => view.setRoundTrip($("roundTripToggle").checked));
   $("ageToggle").addEventListener("change", () => view.setColorByAge($("ageToggle").checked));
   $("addNoteBtn").addEventListener("click", () => {
@@ -672,7 +681,11 @@ function init() {
     i18n,
     getAddressFormat: () => $("addressFormat").value,
     getKnownLabel: (address) => knownLabel(address, $("chainSelect").value, knownData),
-    getHubKind: (address) => (hubOn ? hubMap.get(address) || null : null),
+    // Returns the hub classification whenever ANY hub-driven feature is engaged
+    // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
+    // so "Hide faucets"/"Hide sinks" work independently of the dim toggle.
+    getHubKind: (address) =>
+      hubOn || $("hideFaucetsChk").checked || $("hideSinksChk").checked ? hubMap.get(address) || null : null,
     getCategory: (address) => knownCategory(address, $("chainSelect").value, knownData),
     getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, $("chainSelect").value, knownData) }),
   });

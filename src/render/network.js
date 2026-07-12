@@ -16,6 +16,7 @@ import { TX_TYPE_GROUPS } from "../config.js";
 import * as labels from "./labels.js";
 import { passesFilters, filtersActive, edgeAmountNumber, edgeWidth, bundleEdges, ageColor } from "../display.js";
 import { findCycleNodes } from "../roundTrips.js";
+import { shouldHideNode } from "../sinkFaucet.js";
 
 /**
  * @typedef {object} DisplayOptions
@@ -94,6 +95,7 @@ export function createGraphView(container, store, deps) {
   let visibleNodes = null; // null => show all; Set => only these
   let maxAmount = 0;
   let bundled = false;
+  let hubHidden = { faucet: false, sink: false }; // reversible faucet/sink hide (display projection only)
   // Investigator overlays
   let roundTripOn = false;
   let roundTripSet = new Set(); // addresses on a directed cycle
@@ -108,7 +110,14 @@ export function createGraphView(container, store, deps) {
 
   const edgesView = new vis.DataView(edgesDS, { filter: (e) => passesFilters(e.data, display) });
   const nodesView = new vis.DataView(nodesDS, {
-    filter: (n) => n.group === "annotation" || visibleNodes === null || visibleNodes.has(n.id),
+    filter: (n) => {
+      if (n.group === "annotation") return true;
+      if (!(visibleNodes === null || visibleNodes.has(n.id))) return false;
+      // Node DataSet items only carry `.id` (the lowercased address) — applyNode()
+      // never sets a separate `.address` field — so look hub kind up by id.
+      const kind = getHubKind ? getHubKind(n.id) : null;
+      return !shouldHideNode(kind, hubHidden);
+    },
   });
 
   const layout = getLayout ? getLayout() : "force";
@@ -314,6 +323,15 @@ export function createGraphView(container, store, deps) {
     store.listNodes().forEach(applyNode);
   }
 
+  /** Reversibly hide classified faucet/sink nodes from the node view. Display
+   *  projection only — the store (and thus CSV/detail data) is untouched, and
+   *  dangling edges to a hidden node simply stop rendering (vis-network hides
+   *  edges whose endpoint isn't in the node view). */
+  function setHubHidden(next) {
+    hubHidden = { faucet: !!(next && next.faucet), sink: !!(next && next.sink) };
+    nodesView.refresh();
+  }
+
   function addAnnotationAt(text, x, y) {
     const id = `note:${annCounter++}`;
     const ann = { id, text: String(text), x: x || 0, y: y || 0 };
@@ -415,6 +433,7 @@ export function createGraphView(container, store, deps) {
     setRoundTrip,
     setColorByAge,
     refreshHubs,
+    setHubHidden,
     addAnnotation,
     clearAnnotations,
     getAnnotations,
