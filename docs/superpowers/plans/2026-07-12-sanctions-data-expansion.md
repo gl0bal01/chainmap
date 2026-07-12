@@ -218,6 +218,8 @@ Run: `bun test test/knownAddressesData.test.js` → expect PASS (source/added no
 
 - [ ] **Step 2: Add curated entries for the main chains**
 
+**DEFERRED (by decision 2026-07-12):** Step 2 is not implemented this pass — new multi-chain addresses await a user-verified address list (fabricating/misattributing a sanctioned address is the exact risk avoided). Step 1 (provenance backfill on the existing 15 chain-1 entries) WAS done.
+
 Add entries per chain, each verified per the sourcing rule. Target set (fill verified addresses; keep the list modest and high-signal — YAGNI, not an exhaustive dump):
 
 | Chain | id | Entities to add (category) | Source |

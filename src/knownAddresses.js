@@ -11,7 +11,7 @@
 import { DATA_PATHS } from "./config.js";
 
 /**
- * @typedef {Record<string, Record<string, { label:string, category:string }>>} KnownData
+ * @typedef {Record<string, Record<string, { label:string, category:string, source?:string, added?:string }>>} KnownData
  *   Shape: { "<chainId>": { "<lowercased address>": { label, category } } }
  */
 
