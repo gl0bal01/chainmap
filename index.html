@@ -236,6 +236,14 @@
       </section>
     </aside>
   </main>
+
+  <div id="palette" class="palette-backdrop" hidden>
+    <div class="palette-box" role="dialog" aria-modal="true">
+      <input id="paletteInput" type="text" class="palette-input" autocomplete="off"
+             spellcheck="false" data-i18n-placeholder="palette.placeholder" aria-label="Search graph">
+      <ul id="paletteResults" class="palette-results" role="listbox"></ul>
+    </div>
+  </div>
 </div>
 <script type="module" src="src/main.js"></script>
 </body>
