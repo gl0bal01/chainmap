@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { rotateGraph, selectHighDegree } from "../src/render/interaction.js";
+import { rotateGraph, selectHighDegree, nearestInDirection } from "../src/render/interaction.js";
 
 /**
  * Minimal FAKE vis.Network stand-in exposing only the surface rotateGraph /
@@ -112,5 +112,39 @@ describe("selectHighDegree", () => {
 
     expect(selected).toEqual([]);
     expect(network._selection()).toEqual({ nodes: [], edges: [] });
+  });
+});
+
+describe("nearestInDirection", () => {
+  const positions = {
+    a: { x: 0, y: 0 },
+    right: { x: 10, y: 0 },
+    farRight: { x: 40, y: 0 },
+    up: { x: 0, y: -10 },
+    left: { x: -10, y: 0 },
+  };
+
+  test("picks nearest node in the requested direction", () => {
+    expect(nearestInDirection(positions.a, positions, "right")).toBe("right");
+    expect(nearestInDirection(positions.a, positions, "up")).toBe("up");
+    expect(nearestInDirection(positions.a, positions, "left")).toBe("left");
+  });
+
+  test("ignores nodes not in the direction cone", () => {
+    const only = { a: { x: 0, y: 0 }, behind: { x: -50, y: 0 } };
+    expect(nearestInDirection(only.a, only, "right")).toBeNull();
+  });
+
+  test("down is the y-grows-downward direction (larger y)", () => {
+    const only = { a: { x: 0, y: 0 }, below: { x: 0, y: 10 }, above: { x: 0, y: -10 } };
+    expect(nearestInDirection(only.a, only, "down")).toBe("below");
+  });
+
+  test("returns null when fromPos is missing (e.g. unknown selected id)", () => {
+    expect(nearestInDirection(undefined, positions, "right")).toBeNull();
+  });
+
+  test("returns null when there are no other nodes", () => {
+    expect(nearestInDirection({ x: 0, y: 0 }, { a: { x: 0, y: 0 } }, "right")).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ export default {
   "_meta.code": "en",
 
   // --- app / header ---------------------------------------------------------
-  "app.title": "Etherscan Tx Graph Explorer",
+  "app.title": "ChainMap — Follow the money",
 
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Etherscan API key",
@@ -85,6 +85,9 @@ export default {
   "btn.exportPdf": "PDF",
   "btn.exportCsv": "Spreadsheet (CSV)",
   "btn.lang": "Français",
+  "btn.hideFaucets": "Hide faucets",
+  "btn.hideSinks": "Hide sinks",
+  "btn.peelChains": "Peel chains",
 
   // --- export ---------------------------------------------------------------
   "export.label": "Export:",
@@ -139,6 +142,8 @@ export default {
   "details.methodUnknown": "unknown selector",
   "details.inputRaw": "Raw input",
   "details.risk": "Risk",
+  "details.summary": "Summary",
+  "details.flags": "Risk flags",
   "risk.high": "High",
   "risk.med": "Medium",
   "risk.low": "Low",
@@ -147,7 +152,23 @@ export default {
   "risk.faucet": "faucet hub",
   "risk.highDegree": "high degree",
   "risk.contract": "contract calls",
+  "risk.approval": "unlimited token approval",
+  "risk.sanctioned": "sanctioned entity",
   "risk.known": "labeled entity",
+
+  // --- edge decode: call summary + risk flags --------------------------------
+  "summary.transfer": "Transfer {amount} → {recipient}",
+  "summary.transferFrom": "Transfer from {from} → {recipient}",
+  "summary.approve": "Approve {spender} to spend {amount}",
+  "summary.approveAll": "Approve ALL tokens to {operator}",
+  "summary.revokeAll": "Revoke all-token approval for {operator}",
+  "summary.withdraw": "Withdraw {amount}",
+  "summary.mixerDeposit": "Deposit into mixer",
+  "flag.approvalUnlimited": "unlimited approval",
+  "flag.hiddenRecipient": "hidden recipient (differs from tx target)",
+  "flag.mixer": "mixer interaction",
+  "flag.bridge": "bridge interaction",
+  "flag.sanctioned": "sanctioned entity",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Log",
@@ -184,6 +205,7 @@ export default {
   "log.demoLoaded": "Demo workspace loaded (no API key needed).",
   "log.estimate": "Estimated: ~{addresses} addresses, ~{calls} API calls, ~{seconds}s at current settings.",
   "log.notesCleared": "Notes cleared.",
+  "log.peelChains": "Detected {n} peel chain(s)",
   "log.exportTooLarge": "Export too large ({pixels} pixels). Reduce the resolution or export CSV instead.",
 
   // --- errors ---------------------------------------------------------------

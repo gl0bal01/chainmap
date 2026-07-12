@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **237 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **268 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -63,19 +63,32 @@ multichaîne unifié).
 - **Trois familles de tx** — normales, internes et transferts de jetons ERC-20/721/1155,
   chacune une arête colorée.
 - **Décodage du calldata** — sélecteurs 4 octets → noms de méthode lisibles + arguments de
-  tête décodés, de sorte que le vrai destinataire d'un `transfer()` (caché dans le calldata)
-  est révélé.
+  tête **nommés** décodés et une ligne `► Résumé` en langage clair, de sorte que le vrai
+  destinataire d'un `transfer()` (caché dans le calldata) est révélé.
 - **Réduction du bruit** — filtres montant/date/valeur-nulle/spam, et regroupement d'arêtes
   (fusionner plusieurs transferts A→B en une flèche pondérée).
-- **Superpositions d'enquête** — détection de cycles (allers-retours), hubs puits/source,
-  coloration par ancienneté, libellés d'adresses connues et un score de risque par nœud
-  *explicable*.
+- **Superpositions d'enquête** — détection de cycles (allers-retours), hubs puits/source
+  (avec bascules réversibles **Masquer sources / Masquer puits**), détection des
+  **chaînes de dépouillement** (« peel chains », qui met en évidence les chaînes de
+  transfert où la valeur transite par des adresses jetables), coloration par ancienneté,
+  libellés d'adresses connues, marquage mixeur/pont/sanctionné (badges 🌀/🌉/⛔) et un score
+  de risque par nœud *explicable*.
+- **Signaux de risque par arête** — approbations illimitées/globales, destinataire réel
+  caché, et contreparties mixeur/pont/sanctionné sont signalés dans le panneau de détails de
+  l'arête et mis en évidence sur le graphe (rouge ambré, pointillé, ⚠). **Des signaux, pas
+  des verdicts** — recoupez toujours avant de conclure.
 - **Détecteur de chaîne** — collez n'importe quelle adresse ; il indique la famille de chaîne
   (ou non-EVM) avant même de scanner.
-- **Exports** — PNG, PDF et CSV (avec la mise en garde d'échantillonnage intégrée).
-  Sauvegarde / chargement d'espaces de travail.
+- **Exports** — PNG, PDF et CSV (avec la mise en garde d'échantillonnage intégrée, plus les
+  colonnes méthode décodée, destinataire réel, montant décodé et signaux de risque par
+  arête). Sauvegarde / chargement d'espaces de travail.
+- **Navigation au clavier** — Ctrl/Cmd+Flèche déplace la sélection vers le nœud le plus
+  proche dans cette direction.
 - **Honnête par conception** — montants en entiers (jamais de virgule flottante), tx
-  échouées écartées, échantillonnage signalé partout.
+  échouées écartées, échantillonnage signalé partout. La mise en garde d'échantillonnage
+  s'applique à toutes les fonctionnalités ci-dessus : superpositions, signaux et détection
+  de hubs/chaînes de dépouillement ne voient jamais que le graphe échantillonné, jamais
+  l'historique complet on-chain.
 
 ---
 
@@ -137,7 +150,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 237 tests unitaires + d'intégration
+bun test        # 268 tests unitaires + d'intégration
 ```
 
 `bun test` couvre les modules sans DOM (arithmétique des montants, clés de déduplication,

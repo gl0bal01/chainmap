@@ -6,7 +6,7 @@ export default {
   "_meta.code": "fr",
 
   // --- app / header ---------------------------------------------------------
-  "app.title": "Etherscan Tx Graph Explorer",
+  "app.title": "ChainMap — Suivez l'argent",
 
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Clé API Etherscan",
@@ -84,6 +84,9 @@ export default {
   "btn.exportPdf": "PDF",
   "btn.exportCsv": "Tableur (CSV)",
   "btn.lang": "English",
+  "btn.hideFaucets": "Masquer les robinets",
+  "btn.hideSinks": "Masquer les puits",
+  "btn.peelChains": "Chaînes de pelage",
 
   // --- export ---------------------------------------------------------------
   "export.label": "Export :",
@@ -138,6 +141,8 @@ export default {
   "details.methodUnknown": "sélecteur inconnu",
   "details.inputRaw": "Input brut",
   "details.risk": "Risque",
+  "details.summary": "Résumé",
+  "details.flags": "Signaux de risque",
   "risk.high": "Élevé",
   "risk.med": "Moyen",
   "risk.low": "Faible",
@@ -146,7 +151,23 @@ export default {
   "risk.faucet": "hub source",
   "risk.highDegree": "degré élevé",
   "risk.contract": "appels de contrat",
+  "risk.approval": "approbation de jeton illimitée",
+  "risk.sanctioned": "entité sanctionnée",
   "risk.known": "entité identifiée",
+
+  // --- edge decode: call summary + risk flags --------------------------------
+  "summary.transfer": "Transfert {amount} → {recipient}",
+  "summary.transferFrom": "Transfert de {from} → {recipient}",
+  "summary.approve": "Autorise {spender} à dépenser {amount}",
+  "summary.approveAll": "Autorise TOUS les jetons à {operator}",
+  "summary.revokeAll": "Révoque l'autorisation totale pour {operator}",
+  "summary.withdraw": "Retrait {amount}",
+  "summary.mixerDeposit": "Dépôt dans un mixeur",
+  "flag.approvalUnlimited": "autorisation illimitée",
+  "flag.hiddenRecipient": "destinataire caché (diffère de la cible de la tx)",
+  "flag.mixer": "interaction avec un mixeur",
+  "flag.bridge": "interaction avec un pont",
+  "flag.sanctioned": "entité sanctionnée",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Journal",
@@ -183,6 +204,7 @@ export default {
   "log.demoLoaded": "Espace démo chargé (aucune clé API requise).",
   "log.estimate": "Estimation : ~{addresses} adresses, ~{calls} appels API, ~{seconds}s avec les réglages actuels.",
   "log.notesCleared": "Notes effacées.",
+  "log.peelChains": "{n} chaîne(s) de pelage détectée(s)",
   "log.exportTooLarge": "Export trop volumineux ({pixels} pixels). Réduisez la résolution ou exportez en CSV.",
 
   // --- errors ---------------------------------------------------------------

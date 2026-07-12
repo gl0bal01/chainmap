@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **237 unit/integration tests** on the DOM-free core.
+- **268 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -59,17 +59,30 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   size, a hard safety cap, and a **Stop** that truly aborts in-flight requests.
 - **Three tx families** — normal, internal, and ERC-20/721/1155 token transfers, each a
   colored edge.
-- **Calldata decoding** — 4-byte selectors → human method names + decoded leading args, so
-  a `transfer()`'s real recipient (hidden in calldata) is surfaced.
+- **Calldata decoding** — 4-byte selectors → human method names + **named** decoded args and
+  a plain-language `► Summary` line, so a `transfer()`'s real recipient (hidden in calldata)
+  is surfaced.
 - **Noise reduction** — amount/date/zero-value/spam filters, and edge bundling (collapse
   many A→B transfers into one weighted arrow).
-- **Investigation overlays** — round-trip (cycle) detection, sink/faucet hubs, color-by-age,
-  known-address labels, and an *explainable* per-node risk score.
+- **Investigation overlays** — round-trip (cycle) detection, sink/faucet hubs (with
+  reversible **Hide faucets / Hide sinks** toggles), **peel-chain** detection (highlights
+  forwarding chains where value hops through throwaway addresses), color-by-age,
+  known-address labels, mixer/bridge/sanctioned tagging (🌀/🌉/⛔ badges), and an
+  *explainable* per-node risk score.
+- **Per-edge risk flags** — unlimited/blanket approvals, a hidden real recipient, and
+  mixer/bridge/sanctioned counterparties are called out in the edge details panel and
+  escalated on the graph (amber-red, dashed, ⚠). **Signals, not verdicts** — always
+  corroborate before you conclude.
 - **Chain detector** — paste any address; it tells you the chain family (or non-EVM) before
   you scan.
-- **Exports** — PNG, PDF, and CSV (with a sampling caveat baked in). Save/load workspaces.
+- **Exports** — PNG, PDF, and CSV (with a sampling caveat baked in, plus decoded method,
+  real recipient, decoded amount, and risk-flag columns per edge). Save/load workspaces.
+- **Keyboard navigation** — Ctrl/Cmd+Arrow jumps selection to the nearest node in that
+  direction.
 - **Honest by design** — big-integer amounts (never floating point), failed txs dropped,
-  and sampling surfaced everywhere.
+  and sampling surfaced everywhere. The sampling caveat applies to every feature above:
+  overlays, flags, and hub/peel-chain detection only ever see the sampled graph, never full
+  on-chain history.
 
 ---
 
@@ -128,7 +141,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 237 unit + integration tests
+bun test        # 268 unit + integration tests
 ```
 
 `bun test` covers the DOM-free modules (amount math, dedup keys, BFS guards, failed-tx

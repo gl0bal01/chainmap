@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { EXPORT_PIXELS, RESOLUTION_PRESETS } from "../src/config.js";
 import { csvEscape, formatTimestamp } from "../src/format.js";
 import {
+  buildCsvRows,
   computeExportSize,
   exportCsv,
   exportPdf,
@@ -191,6 +192,7 @@ describe("exportCsv", () => {
     const expectedHeader = [
       "row_type", "address", "alias", "depth", "is_root",
       "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags",
     ].join(",");
     expect(lines[1]).toBe(expectedHeader);
 
@@ -198,25 +200,30 @@ describe("exportCsv", () => {
     const nodeARow = [
       "node", NODE_A.address, csvEscape(NODE_A.alias), String(NODE_A.depth), "1",
       "", "", "", "", "", "", "", "",
+      "", "", "", "", "",
     ].join(",");
     const nodeBRow = [
       "node", NODE_B.address, "", String(NODE_B.depth), "0",
       "", "", "", "", "", "", "", "",
+      "", "", "", "", "",
     ].join(",");
     expect(lines[2]).toBe(nodeARow);
     expect(lines[3]).toBe(nodeBRow);
     expect(csvEscape(NODE_A.alias)).toBe('"Root, Alice"'); // sanity: comma triggers quoting
 
     // Edge rows: plain fields unescaped, quote-containing symbol escaped/doubled.
+    // EDGE_1/EDGE_2 carry no calldata (hasData unset) -> decoded columns blank.
     const edge1Row = [
       "edge", "", "", "", "",
       EDGE_1.group, EDGE_1.from, EDGE_1.to, EDGE_1.amountText, EDGE_1.symbol,
       EDGE_1.hash, EDGE_1.blockNumber, csvEscape(formatTimestamp(EDGE_1.timeStamp)),
+      "", "", "", "", "",
     ].join(",");
     const edge2Row = [
       "edge", "", "", "", "",
       EDGE_2.group, EDGE_2.from, EDGE_2.to, EDGE_2.amountText, csvEscape(EDGE_2.symbol),
       EDGE_2.hash, EDGE_2.blockNumber, csvEscape(formatTimestamp(EDGE_2.timeStamp)),
+      "", "", "", "", "",
     ].join(",");
     expect(lines[4]).toBe(edge1Row);
     expect(lines[5]).toBe(edge2Row);
@@ -235,5 +242,35 @@ describe("exportCsv", () => {
     const lines = capturedCsvText().split("\n");
     expect(lines.length).toBe(3); // caveat + header + one node row
     expect(logs).toEqual([{ level: "info", key: "log.exportCsv" }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCsvRows — pure row builder extracted out of exportCsv (Task 9: decoded
+// method / real recipient / decoded amount / risk-flags columns).
+// ---------------------------------------------------------------------------
+
+describe("buildCsvRows", () => {
+  test("CSV header includes decoded columns", () => {
+    const rows = buildCsvRows(makeFakeStore([{ address: "0xa", depth: 0, isRoot: true }], []), { category: () => null });
+    const header = rows[1];
+    expect(header).toEqual([
+      "row_type", "address", "alias", "depth", "is_root",
+      "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags",
+    ]);
+  });
+
+  test("edge row carries decoded method + real recipient + flags", () => {
+    const B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const edge = {
+      group: "normal", from: "0xa", to: "0xtoken", amountText: "0", symbol: "", hash: "0xh", blockNumber: "1", timeStamp: "0",
+      hasData: true, methodId: "0xa9059cbb",
+      methodArgs: [{ type: "address", value: B, name: "recipient" }, { type: "uint256", value: "100", name: "amount" }],
+    };
+    const rows = buildCsvRows(makeFakeStore([], [edge]), { category: () => null });
+    const row = rows.find((r) => r[0] === "edge");
+    expect(row).toContain("transfer(address,uint256)"); // method_sig
+    expect(row).toContain(B); // real_recipient
   });
 });

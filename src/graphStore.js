@@ -34,6 +34,9 @@ import { decodeCall } from "./abiDecode.js";
  * @property {string}  tokenContract       "" for native
  * @property {string}  tokenId             "" unless ERC-721/1155
  * @property {string}  value               raw base-unit integer string
+ * @property {string}  tokenDecimal        raw token decimals as given by Etherscan
+ *   ("" for native/unknown — downstream formatUnits() then reports indeterminate
+ *   instead of silently defaulting to 18)
  * @property {string}  amountText          formatted (trimmed) amount
  * @property {boolean} amountIndeterminate decimals/value untrusted (see formatUnits)
  * @property {boolean} hasData             tx carried non-empty input calldata (contract call)
@@ -160,6 +163,10 @@ export class GraphStore {
       tokenContract: tx.contractAddress || "",
       tokenId: tx.tokenID || "",
       value: tx.value || "0",
+      // Persist the raw decimals alongside the edge (not just the derived
+      // amountText) so later re-formatting (details panel decoded args/summary)
+      // uses the true token decimals instead of formatUnits' silent 18 default.
+      tokenDecimal: tx.tokenDecimal ?? "",
       amountText: trimZero(amount.text),
       amountIndeterminate: amount.indeterminate,
       // Non-empty input calldata => this transfer also invoked a contract. Only

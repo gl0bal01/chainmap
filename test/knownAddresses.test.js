@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { loadKnownAddresses, knownLabel } from "../src/knownAddresses.js";
+import { loadKnownAddresses, knownLabel, knownCategory } from "../src/knownAddresses.js";
 
 const DATA = {
   "1": {
@@ -21,4 +21,13 @@ test("loadKnownAddresses returns data on ok, {} on failure (never throws)", asyn
   expect(await loadKnownAddresses(fakeFetch(false, DATA))).toEqual({});
   expect(await loadKnownAddresses(async () => { throw new Error("network"); })).toEqual({});
   expect(await loadKnownAddresses(fakeFetch(true, "not-an-object"))).toEqual({});
+});
+
+const CAT_DATA = { "1": { "0xabc0000000000000000000000000000000000001": { label: "Tornado", category: "mixer" } } };
+
+test("knownCategory returns category for known addr, null otherwise", () => {
+  expect(knownCategory("0xABC0000000000000000000000000000000000001", 1, CAT_DATA)).toBe("mixer");
+  expect(knownCategory("0x0000000000000000000000000000000000000009", 1, CAT_DATA)).toBeNull();
+  expect(knownCategory("0xabc0000000000000000000000000000000000001", 137, CAT_DATA)).toBeNull();
+  expect(knownLabel("0xabc0000000000000000000000000000000000001", 1, CAT_DATA)).toBe("Tornado");
 });

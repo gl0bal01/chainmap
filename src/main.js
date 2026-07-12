@@ -16,12 +16,14 @@ import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
 import { isValidAddress, isFailedTx, shortAddress } from "./format.js";
-import { loadKnownAddresses, knownLabel } from "./knownAddresses.js";
+import { loadKnownAddresses, knownLabel, knownCategory } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
 import { classifyHubs } from "./sinkFaucet.js";
 import { findCycleNodes } from "./roundTrips.js";
+import { findPeelChains } from "./peelChain.js";
 import { scoreNode } from "./riskScore.js";
+import { flagsForEdge } from "./riskFlags.js";
 import { detectAddress } from "./blockchainDetect.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
@@ -90,24 +92,40 @@ function recomputeHubs() {
   hubMap = classifyHubs(store.listNodes(), store.listEdges());
 }
 
+// Re-apply the current hide-faucets/hide-sinks checkbox state to the view.
+// Called from the checkbox handlers AND after anything that can introduce
+// newly-classified hubs (scan completion, workspace load) so "Hide faucets"/
+// "Hide sinks" never go stale — mirrors how the dim-only hubToggle
+// self-corrects post-scan via `if (hubOn) view.refreshHubs()`.
+function syncHubHidden() {
+  view.setHubHidden({ faucet: $("hideFaucetsChk").checked, sink: $("hideSinksChk").checked });
+}
+
 // Per-node risk from the graph's own signals (cycle / hub / degree / calldata /
 // known). Explainable — every reason surfaced in the details panel.
 function computeRisk(address) {
   const inC = new Set();
   const outC = new Set();
+  const outEdges = [];
   let hasCall = false;
   for (const e of store.listEdges()) {
     if (e.to === address) { inC.add(e.from); if (e.hasData) hasCall = true; }
-    if (e.from === address) { outC.add(e.to); if (e.hasData) hasCall = true; }
+    if (e.from === address) { outC.add(e.to); if (e.hasData) hasCall = true; outEdges.push(e); }
   }
   const cyc = findCycleNodes(store.listNodes(), store.listEdges());
+  const chainId = $("chainSelect").value;
+  const categoryFor = (a) => knownCategory(a, chainId, knownData);
+  // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
+  const flags = outEdges.flatMap((e) => flagsForEdge(e, { category: categoryFor }));
   return scoreNode({
     inDeg: inC.size,
     outDeg: outC.size,
     hubKind: hubMap.get(address) || null,
     onCycle: cyc.has(address),
     hasContractCalls: hasCall,
-    known: !!knownLabel(address, $("chainSelect").value, knownData),
+    known: !!knownLabel(address, chainId, knownData),
+    approvalRisk: flags.includes("flag.approvalUnlimited"),
+    sanctioned: categoryFor(address) === "sanctioned" || flags.includes("flag.sanctioned"),
   });
 }
 function applyDisplayOptions() {
@@ -299,7 +317,14 @@ function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
   currentDetail = { kind: "edge", id: edgeKey };
-  const deps = { i18n, explorer: explorerFor($("chainSelect").value), getAlias: (a) => store.getAlias(a) };
+  const chainId = $("chainSelect").value;
+  const deps = {
+    i18n,
+    explorer: explorerFor(chainId),
+    getAlias: (a) => store.getAlias(a),
+    getKnownLabel: (a) => knownLabel(a, chainId, knownData),
+    getCategory: (a) => knownCategory(a, chainId, knownData),
+  };
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
   else renderEdgeDetails($("detailsContent"), data, deps);
 }
@@ -424,6 +449,7 @@ async function startScan() {
   view.refreshProjection(); // normalize edge widths + rebuild bundles now the graph is complete
   recomputeHubs();
   if (hubOn) view.refreshHubs();
+  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
 
   const inv = store.checkInvariants();
   // Dev signal only — never dump inv.errors (they embed addresses / tx hashes)
@@ -487,6 +513,8 @@ function applyWorkspace(ws) {
   }
   view.setAnnotations(ws.annotations || []);
   recomputeHubs();
+  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
+  if ($("peelChk").checked) view.setPeelChains(findPeelChains(store.listEdges(), {}));
   view.refreshLabels();
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
@@ -596,7 +624,9 @@ function wireControls() {
       onLog,
     })
   );
-  $("exportCsvBtn").addEventListener("click", () => exportCsv(store, { onLog }));
+  $("exportCsvBtn").addEventListener("click", () =>
+    exportCsv(store, { onLog, category: (a) => knownCategory(a, $("chainSelect").value, knownData) })
+  );
 
   // Noise-reduction filters (live display projection; store is untouched).
   $("minAmount").addEventListener("input", applyDisplayOptions);
@@ -614,8 +644,23 @@ function wireControls() {
     if (hubOn) recomputeHubs();
     view.refreshHubs();
   });
+  // Hide faucets/sinks: a reversible display projection (setHubHidden only
+  // re-filters the node view — the store, and thus CSV/detail data, is
+  // untouched). Independent of the dim-only hubToggle above.
+  function applyHubHidden() {
+    if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) recomputeHubs();
+    syncHubHidden();
+  }
+  $("hideFaucetsChk").addEventListener("change", applyHubHidden);
+  $("hideSinksChk").addEventListener("change", applyHubHidden);
   $("roundTripToggle").addEventListener("change", () => view.setRoundTrip($("roundTripToggle").checked));
   $("ageToggle").addEventListener("change", () => view.setColorByAge($("ageToggle").checked));
+  $("peelChk").addEventListener("change", () => {
+    const on = $("peelChk").checked;
+    const chains = on ? findPeelChains(store.listEdges(), {}) : [];
+    view.setPeelChains(chains);
+    logger.log({ level: "info", key: "log.peelChains", params: { n: chains.length } });
+  });
   $("addNoteBtn").addEventListener("click", () => {
     const text = window.prompt(t("alias.notePrompt"), "");
     if (text && text.trim()) view.addAnnotation(text.trim());
@@ -657,7 +702,20 @@ function init() {
     i18n,
     getAddressFormat: () => $("addressFormat").value,
     getKnownLabel: (address) => knownLabel(address, $("chainSelect").value, knownData),
-    getHubKind: (address) => (hubOn ? hubMap.get(address) || null : null),
+    // Returns the hub classification whenever ANY hub-driven feature is engaged
+    // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
+    // so "Hide faucets"/"Hide sinks" work independently of the dim toggle. The
+    // DIM decision itself is separate — see getHubDimOn — so checking only
+    // "Hide faucets" never greys out sinks too.
+    getHubKind: (address) =>
+      hubOn || $("hideFaucetsChk").checked || $("hideSinksChk").checked ? hubMap.get(address) || null : null,
+    // Gates the grey "de-emphasized hub" node background in applyNode. ONLY the
+    // dim-only hubToggle — independent of the hide checkboxes above — so
+    // checking "Hide faucets" (hubToggle OFF) hides faucets without dimming
+    // sinks (or anything else).
+    getHubDimOn: () => hubOn,
+    getCategory: (address) => knownCategory(address, $("chainSelect").value, knownData),
+    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, $("chainSelect").value, knownData) }),
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

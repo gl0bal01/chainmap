@@ -70,6 +70,32 @@ export function attachInteractions(view, store, deps) {
   }
   document.addEventListener("keydown", handleKeydown);
 
+  // --- Ctrl/Cmd+Arrow -> select nearest node in that direction ---------------
+  const ARROW_DIR = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+  function handleArrowNav(e) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const dir = ARROW_DIR[e.key];
+    if (!dir) return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    const { positions } = allPositions(network);
+    const sel = network.getSelectedNodes();
+    let fromId = sel[0];
+    if (!fromId) { // seed from viewport center
+      const ids = Object.keys(positions);
+      if (!ids.length) return;
+      const c = network.DOMtoCanvas({ x: container.clientWidth / 2, y: container.clientHeight / 2 });
+      fromId = nearestInDirection(c, positions, dir) || ids[0];
+    }
+    const nextId = nearestInDirection(positions[fromId], positions, dir);
+    if (!nextId) return;
+    e.preventDefault();
+    network.setSelection({ nodes: [nextId], edges: [] });
+    network.focus(nextId, { scale: network.getScale(), animation: true });
+    onNodeSelect(nextId);
+  }
+  document.addEventListener("keydown", handleArrowNav);
+
   // --- Shift+drag -> rectangle box-select ------------------------------------
   let boxSelecting = false;
   let boxStart = null;
@@ -138,6 +164,7 @@ export function attachInteractions(view, store, deps) {
       network.off("click", handleClick);
       network.off("doubleClick", handleDoubleClick);
       document.removeEventListener("keydown", handleKeydown);
+      document.removeEventListener("keydown", handleArrowNav);
       container.removeEventListener("mousedown", handleMouseDown);
       container.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
@@ -148,6 +175,36 @@ export function attachInteractions(view, store, deps) {
       boxSelecting = false;
     },
   };
+}
+
+/**
+ * Nearest node id in a cardinal direction from a point. Pure geometry.
+ * vis canvas y grows DOWNWARD, so "up" = smaller y, "down" = larger y.
+ * @param {{x:number,y:number}} fromPos
+ * @param {Record<string,{x:number,y:number}>} positions
+ * @param {"up"|"down"|"left"|"right"} dir
+ * @returns {string|null}
+ */
+export function nearestInDirection(fromPos, positions, dir) {
+  if (!fromPos) return null;
+  let best = null;
+  let bestScore = Infinity;
+  for (const id of Object.keys(positions)) {
+    const p = positions[id];
+    const dx = p.x - fromPos.x;
+    const dy = p.y - fromPos.y;
+    if (dx === 0 && dy === 0) continue; // itself
+    // Directional gate: primary axis must dominate and point the right way.
+    let primary, ok;
+    if (dir === "right") { primary = dx; ok = dx > 0 && Math.abs(dx) >= Math.abs(dy); }
+    else if (dir === "left") { primary = -dx; ok = dx < 0 && Math.abs(dx) >= Math.abs(dy); }
+    else if (dir === "up") { primary = -dy; ok = dy < 0 && Math.abs(dy) >= Math.abs(dx); }
+    else { primary = dy; ok = dy > 0 && Math.abs(dy) >= Math.abs(dx); } // down
+    if (!ok) continue;
+    const score = primary + Math.abs(dir === "left" || dir === "right" ? dy : dx) * 0.5;
+    if (score < bestScore) { bestScore = score; best = id; }
+  }
+  return best;
 }
 
 /**

@@ -49,3 +49,18 @@ export function knownLabel(address, chainId, data) {
   const entry = chain[address.toLowerCase()];
   return entry && entry.label ? entry.label : null;
 }
+
+/**
+ * Look up the known CATEGORY for an address on a chain (mixer/bridge/exchange/…).
+ * @param {string} address
+ * @param {number|string} chainId
+ * @param {KnownData} data
+ * @returns {string|null}
+ */
+export function knownCategory(address, chainId, data) {
+  if (!data || !address) return null;
+  const chain = data[String(chainId)];
+  if (!chain) return null;
+  const entry = chain[address.toLowerCase()];
+  return entry && entry.category ? entry.category : null;
+}

@@ -86,7 +86,7 @@ Exports: `API_BASE`, `CHAINS: Chain[]`, `TX_TYPE_GROUPS`, `ROOT_COLOR`,
 
 Data shapes:
 - `NodeRecord = { address, depth, isRoot, alias:string|null }`
-- `EdgeRecord = { key, action, group, color, from, to, hash, symbol, tokenContract, tokenId, value, amountText, amountIndeterminate, hasData, methodId, methodArgs, rawInput, timeStamp, blockNumber }`
+- `EdgeRecord = { key, action, group, color, from, to, hash, symbol, tokenContract, tokenId, value, tokenDecimal, amountText, amountIndeterminate, hasData, methodId, methodArgs, rawInput, timeStamp, blockNumber }`
 - `EdgeInput = { action, group, color, from, to, tx }` (store computes key + amount)
 
 Mutations: `addNode(address, {depth?,isRoot?}) → NodeRecord` (merge = min depth, sticky root);
@@ -212,3 +212,91 @@ New i18n keys: filters.dateFrom/dateTo/hubs, form.layout.*, investigate.label, w
 Bundled data: `data/demo-workspace.json` (loads with no API key), `data/known-addresses.json`. New `config.DATA_PATHS.demo`.
 
 Stage D COMPLETE (both layers). v2 at feature-parity + beyond; promotion to `index.html` gated on manual browser smoke.
+
+## Investigator upgrade (post-Stage-D)
+
+Smart calldata decode, per-edge risk flags, reversible hide faucets/sinks, peel-chain
+detection, mixer/bridge/sanctioned tagging, decoded CSV columns, and Ctrl/Cmd+Arrow node
+navigation. Risk flags, peel-chain highlighting, and hide-faucets/hide-sinks are all
+**display projections** over the store mirror — same pattern as filters/bundling/hubDim;
+the store itself is never mutated by them, so CSV/detail stay complete regardless of what's
+hidden or highlighted on screen.
+
+- **selectors.js** gains:
+  - `SELECTOR_PARAMS: Record<selector, string[]>` — ordered parameter names (canonical
+    argument roles, e.g. `recipient`/`amount`/`spender`) for the selectors whose args are
+    worth naming. Not every entry in `SELECTORS` has a `SELECTOR_PARAMS` entry.
+  - `paramNames(selector): string[]|null` — ordered parameter names for a known selector
+    (case-insensitive), or `null` if absent.
+
+- **abiDecode.js** gains:
+  - `summarizeCall(call: {methodId:string, args:{type,value,name?}[]}|null): {key:string, params:object}|null`
+    — plain-language i18n summary (`summary.*` keys) of a decoded call. Returns **raw**
+    param values (addresses / raw integers) — the render layer resolves aliases, formats
+    amounts with token decimals, and escapes. `null` when there's nothing worth summarizing
+    (unknown/undecoded selector). `decodeCall` args now optionally carry `name` (from
+    `selectors.paramNames`) alongside `type`/`value`.
+
+- **riskFlags.js** — new, pure, DOM-free (no vis, no DOM; Node-testable):
+  - `MAX_UINT256: string` — `2^256 - 1` as a decimal string, the canonical "unlimited" ERC-20
+    allowance.
+  - `resolvedRecipient(edge: EdgeRecord): string` — the real recipient of an edge: the
+    decoded `recipient` methodArg (lowercased) when present and a valid address, else the
+    tx `to` (lowercased).
+  - `flagsForEdge(edge: EdgeRecord, ctx: {category:(addr:string)=>(string|null)}): string[]`
+    — de-duplicated i18n flag keys for an edge: `flag.approvalUnlimited` (allowance/approval
+    ≥ 2^255, or `setApprovalForAll(_, true)`), `flag.hiddenRecipient` (decoded recipient ≠
+    tx `to`), `flag.mixer`/`flag.bridge`/`flag.sanctioned` (resolved recipient's known
+    category, via the injected `category` lookup — typically `knownAddresses.knownCategory`
+    bound to the active chain), plus `flag.mixer` unconditionally for the Tornado Cash
+    deposit selector. Each flag is a **signal, not a verdict**.
+
+- **riskScore.js** — `RiskInput` and `scoreNode` gain `approvalRisk:boolean` (+2,
+  `risk.approval`) and `sanctioned:boolean` (+3, `risk.sanctioned`), folded in alongside the
+  existing cycle/hub/degree/contract/known signals. Unchanged: score bands
+  (`low`<2≤`med`<4≤`high`) and that `reasons` are i18n keys.
+
+- **sinkFaucet.js** gains:
+  - `shouldHideNode(hubKind: 'sink'|'faucet'|null|undefined, hide?: {faucet?:boolean, sink?:boolean}): boolean`
+    — pure predicate for the "Hide faucets" / "Hide sinks" toggles; the caller (a vis
+    DataView node filter) decides what to do with the result. Never touches the store —
+    hiding is purely a view-layer projection, so a hidden node's edges/rows still appear in
+    CSV and its record is still reachable via `store.getNode`.
+
+- **knownAddresses.js** gains:
+  - `knownCategory(address: string, chainId: number|string, data: KnownData): string|null`
+    — looks up the known **category** (`mixer`/`bridge`/`sanctioned`/`exchange`/…) for an
+    address on a chain, same chain-scoped lookup shape as `knownLabel`. Backs the
+    🌀/🌉/⛔ node badges and the mixer/bridge/sanctioned risk flags.
+
+- **render/export.js** gains:
+  - `buildCsvRows(store: GraphStore, ctx: {category:(addr:string)=>(string|null), formatTimestamp?:(t:string)=>string}): string[][]`
+    — pure row builder (no DOM) factored out of `exportCsv`, directly unit-testable. Returns
+    the sampling-caveat line, header, then one row per node/edge. `CSV_HEADER` gained five
+    trailing edge-only columns: `method`, `method_sig`, `real_recipient`, `decoded_amount`,
+    `risk_flags` (semicolon-joined `flagsForEdge` keys); node rows leave them blank.
+    `exportCsv(store, deps)` now builds its rows via `buildCsvRows` and accepts an optional
+    `deps.category` lookup (defaults to a no-op returning `null`).
+
+- **render/interaction.js** gains:
+  - `nearestInDirection(fromPos: {x:number,y:number}, positions: Record<string,{x:number,y:number}>, dir: 'up'|'down'|'left'|'right'): string|null`
+    — pure geometry: nearest node id in a cardinal direction from a point. vis canvas y
+    grows downward, so `up` = smaller y. Directional gate requires the primary axis to
+    dominate and point the right way; ties broken by a small secondary-axis penalty.
+    `attachInteractions` wires Ctrl/Cmd+Arrow to it: seeds `fromPos` from the current
+    selection (or the viewport center if nothing is selected), moves selection + focuses the
+    result.
+
+- **peelChain.js** — new, pure, DOM-free (no vis, no DOM; Node-testable):
+  - `findPeelChains(edges: EdgeRecord[], opts?: {minLen?:number, keepRatio?:number, slack?:number}): string[][]`
+    — detects "peel chain" / forwarding patterns: `A→B→C→…` where each intermediate node has
+    exactly one distinct sender and one distinct recipient (`isPassThrough`) and forwards
+    ~the same amount it just received (`sent/recv` within `[keepRatio, slack]`, default
+    `[0.9, 1.1]`), with time never running backward. Returns ordered address paths of at
+    least `minLen` nodes (default 3). Amount basis: `edge.amountText` (nominal per-token
+    magnitude, same basis as `display.edgeAmountNumber` — NOT fiat-normalized).
+
+`EdgeRecord.tokenDecimal` (raw token decimals persisted on the edge, `""` for
+native/unknown) is documented in the `graphStore.js` section above (Stage D fix); the decode
+summary and CSV `decoded_amount` column both re-format `methodArgs` amounts with it via
+`formatUnits` rather than trusting a default.

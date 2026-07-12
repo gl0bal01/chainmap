@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { classifyHubs, hubDim } from "../src/sinkFaucet.js";
+import { classifyHubs, hubDim, shouldHideNode } from "../src/sinkFaucet.js";
 
 const edge = (from, to) => ({ from, to });
 
@@ -116,4 +116,12 @@ test("hubDim returns 0.4 for sink/faucet, 1 otherwise", () => {
   expect(hubDim(undefined)).toBe(1);
   expect(hubDim(null)).toBe(1);
   expect(hubDim("other")).toBe(1);
+});
+
+test("shouldHideNode respects the per-kind toggle", () => {
+  expect(shouldHideNode("faucet", { faucet: true, sink: false })).toBe(true);
+  expect(shouldHideNode("faucet", { faucet: false, sink: false })).toBe(false);
+  expect(shouldHideNode("sink", { faucet: false, sink: true })).toBe(true);
+  expect(shouldHideNode(null, { faucet: true, sink: true })).toBe(false);
+  expect(shouldHideNode("faucet", undefined)).toBe(false);
 });

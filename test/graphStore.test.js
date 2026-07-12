@@ -112,6 +112,7 @@ describe("GraphStore.addEdge", () => {
     expect(edge.value).toBe("1000000000000000000");
     expect(edge.amountText).toBe("1"); // 1 ETH, trimmed
     expect(edge.amountIndeterminate).toBe(false);
+    expect(edge.tokenDecimal).toBe(""); // no tx.tokenDecimal -> persisted as "" (never left undefined)
     expect(edge.hash).toBe("0xhash1");
     expect(store.hasEdgeKey(edge.key)).toBe(true);
     expect(events).toEqual([{ type: "edge:add", edge }]);
@@ -147,6 +148,7 @@ describe("GraphStore.addEdge", () => {
     expect(edge.tokenContract).toBe("0xA0b86991c6218B36C1D19d4A2E9EB0CE3606EB48");
     expect(edge.amountText).toBe("5"); // 5000000 / 1e6
     expect(edge.amountIndeterminate).toBe(false);
+    expect(edge.tokenDecimal).toBe("6"); // persisted raw decimals, not just baked into amountText
 
     // Bad decimals -> honest indeterminate with raw integer text.
     store.addNode(C);
@@ -154,6 +156,7 @@ describe("GraphStore.addEdge", () => {
     const badEdge = store.addEdge({ action: "tokentx", group: "token", color: "#0f0", from: B, to: C, tx: badTx });
     expect(badEdge.amountIndeterminate).toBe(true);
     expect(badEdge.amountText).toBe("123");
+    expect(badEdge.tokenDecimal).toBe(""); // persisted as "" too, so later re-formatting stays honest
   });
 
   test("same hash but different contract stays distinct (not deduped)", () => {

@@ -16,6 +16,7 @@ import { TX_TYPE_GROUPS } from "../config.js";
 import * as labels from "./labels.js";
 import { passesFilters, filtersActive, edgeAmountNumber, edgeWidth, bundleEdges, ageColor } from "../display.js";
 import { findCycleNodes } from "../roundTrips.js";
+import { shouldHideNode } from "../sinkFaucet.js";
 
 /**
  * @typedef {object} DisplayOptions
@@ -76,11 +77,15 @@ function buildOptions(layout) {
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ i18n:import('../i18n.js').I18n, getAddressFormat:()=>('short'|'full'),
  *           getLayout?:()=>('force'|'hierarchical'),
- *           getKnownLabel?:(address:string)=>(string|null) }} deps
+ *           getKnownLabel?:(address:string)=>(string|null),
+ *           getHubKind?:(address:string)=>('sink'|'faucet'|null),
+ *           getHubDimOn?:()=>boolean,
+ *           getCategory?:(address:string)=>(string|null),
+ *           getEdgeFlags?:(edge:import('../graphStore.js').EdgeRecord)=>string[] }} deps
  * @returns {GraphView}
  */
 export function createGraphView(container, store, deps) {
-  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind } = deps;
+  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind, getHubDimOn, getCategory, getEdgeFlags } = deps;
   const vis = window.vis;
 
   const nodesDS = new vis.DataSet([]); // full graph (mirror of store) + annotation nodes
@@ -91,9 +96,12 @@ export function createGraphView(container, store, deps) {
   let visibleNodes = null; // null => show all; Set => only these
   let maxAmount = 0;
   let bundled = false;
+  let hubHidden = { faucet: false, sink: false }; // reversible faucet/sink hide (display projection only)
   // Investigator overlays
   let roundTripOn = false;
   let roundTripSet = new Set(); // addresses on a directed cycle
+  let peelNodes = new Set(); // addresses on a highlighted peel chain
+  const PEEL_COLOR = "#7b61ff";
   let colorByAge = false;
   let ageMin = 0;
   let ageMax = 0;
@@ -105,7 +113,14 @@ export function createGraphView(container, store, deps) {
 
   const edgesView = new vis.DataView(edgesDS, { filter: (e) => passesFilters(e.data, display) });
   const nodesView = new vis.DataView(nodesDS, {
-    filter: (n) => n.group === "annotation" || visibleNodes === null || visibleNodes.has(n.id),
+    filter: (n) => {
+      if (n.group === "annotation") return true;
+      if (!(visibleNodes === null || visibleNodes.has(n.id))) return false;
+      // Node DataSet items only carry `.id` (the lowercased address) — applyNode()
+      // never sets a separate `.address` field — so look hub kind up by id.
+      const kind = getHubKind ? getHubKind(n.id) : null;
+      return !shouldHideNode(kind, hubHidden);
+    },
   });
 
   const layout = getLayout ? getLayout() : "force";
@@ -115,18 +130,30 @@ export function createGraphView(container, store, deps) {
 
   const hubFor = (address) => (getHubKind ? getHubKind(address) : null);
 
+  const catFor = (address) => (getCategory ? getCategory(address) : null);
+  const CAT_ICON = { mixer: "🌀", bridge: "🌉", sanctioned: "⛔" };
+
+  const flagsForEdgeView = (edge) => (getEdgeFlags ? getEdgeFlags(edge) : []);
+  const RISK_COLOR = "#e0603a"; // amber-red for flagged edges
+
   function applyNode(node) {
     const knownLabel = knownFor(node.address);
     const visual = labels.nodeVisual(node, { knownLabel });
-    const hub = hubFor(node.address); // 'sink' | 'faucet' | null
-    const bg = hub ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs
+    const hub = hubFor(node.address); // 'sink' | 'faucet' | null — used for title + (elsewhere) hide filter
+    const dimOn = getHubDimOn ? getHubDimOn() : false; // dim-only toggle, decoupled from hide
+    const bg = hub && dimOn ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs only when dim-only toggle is on
     const rt = roundTripOn && roundTripSet.has(node.address); // on a cycle -> amber ring
+    const onPeel = peelNodes.has(node.address); // on a highlighted peel chain -> violet ring (wins over round-trip)
+    const cat = catFor(node.address);
+    const icon = CAT_ICON[cat] || "";
+    const baseTitle = hub ? `${visual.title} · ${i18n.t("risk." + hub)}` : visual.title;
+    const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
       id: node.address,
       label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel }),
-      color: rt ? { background: bg, border: "#e8b84f" } : bg,
-      borderWidth: rt ? 3 : 1,
-      title: hub ? `${visual.title} · ${hub}` : visual.title,
+      color: ringColor ? { background: bg, border: ringColor } : bg,
+      borderWidth: ringColor ? 3 : 1,
+      title: icon ? `${icon} ${baseTitle}` : baseTitle,
     });
   }
 
@@ -136,17 +163,23 @@ export function createGraphView(container, store, deps) {
     const base = labels.edgeLabel(edge);
     // Contract-call edges (non-empty calldata) are dashed + marked "✱" so an
     // investigator can spot interactions vs plain transfers at a glance.
-    const label = edge.hasData ? (base ? `${base} ✱` : "✱") : base;
-    const title = edge.hasData ? `${edgeTitle(edge, i18n)} · ${i18n.t("legend.data")}` : edgeTitle(edge, i18n);
+    // Risk-flagged edges (unlimited approval, mixer/bridge/sanctioned recipient, …)
+    // escalate further: risk color, thicker, dashed, "⚠" — overrides the "✱" styling.
+    const flags = flagsForEdgeView(edge);
+    const risky = flags.length > 0;
+    const label = risky ? `${base ? base + " " : ""}⚠` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base);
+    const title = risky
+      ? `${edgeTitle(edge, i18n)} · ⚠ ${flags.map((k) => i18n.t(k)).join(", ")}`
+      : (edge.hasData ? `${edgeTitle(edge, i18n)} · ${i18n.t("legend.data")}` : edgeTitle(edge, i18n));
     edgesDS.add({
       id: edge.key,
       from: edge.from,
       to: edge.to,
       label,
-      color: { color: edgeColorFor(edge) },
+      color: { color: risky ? RISK_COLOR : edgeColorFor(edge) },
       title,
-      width: edgeWidth(amount, maxAmount),
-      dashes: !!edge.hasData,
+      width: risky ? edgeWidth(amount, maxAmount) + 2 : edgeWidth(amount, maxAmount),
+      dashes: risky ? [6, 4] : !!edge.hasData,
       data: edge,
     });
   }
@@ -171,11 +204,16 @@ export function createGraphView(container, store, deps) {
     });
     ageMin = Number.isFinite(aMin) ? aMin : 0;
     ageMax = Number.isFinite(aMax) ? aMax : 0;
-    edgesDS.update(items.map((it) => ({
-      id: it.id,
-      width: edgeWidth(edgeAmountNumber(it.data), maxAmount),
-      color: { color: edgeColorFor(it.data) },
-    })));
+    // Respect flags here too — otherwise this recompute (amount/age refresh, filter
+    // changes, …) would clobber the risk color applyEdge set.
+    edgesDS.update(items.map((it) => {
+      const risky = flagsForEdgeView(it.data).length > 0;
+      return {
+        id: it.id,
+        width: risky ? edgeWidth(edgeAmountNumber(it.data), maxAmount) + 2 : edgeWidth(edgeAmountNumber(it.data), maxAmount),
+        color: { color: risky ? RISK_COLOR : edgeColorFor(it.data) },
+      };
+    }));
   }
 
   function recomputeVisibleNodes() {
@@ -237,6 +275,11 @@ export function createGraphView(container, store, deps) {
     store.listNodes().forEach(applyNode);
   }
 
+  function setPeelChains(chains) {
+    peelNodes = new Set((chains || []).flat());
+    store.listNodes().forEach(applyNode);
+  }
+
   function setColorByAge(on) {
     colorByAge = !!on;
     restyleEdges();
@@ -289,6 +332,15 @@ export function createGraphView(container, store, deps) {
   /** Re-apply node visuals (e.g. after hub classification changes). */
   function refreshHubs() {
     store.listNodes().forEach(applyNode);
+  }
+
+  /** Reversibly hide classified faucet/sink nodes from the node view. Display
+   *  projection only — the store (and thus CSV/detail data) is untouched, and
+   *  dangling edges to a hidden node simply stop rendering (vis-network hides
+   *  edges whose endpoint isn't in the node view). */
+  function setHubHidden(next) {
+    hubHidden = { faucet: !!(next && next.faucet), sink: !!(next && next.sink) };
+    nodesView.refresh();
   }
 
   function addAnnotationAt(text, x, y) {
@@ -390,8 +442,10 @@ export function createGraphView(container, store, deps) {
     getEdgeData,
     setLayout,
     setRoundTrip,
+    setPeelChains,
     setColorByAge,
     refreshHubs,
+    setHubHidden,
     addAnnotation,
     clearAnnotations,
     getAnnotations,
