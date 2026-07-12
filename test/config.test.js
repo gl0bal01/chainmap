@@ -65,7 +65,6 @@ describe("CHAINS", () => {
       10: "ETH", // Optimism
       8453: "ETH", // Base
       43114: "AVAX", // Avalanche C-Chain
-      250: "FTM", // Fantom
     };
     for (const [id, native] of Object.entries(expected)) {
       const chain = CHAINS.find((c) => c.id === Number(id));

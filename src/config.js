@@ -21,9 +21,9 @@ export const API_BASE = "https://api.etherscan.io/v2/api";
  * listed chain from the SAME host (api.etherscan.io, `?chainid=`), so every
  * entry here stays CSP-compatible (connect-src is api.etherscan.io only) —
  * never add a chain that isn't on that list. See
- * .superpowers/sdd/more-evm-report.md for full sourcing notes, including one
- * chain (Fantom, id 250) kept for backward-compat despite no longer being
- * served by v2 — see the inline note below.
+ * .superpowers/sdd/more-evm-report.md for full sourcing notes. Fantom (chainid
+ * 250) is NOT on this list — it rebranded to Sonic (chainid 146, native "S"),
+ * which is the live entry below — so it is intentionally absent here.
  * @typedef {{ id:number, name:string, explorer:string, native:string }} Chain
  * @type {Chain[]}
  */
@@ -36,15 +36,7 @@ export const CHAINS = [
   { id: 42161,    name: "Arbitrum One",       explorer: "arbiscan.io",               native: "ETH" },
   { id: 10,       name: "Optimism",           explorer: "optimistic.etherscan.io",   native: "ETH" },
   { id: 8453,     name: "Base",               explorer: "basescan.org",              native: "ETH" },
-  { id: 43114,    name: "Avalanche C-Chain",  explorer: "snowtrace.io",              native: "AVAX" },
-  // NOTE: chainid 250 (Fantom) is NO LONGER on the Etherscan v2 chainlist — a
-  // live probe (api.etherscan.io/v2/api?chainid=250) returns "unsupported
-  // chainid". Fantom rebranded to Sonic (chainid 146, native "S", added
-  // below), which IS live on v2. Kept here for backward-compat (existing
-  // workspaces/bookmarks referencing id 250) rather than silently dropped;
-  // scans against it will fail with an API error until/unless Etherscan
-  // re-adds it. See the report for detail.
-  { id: 250,      name: "Fantom",             explorer: "ftmscan.com",               native: "FTM" },
+  { id: 43114,    name: "Avalanche C-Chain",  explorer: "snowscan.xyz",              native: "AVAX" },
 
   // --- Etherscan v2 chainlist: additional mainnets --------------------------
   { id: 59144,    name: "Linea",              explorer: "lineascan.build",           native: "ETH" },
