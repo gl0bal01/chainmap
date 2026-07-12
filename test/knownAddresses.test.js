@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { loadKnownAddresses, knownLabel, knownCategory } from "../src/knownAddresses.js";
+import { loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress } from "../src/knownAddresses.js";
 
 const DATA = {
   "1": {
@@ -30,4 +30,42 @@ test("knownCategory returns category for known addr, null otherwise", () => {
   expect(knownCategory("0x0000000000000000000000000000000000000009", 1, CAT_DATA)).toBeNull();
   expect(knownCategory("0xabc0000000000000000000000000000000000001", 137, CAT_DATA)).toBeNull();
   expect(knownLabel("0xabc0000000000000000000000000000000000001", 1, CAT_DATA)).toBe("Tornado");
+});
+
+const MULTI_DATA = {
+  "1": { "0xabc0000000000000000000000000000000000001": { label: "Tornado Cash", category: "mixer" } },
+  "56": { "0xabc0000000000000000000000000000000000001": { label: "Tornado Cash (BSC)", category: "mixer" } },
+  "137": { "0x0000000000000000000000000000000000000002": { label: "Other", category: "exchange" } },
+};
+
+test("chainsForKnownAddress: single hit has correct chainId (number)/label/category", () => {
+  const hits = chainsForKnownAddress("0xabc0000000000000000000000000000000000001", CAT_DATA);
+  expect(hits).toEqual([{ chainId: 1, label: "Tornado", category: "mixer" }]);
+  expect(hits[0].chainId).toBe(1);
+  expect(typeof hits[0].chainId).toBe("number");
+});
+
+test("chainsForKnownAddress: address present on two chains returns both hits", () => {
+  const hits = chainsForKnownAddress("0xabc0000000000000000000000000000000000001", MULTI_DATA);
+  expect(hits).toHaveLength(2);
+  expect(hits).toEqual([
+    { chainId: 1, label: "Tornado Cash", category: "mixer" },
+    { chainId: 56, label: "Tornado Cash (BSC)", category: "mixer" },
+  ]);
+});
+
+test("chainsForKnownAddress: unknown address returns []", () => {
+  expect(chainsForKnownAddress("0x0000000000000000000000000000000000000009", MULTI_DATA)).toEqual([]);
+});
+
+test("chainsForKnownAddress: case-insensitive (uppercase input matches lowercased key)", () => {
+  const hits = chainsForKnownAddress("0xABC0000000000000000000000000000000000001", CAT_DATA);
+  expect(hits).toEqual([{ chainId: 1, label: "Tornado", category: "mixer" }]);
+});
+
+test("chainsForKnownAddress: null/empty data or address returns []", () => {
+  expect(chainsForKnownAddress("0xabc0000000000000000000000000000000000001", null)).toEqual([]);
+  expect(chainsForKnownAddress("0xabc0000000000000000000000000000000000001", {})).toEqual([]);
+  expect(chainsForKnownAddress("", CAT_DATA)).toEqual([]);
+  expect(chainsForKnownAddress(null, CAT_DATA)).toEqual([]);
 });

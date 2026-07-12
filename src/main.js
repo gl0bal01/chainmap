@@ -16,7 +16,7 @@ import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
 import { isValidAddress, isFailedTx, shortAddress } from "./format.js";
-import { loadKnownAddresses, knownLabel, knownCategory } from "./knownAddresses.js";
+import { loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
 import { classifyHubs } from "./sinkFaucet.js";
@@ -639,6 +639,23 @@ async function startDetectChain() {
     }
     return;
   }
+
+  // No-API shortcut: a known labeled address already tells us its chain(s) locally.
+  const localHits = chainsForKnownAddress(address, knownData);
+  if (localHits.length) {
+    const nameOf = (id) => (CHAINS.find((c) => String(c.id) === String(id)) || {}).name || String(id);
+    const hit = localHits[0]; // first-listed chain wins
+    $("chainSelect").value = String(hit.chainId);
+    $("chainSelect").dispatchEvent(new Event("change"));
+    const chains = localHits.map((h) => nameOf(h.chainId)).join(", ");
+    logger.log({ level: "info", key: "detect.localHit", params: { label: hit.label, chains } });
+    if (el) {
+      el.className = "detect ok";
+      el.textContent = t("detect.localHit", { label: hit.label, chains });
+    }
+    return;
+  }
+
   const apiKey = $("apiKey").value.trim();
   if (!apiKey) {
     logger.log({ level: "error", key: "error.apiKeyRequired" });
