@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **268 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **321 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -75,15 +75,15 @@ multichaîne unifié).
   de risque par nœud *explicable*.
 - **Signaux de risque par arête** — approbations illimitées/globales, destinataire réel
   caché, et contreparties mixeur/pont/sanctionné sont signalés dans le panneau de détails de
-  l'arête et mis en évidence sur le graphe (rouge ambré, pointillé, ⚠). **Des signaux, pas
+  l'arête et mis en évidence sur le graphe en deux niveaux visuels : danger (mixeur/pont/sanctionné, rouge ⚠) vs informatif (approbations/destinataire-caché, ambre ⓘ). **Des signaux, pas
   des verdicts** — recoupez toujours avant de conclure.
 - **Détecteur de chaîne** — collez n'importe quelle adresse ; il indique la famille de chaîne
-  (ou non-EVM) avant même de scanner.
+  (ou non-EVM) par format. Cliquez ensuite sur **Détecter la chaîne** pour explorer ~12 chaînes populaires en quête d'activité on-chain et auto-sélectionner celle où l'adresse est la plus active, en montrant où elle est aussi active.
 - **Exports** — PNG, PDF et CSV (avec la mise en garde d'échantillonnage intégrée, plus les
   colonnes méthode décodée, destinataire réel, montant décodé et signaux de risque par
   arête). Sauvegarde / chargement d'espaces de travail.
 - **Navigation au clavier** — Ctrl/Cmd+Flèche déplace la sélection vers le nœud le plus
-  proche dans cette direction.
+  proche dans cette direction. **Palette de commandes Ctrl/Cmd+K** — cherchez des nœuds par adresse / alias / libellé connu / catégorie et des transactions par hash / méthode (classement hybride substring + fuzzy) ; choisir un résultat le met au centre, le sélectionne et l'affiche automatiquement s'il était masqué par un filtre/hub-hide.
 - **Honnête par conception** — montants en entiers (jamais de virgule flottante), tx
   échouées écartées, échantillonnage signalé partout. La mise en garde d'échantillonnage
   s'applique à toutes les fonctionnalités ci-dessus : superpositions, signaux et détection
@@ -150,7 +150,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 268 tests unitaires + d'intégration
+bun test        # 321 tests unitaires + d'intégration
 ```
 
 `bun test` couvre les modules sans DOM (arithmétique des montants, clés de déduplication,
@@ -163,8 +163,7 @@ bibliothèques vendorisées (SRI + SHA-256) à chaque push.
 
 ## Chaînes prises en charge
 
-Ethereum · Sepolia (testnet) · BNB Chain · Polygon · Arbitrum One · Optimism · Base ·
-Avalanche C-Chain · Fantom. En ajouter une = une seule entrée dans `src/config.js`.
+Toutes les 64 chaînes Etherscan v2 (Ethereum, L2s comme Base/Arbitrum/Optimism/Linea/Blast, chaînes latérales comme BNB/Polygon/Gnosis/Avalanche, Sonic, et ~30 testnets). Une clé API fonctionne partout — Etherscan v2 est un point d'accès multichaîne unifié. Chaque chaîne porte son **symbole de monnaie native** (les tx natives affichent donc BNB/POL/AVAX/S/… au lieu de « ETH » partout). En ajouter une = une seule entrée dans `src/config.js` (`{id, name, explorer, native}`, validée contre la liste de chaînes Etherscan v2).
 
 ## Crédits
 
