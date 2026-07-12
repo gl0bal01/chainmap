@@ -227,4 +227,11 @@ export default {
   // --- prompts --------------------------------------------------------------
   "alias.prompt": "Alias for {addr}:",
   "alias.notePrompt": "Note text:",
+
+  // --- command palette (Ctrl/Cmd+K) ------------------------------------------
+  "palette.placeholder": "Search address, label, tx…",
+  "palette.noResults": "No matches",
+  "palette.kindNode": "node",
+  "palette.kindEdge": "tx",
+  "palette.revealed": "Revealed hidden node {addr}",
 };

@@ -25,11 +25,13 @@ import { findPeelChains } from "./peelChain.js";
 import { scoreNode } from "./riskScore.js";
 import { flagsForEdge } from "./riskFlags.js";
 import { detectAddress } from "./blockchainDetect.js";
+import { methodName } from "./selectors.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
 import { runScan, selectedTypes } from "./scanner.js";
 import { createGraphView } from "./render/network.js";
+import { createPalette } from "./render/palette.js";
 import { attachInteractions, rotateGraph, selectHighDegree } from "./render/interaction.js";
 import { exportPng, exportPdf, exportCsv, triggerDownload } from "./render/export.js";
 import {
@@ -349,6 +351,84 @@ function promptAlias(address) {
   if (currentDetail && currentDetail.kind === "node" && currentDetail.id === address) {
     showNodeDetails(address);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Command palette (Ctrl/Cmd+K) — search the graph, jump to a match
+// ---------------------------------------------------------------------------
+// Build the ranked-search record list on demand (called on every keystroke via
+// palette.js) so it always reflects the CURRENT store + chain-scoped labels —
+// no separate index to keep in sync.
+function buildSearchRecords() {
+  const chainId = $("chainSelect").value;
+  const records = [];
+  for (const node of store.listNodes()) {
+    const alias = store.getAlias(node.address);
+    const known = knownLabel(node.address, chainId, knownData);
+    const category = knownCategory(node.address, chainId, knownData);
+    records.push({
+      kind: "node",
+      id: node.address,
+      title: alias || known || shortAddress(node.address),
+      subtitle: node.address,
+      text: [alias, known, category].filter(Boolean).map((s) => s.toLowerCase()),
+      hex: [node.address],
+    });
+  }
+  for (const edge of store.listEdges()) {
+    const method = methodName(edge.methodId);
+    records.push({
+      kind: "edge",
+      id: edge.key,
+      title: method || `${edge.symbol} tx`,
+      subtitle: `${shortAddress(edge.from)} → ${shortAddress(edge.to)}`,
+      text: [method].filter(Boolean).map((s) => s.toLowerCase()),
+      hex: [edge.hash].filter(Boolean),
+    });
+  }
+  return records;
+}
+
+// Best-effort auto-reveal for a palette jump-to: only clears the display
+// projection — the store is untouched, so CSV/detail data stays complete (same
+// invariant as the manual "Hide faucets/sinks" checkboxes). No-op if the node
+// is already visible.
+function revealNode(address) {
+  if (view.hasRenderedNode(address)) return;
+
+  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) {
+    $("hideFaucetsChk").checked = false;
+    $("hideSinksChk").checked = false;
+    syncHubHidden();
+  }
+
+  if (!view.hasRenderedNode(address)) {
+    $("minAmount").value = 0;
+    $("hideZeroToggle").checked = false;
+    $("hideSpamToggle").checked = false;
+    $("dateFrom").value = "";
+    $("dateTo").value = "";
+    applyDisplayOptions();
+  }
+
+  logger.log({ level: "info", key: "palette.revealed", params: { addr: shortAddress(address) } });
+}
+
+// palette.js's onPick: reveal (if needed), select, focus/fit, open details.
+function revealAndFocus(record) {
+  if (record.kind === "node") {
+    revealNode(record.id);
+    view.focusNode(record.id);
+    showNodeDetails(record.id);
+    return;
+  }
+  const edge = store.listEdges().find((e) => e.key === record.id);
+  if (!edge) return;
+  revealNode(edge.from);
+  revealNode(edge.to);
+  view.network.setSelection({ nodes: [], edges: [record.id] });
+  showEdgeDetails(record.id);
+  view.fit({ nodes: [edge.from, edge.to], animation: { duration: 400, easingFunction: "easeInOutQuad" } });
 }
 
 // ---------------------------------------------------------------------------
@@ -729,6 +809,8 @@ function init() {
     onAliasEdit: promptAlias,
     onLog: (e) => logger.log(e),
   });
+
+  createPalette({ i18n, getRecords: buildSearchRecords, onPick: revealAndFocus });
 
   wireControls();
   wirePanels();

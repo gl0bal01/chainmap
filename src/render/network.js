@@ -36,6 +36,8 @@ import { edgeSeverity } from "../riskFlags.js";
  * @property {()=>void} refreshLabels
  * @property {()=>void} refreshProjection            recompute widths + filtered views
  * @property {(opts:DisplayOptions)=>void} setDisplayOptions
+ * @property {(address:string)=>boolean} hasRenderedNode is this node currently visible?
+ * @property {(address:string)=>void} focusNode select + center a visible node (no-op if hidden)
  * @property {()=>void} destroy
  */
 
@@ -354,6 +356,20 @@ export function createGraphView(container, store, deps) {
     nodesView.refresh();
   }
 
+  /** True iff `address` is currently visible in the (filtered) node view — used
+   *  by the command palette to decide whether a jump-to needs an auto-reveal. */
+  function hasRenderedNode(address) {
+    return nodesView.get(address) != null;
+  }
+
+  /** Select + center a node the palette jumped to. No-op (no throw) if the node
+   *  isn't currently in the view — caller reveals it first. */
+  function focusNode(address) {
+    if (nodesView.get(address) == null) return;
+    network.selectNodes([address]);
+    network.focus(address, { scale: network.getScale(), animation: true });
+  }
+
   function addAnnotationAt(text, x, y) {
     const id = `note:${annCounter++}`;
     const ann = { id, text: String(text), x: x || 0, y: y || 0 };
@@ -457,6 +473,8 @@ export function createGraphView(container, store, deps) {
     setColorByAge,
     refreshHubs,
     setHubHidden,
+    hasRenderedNode,
+    focusNode,
     addAnnotation,
     clearAnnotations,
     getAnnotations,

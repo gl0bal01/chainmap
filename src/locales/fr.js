@@ -226,4 +226,11 @@ export default {
   // --- prompts --------------------------------------------------------------
   "alias.prompt": "Alias pour {addr} :",
   "alias.notePrompt": "Texte de la note :",
+
+  // --- palette de commandes (Ctrl/Cmd+K) -------------------------------------
+  "palette.placeholder": "Rechercher adresse, label, tx…",
+  "palette.noResults": "Aucun résultat",
+  "palette.kindNode": "nœud",
+  "palette.kindEdge": "tx",
+  "palette.revealed": "Nœud masqué révélé {addr}",
 };
