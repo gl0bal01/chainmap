@@ -274,6 +274,45 @@ test("edge details render an interpolated call summary + risk flags for calldata
   expect(container.textContent).toContain("spender"); // decoded arg uses its named role, not "#1 address"
 });
 
+test("edge details format decoded amounts using the edge's real token decimals, never a silent 18 default", async () => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+
+  // transfer(recipient, amount) of 5,000,000 base units of a 6-decimal token (USDC-like) == 5 tokens.
+  // If tokenDecimal were lost off the edge (undefined -> formatUnits silently assumes 18), this would
+  // render as "0.000005" (5000000 / 1e18) instead of the true "5" — a confidently WRONG magnitude.
+  const baseEdge = {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N4, hash: "0x1",
+    symbol: "USDC", amountText: "5", amountIndeterminate: false, tokenContract: TOKEN, tokenId: "",
+    value: "5000000", timeStamp: "1700000000", blockNumber: "1",
+    hasData: true, methodId: "0xa9059cbb",
+    methodArgs: [
+      { type: "address", value: N4, name: "recipient" },
+      { type: "uint256", value: "5000000", name: "amount" },
+    ],
+  };
+
+  // Known decimals ("6", as graphStore.addEdge now persists from tx.tokenDecimal) -> correct
+  // magnitude in both the decoded-arg row and the interpolated call summary.
+  const known = document.createElement("div");
+  ui.renderEdgeDetails(known, { ...baseEdge, tokenDecimal: "6" }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+  expect(known.textContent).toContain("5.000000 USDC"); // decoded arg row: correct 6-decimal magnitude (ui.js uses raw formatUnits text, untrimmed)
+  expect(known.textContent).toContain("Transfer 5.000000 USDC"); // summary row: correct 6-decimal magnitude
+  expect(known.textContent).not.toContain("0.000000 USDC"); // NOT the wrong 18-decimal magnitude (5000000 base units / 1e18 rounds to 0 at 6 fractional digits)
+
+  // Unknown decimals ("", as graphStore.addEdge persists when tx.tokenDecimal is absent) -> honest
+  // raw fallback in both spots, never a silently-wrong 18-decimal number.
+  const unknown = document.createElement("div");
+  ui.renderEdgeDetails(unknown, { ...baseEdge, tokenDecimal: "" }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+  expect(unknown.textContent).toContain("5000000 (raw)"); // decoded arg row: raw, not formatted
+  expect(unknown.textContent).toContain("Transfer 5000000"); // summary row: raw, not formatted
+  expect(unknown.textContent).not.toContain("0.000000 USDC"); // NOT the wrong 18-decimal magnitude
+  expect(unknown.textContent).not.toContain("5.000000 USDC"); // NOT the (unrelated) correct 6-decimal magnitude either
+});
+
 test("workspace serialize -> parse -> loadSnapshot round-trips through the store", async () => {
   const { GraphStore } = await import("../src/graphStore.js");
   const { serializeWorkspace, parseWorkspace } = await import("../src/workspace.js");

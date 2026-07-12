@@ -204,7 +204,7 @@ export function renderEdgeDetails(container, edge, deps) {
       if (a.type === "address") {
         val = resolveAddr(a.value, deps);
       } else if (/^u?int/.test(a.type) && /amount|value/i.test(a.name || "")) {
-        const f = formatUnits(a.value, edge.tokenDecimal); // edge.tokenDecimal may be undefined -> 18
+        const f = formatUnits(a.value, edge.tokenDecimal); // edge.tokenDecimal is "" for native/unknown -> indeterminate (never a silent 18)
         val = f.indeterminate ? `${a.value} (raw)` : `${f.text} ${edge.symbol || ""}`.trim();
       }
       table.appendChild(detailRow(key, val));
