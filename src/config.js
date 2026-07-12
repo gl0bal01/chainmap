@@ -13,20 +13,100 @@ export const API_BASE = "https://api.etherscan.io/v2/api";
 /**
  * Supported chains. `explorer` is used ONLY to build outbound address/tx links
  * (block-explorer navigation, never fetched). `name` is a proper noun — not
- * translated.
- * @typedef {{ id:number, name:string, explorer:string }} Chain
+ * translated. `native` is the chain's native currency ticker (shown on edges
+ * for value transfers that aren't a token, via graphStore.setNativeSymbol).
+ *
+ * Sourced from the Etherscan v2 unified chainlist (https://api.etherscan.io/v2/chainlist,
+ * fetched 2026-07-12; totalcount 64, all status:1). Etherscan v2 serves every
+ * listed chain from the SAME host (api.etherscan.io, `?chainid=`), so every
+ * entry here stays CSP-compatible (connect-src is api.etherscan.io only) —
+ * never add a chain that isn't on that list. See
+ * .superpowers/sdd/more-evm-report.md for full sourcing notes. Fantom (chainid
+ * 250) is NOT on this list — it rebranded to Sonic (chainid 146, native "S"),
+ * which is the live entry below — so it is intentionally absent here.
+ * @typedef {{ id:number, name:string, explorer:string, native:string }} Chain
  * @type {Chain[]}
  */
 export const CHAINS = [
-  { id: 1,        name: "Ethereum",           explorer: "etherscan.io" },
-  { id: 11155111, name: "Sepolia (testnet)",  explorer: "sepolia.etherscan.io" },
-  { id: 56,       name: "BNB Chain",          explorer: "bscscan.com" },
-  { id: 137,      name: "Polygon",            explorer: "polygonscan.com" },
-  { id: 42161,    name: "Arbitrum One",       explorer: "arbiscan.io" },
-  { id: 10,       name: "Optimism",           explorer: "optimistic.etherscan.io" },
-  { id: 8453,     name: "Base",               explorer: "basescan.org" },
-  { id: 43114,    name: "Avalanche C-Chain",  explorer: "snowtrace.io" },
-  { id: 250,      name: "Fantom",             explorer: "ftmscan.com" },
+  // --- curated originals (pre-dating this expansion) ------------------------
+  { id: 1,        name: "Ethereum",           explorer: "etherscan.io",              native: "ETH" },
+  { id: 11155111, name: "Sepolia (testnet)",  explorer: "sepolia.etherscan.io",      native: "ETH" },
+  { id: 56,       name: "BNB Chain",          explorer: "bscscan.com",               native: "BNB" },
+  { id: 137,      name: "Polygon",            explorer: "polygonscan.com",           native: "POL" },
+  { id: 42161,    name: "Arbitrum One",       explorer: "arbiscan.io",               native: "ETH" },
+  { id: 10,       name: "Optimism",           explorer: "optimistic.etherscan.io",   native: "ETH" },
+  { id: 8453,     name: "Base",               explorer: "basescan.org",              native: "ETH" },
+  { id: 43114,    name: "Avalanche C-Chain",  explorer: "snowscan.xyz",              native: "AVAX" },
+
+  // --- Etherscan v2 chainlist: additional mainnets --------------------------
+  { id: 59144,    name: "Linea",              explorer: "lineascan.build",           native: "ETH" },
+  { id: 81457,    name: "Blast",              explorer: "blastscan.io",              native: "ETH" },
+  { id: 199,      name: "BitTorrent Chain",   explorer: "bttcscan.com",              native: "BTT" },
+  { id: 42220,    name: "Celo",               explorer: "celoscan.io",               native: "CELO" },
+  // Fraxtal's gas token changed from frxETH to FRAX in the "North Star"
+  // upgrade (2026-04-29); FRAX is current as of this fetch.
+  { id: 252,      name: "Fraxtal",            explorer: "fraxscan.com",              native: "FRAX" },
+  { id: 100,      name: "Gnosis",             explorer: "gnosisscan.io",             native: "XDAI" },
+  { id: 5000,     name: "Mantle",             explorer: "mantlescan.xyz",            native: "MNT" },
+  { id: 4352,     name: "MemeCore",           explorer: "memecorescan.io",           native: "M" },
+  { id: 1284,     name: "Moonbeam",           explorer: "moonbeam.moonscan.io",      native: "GLMR" },
+  { id: 1285,     name: "Moonriver",          explorer: "moonriver.moonscan.io",     native: "MOVR" },
+  { id: 204,      name: "opBNB",              explorer: "opbnb.bscscan.com",         native: "BNB" },
+  { id: 167000,   name: "Taiko",              explorer: "taikoscan.io",              native: "ETH" },
+  { id: 50,       name: "XDC Network",        explorer: "xdcscan.com",               native: "XDC" },
+  { id: 33139,    name: "ApeChain",           explorer: "apescan.io",                native: "APE" },
+  { id: 480,      name: "World Chain",        explorer: "worldscan.org",             native: "ETH" },
+  { id: 146,      name: "Sonic",              explorer: "sonicscan.org",             native: "S" },
+  { id: 130,      name: "Unichain",           explorer: "uniscan.xyz",               native: "ETH" },
+  { id: 2741,     name: "Abstract",           explorer: "abscan.org",                native: "ETH" },
+  { id: 80094,    name: "Berachain",          explorer: "berascan.com",              native: "BERA" },
+  { id: 143,      name: "Monad",              explorer: "monadscan.com",             native: "MON" },
+  { id: 999,      name: "HyperEVM",           explorer: "hyperevmscan.io",           native: "HYPE" },
+  // Katana has a separate governance token (KAT) but gas is paid in ETH.
+  { id: 747474,   name: "Katana",             explorer: "katanascan.com",            native: "ETH" },
+  { id: 1329,     name: "Sei",                explorer: "seiscan.io",                native: "SEI" },
+  // Chainlist marks this "Coming soon" as of fetch date; USDT-native L1 by
+  // design (Tether/Bitfinex-backed "Stablechain").
+  { id: 988,      name: "Stable",             explorer: "stablescan.xyz",            native: "USDT" },
+  { id: 9745,     name: "Plasma",             explorer: "plasmascan.to",             native: "XPL" },
+  // Lower-confidence: MegaETH is an Ethereum L2; its MEGA token (TGE'd
+  // 2026-04-30) funds staking/governance, but public sources didn't confirm
+  // gas was switched off ETH by fetch date. Testnet is confirmed ETH-gas
+  // (see below), so ETH is used here as the documented L2 default.
+  { id: 4326,     name: "MegaETH",            explorer: "mega.etherscan.io",         native: "ETH" },
+
+  // --- Etherscan v2 chainlist: additional testnets ---------------------------
+  { id: 560048,   name: "Hoodi (testnet)",              explorer: "hoodi.etherscan.io",             native: "ETH" },
+  { id: 97,       name: "BNB Chain (testnet)",          explorer: "testnet.bscscan.com",            native: "BNB" },
+  { id: 80002,    name: "Polygon Amoy (testnet)",       explorer: "amoy.polygonscan.com",           native: "POL" },
+  { id: 84532,    name: "Base Sepolia (testnet)",       explorer: "sepolia.basescan.org",           native: "ETH" },
+  { id: 421614,   name: "Arbitrum Sepolia (testnet)",   explorer: "sepolia.arbiscan.io",            native: "ETH" },
+  { id: 59141,    name: "Linea Sepolia (testnet)",      explorer: "sepolia.lineascan.build",        native: "ETH" },
+  { id: 168587773, name: "Blast Sepolia (testnet)",     explorer: "sepolia.blastscan.io",           native: "ETH" },
+  { id: 11155420, name: "Optimism Sepolia (testnet)",   explorer: "sepolia-optimism.etherscan.io",  native: "ETH" },
+  { id: 43113,    name: "Avalanche Fuji (testnet)",     explorer: "testnet.snowscan.xyz",           native: "AVAX" },
+  { id: 1029,     name: "BitTorrent Chain (testnet)",   explorer: "testnet.bttcscan.com",           native: "BTT" },
+  { id: 11142220, name: "Celo Sepolia (testnet)",       explorer: "sepolia.celoscan.io",            native: "CELO" },
+  { id: 2523,     name: "Fraxtal Hoodi (testnet)",      explorer: "hoodi.fraxscan.com",             native: "FRAX" },
+  { id: 5003,     name: "Mantle Sepolia (testnet)",     explorer: "sepolia.mantlescan.xyz",         native: "MNT" },
+  { id: 43522,    name: "MemeCore Insectarium (testnet)", explorer: "testnet.memecorescan.io",      native: "M" },
+  // Moonbeam's testnet has its own faucet-issued token (DEV), NOT GLMR.
+  { id: 1287,     name: "Moonbase Alpha (testnet)",     explorer: "moonbase.moonscan.io",           native: "DEV" },
+  { id: 5611,     name: "opBNB (testnet)",              explorer: "opbnb-testnet.bscscan.com",      native: "BNB" },
+  { id: 167013,   name: "Taiko Hoodi (testnet)",        explorer: "hoodi.taikoscan.io",             native: "ETH" },
+  { id: 51,       name: "XDC Apothem (testnet)",        explorer: "testnet.xdcscan.com",            native: "XDC" },
+  { id: 33111,    name: "ApeChain Curtis (testnet)",    explorer: "curtis.apescan.io",              native: "APE" },
+  { id: 4801,     name: "World Sepolia (testnet)",      explorer: "sepolia.worldscan.org",          native: "ETH" },
+  { id: 14601,    name: "Sonic (testnet)",              explorer: "testnet.sonicscan.org",          native: "S" },
+  { id: 1301,     name: "Unichain Sepolia (testnet)",   explorer: "sepolia.uniscan.xyz",            native: "ETH" },
+  { id: 11124,    name: "Abstract Sepolia (testnet)",   explorer: "sepolia.abscan.org",             native: "ETH" },
+  { id: 80069,    name: "Berachain Bepolia (testnet)",  explorer: "testnet.berascan.com",           native: "BERA" },
+  { id: 10143,    name: "Monad (testnet)",              explorer: "testnet.monadscan.com",          native: "MON" },
+  { id: 737373,   name: "Katana Bokuto (testnet)",      explorer: "bokuto.katanascan.com",          native: "ETH" },
+  { id: 1328,     name: "Sei (testnet)",                explorer: "testnet.seiscan.io",             native: "SEI" },
+  { id: 2201,     name: "Stable (testnet)",             explorer: "testnet.stablescan.xyz",         native: "USDT" },
+  { id: 9746,     name: "Plasma (testnet)",             explorer: "testnet.plasmascan.to",          native: "XPL" },
+  { id: 6343,     name: "MegaETH (testnet)",            explorer: "testnet-mega.etherscan.io",      native: "ETH" },
 ];
 
 /**

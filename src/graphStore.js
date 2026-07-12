@@ -30,7 +30,7 @@ import { decodeCall } from "./abiDecode.js";
  * @property {string}  from                lowercased
  * @property {string}  to                  lowercased
  * @property {string}  hash
- * @property {string}  symbol              display symbol ("ETH" / tokenSymbol, raw)
+ * @property {string}  symbol              display symbol (chain's native symbol / tokenSymbol, raw)
  * @property {string}  tokenContract       "" for native
  * @property {string}  tokenId             "" unless ERC-721/1155
  * @property {string}  value               raw base-unit integer string
@@ -81,6 +81,22 @@ export class GraphStore {
     this._edgeKeys = new Set();
     /** @type {Set<(e:StoreEvent)=>void>} subscribers */
     this._subs = new Set();
+    // Native-currency ticker for edges with no tokenSymbol (plain value
+    // transfers). A graph is single-chain per scan, so a store-level setting
+    // is correct — the caller (main.js) sets this from CHAINS[].native right
+    // before a scan starts. Defaults to "ETH" for backward-compat (workspace
+    // snapshots restore their own baked-in per-edge symbol and are
+    // unaffected by this field either way).
+    this._nativeSymbol = "ETH";
+  }
+
+  /**
+   * Set the native-currency ticker used by subsequent {@link addEdge} calls
+   * for non-token transfers. Falls back to "ETH" on empty/nullish input.
+   * @param {string} sym
+   */
+  setNativeSymbol(sym) {
+    this._nativeSymbol = sym && String(sym).trim() ? String(sym).trim() : "ETH";
   }
 
   /**
@@ -159,7 +175,7 @@ export class GraphStore {
       from: lc(from),
       to: lc(to),
       hash: tx.hash || "",
-      symbol: tx.tokenSymbol || "ETH",
+      symbol: tx.tokenSymbol || this._nativeSymbol,
       tokenContract: tx.contractAddress || "",
       tokenId: tx.tokenID || "",
       value: tx.value || "0",
