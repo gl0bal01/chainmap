@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **268 unit/integration tests** on the DOM-free core.
+- **321 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -71,14 +71,13 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   *explainable* per-node risk score.
 - **Per-edge risk flags** — unlimited/blanket approvals, a hidden real recipient, and
   mixer/bridge/sanctioned counterparties are called out in the edge details panel and
-  escalated on the graph (amber-red, dashed, ⚠). **Signals, not verdicts** — always
+  escalated on the graph in two visual tiers: danger (mixer/bridge/sanctioned, red ⚠) vs informational (approvals/hidden-recipient, amber ⓘ). **Signals, not verdicts** — always
   corroborate before you conclude.
-- **Chain detector** — paste any address; it tells you the chain family (or non-EVM) before
-  you scan.
+- **Chain detector** — paste any address; it tells you the chain family (or non-EVM) by format. Then click **Detect chain** to probe ~12 popular chains for on-chain activity and auto-select the one where the address is most active, showing where else it's active.
 - **Exports** — PNG, PDF, and CSV (with a sampling caveat baked in, plus decoded method,
   real recipient, decoded amount, and risk-flag columns per edge). Save/load workspaces.
 - **Keyboard navigation** — Ctrl/Cmd+Arrow jumps selection to the nearest node in that
-  direction.
+  direction. **Ctrl/Cmd+K command palette** — search nodes by address / alias / known-label / category and transactions by hash / method (hybrid substring + fuzzy ranking); picking a result focuses + selects it and auto-reveals it if hidden by a filter/hub-hide.
 - **Honest by design** — big-integer amounts (never floating point), failed txs dropped,
   and sampling surfaced everywhere. The sampling caveat applies to every feature above:
   overlays, flags, and hub/peel-chain detection only ever see the sampled graph, never full
@@ -141,7 +140,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 268 unit + integration tests
+bun test        # 321 unit + integration tests
 ```
 
 `bun test` covers the DOM-free modules (amount math, dedup keys, BFS guards, failed-tx
@@ -153,8 +152,7 @@ suite and a vendor-integrity check (SRI + SHA-256) on every push.
 
 ## Supported chains
 
-Ethereum · Sepolia (testnet) · BNB Chain · Polygon · Arbitrum One · Optimism · Base ·
-Avalanche C-Chain · Fantom. Add one = a single entry in `src/config.js`.
+All 64 Etherscan v2 chains (Ethereum, L2s like Base/Arbitrum/Optimism/Linea/Blast, sidechains like BNB/Polygon/Gnosis/Avalanche, Sonic, and ~30 testnets). One API key works across all — Etherscan v2 is a unified multichain endpoint. Each chain carries its **native currency symbol** (so native txs show BNB/POL/AVAX/S/… not "ETH" everywhere). Add one = a single entry in `src/config.js` (`{id, name, explorer, native}`, validated against Etherscan v2's chainlist).
 
 ## Credits
 
