@@ -127,6 +127,7 @@ export default {
   "details.empty": "Cliquez sur un nœud ou une flèche du graphe.",
   "details.alias": "Alias",
   "details.address": "Adresse",
+  "details.source": "Source",
   "details.depth": "Profondeur",
   "details.root": "Racine",
   "details.link": "Lien",

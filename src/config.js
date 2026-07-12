@@ -197,3 +197,17 @@ export const DATA_PATHS = {
   spamTokens: "./data/spam-tokens.json",
   demo: "./data/demo-workspace.json",
 };
+
+/** Canonical known-address category vocabulary. Every `category` in
+ *  data/known-addresses.json must be one of these (enforced by
+ *  test/knownAddressesData.test.js). Adding a category = one entry here. */
+export const KNOWN_CATEGORIES = [
+  "exchange",
+  "router",
+  "bridge",
+  "burn",
+  "mixer",
+  "contract",
+  "sanctioned",
+  "other",
+];

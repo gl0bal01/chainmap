@@ -15,9 +15,11 @@ known-address labeling (exchanges / routers / bridges) with no network lookup.
 }
 ```
 
-Field contract: `{ label: string, category: string }`. `category` is one of
-`exchange | router | bridge | burn | mixer | contract | other` (free-form until
-Stage D fixes the enum).
+Field contract: `{ label: string, category: string, source?: string, added?: string }`.
+`category` is one of the enumerated values in `KNOWN_CATEGORIES` (see `src/config.js`).
+`source` and `added` are optional provenance fields.
+
+**This is a dated, hand-curated snapshot of publicly documented addresses — not an authoritative or live OFAC feed. Verify against the live OFAC SDN list before acting on any `sanctioned` label.**
 
 ## `spam-tokens.json`
 

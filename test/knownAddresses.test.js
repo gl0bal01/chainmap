@@ -69,3 +69,22 @@ test("chainsForKnownAddress: null/empty data or address returns []", () => {
   expect(chainsForKnownAddress("", CAT_DATA)).toEqual([]);
   expect(chainsForKnownAddress(null, CAT_DATA)).toEqual([]);
 });
+
+const EXT_DATA = {
+  "1": {
+    "0xabc0000000000000000000000000000000000001": {
+      label: "Tornado Cash: 100 ETH",
+      category: "mixer",
+      source: "OFAC SDN 2022-08-08",
+      added: "2026-07-12",
+    },
+  },
+};
+
+test("extended records (source/added) still resolve label/category and chains", () => {
+  expect(knownLabel("0xABC0000000000000000000000000000000000001", 1, EXT_DATA)).toBe("Tornado Cash: 100 ETH");
+  expect(knownCategory("0xabc0000000000000000000000000000000000001", 1, EXT_DATA)).toBe("mixer");
+  expect(chainsForKnownAddress("0xabc0000000000000000000000000000000000001", EXT_DATA)).toEqual([
+    { chainId: 1, label: "Tornado Cash: 100 ETH", category: "mixer" },
+  ]);
+});

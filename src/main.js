@@ -317,6 +317,11 @@ function showNodeDetails(address) {
     explorer: explorerFor($("chainSelect").value),
     onRename: promptAlias,
     risk: computeRisk(address),
+    getKnownSource: (a) => {
+      const chain = knownData[String($("chainSelect").value)];
+      const entry = chain && chain[String(a).toLowerCase()];
+      return entry && entry.source ? entry.source : null;
+    },
   });
 }
 
