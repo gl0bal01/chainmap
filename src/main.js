@@ -11,7 +11,7 @@
 // file only orchestrates — it never mutates vis DataSets directly.
 // =============================================================================
 
-import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS } from "./config.js";
+import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS } from "./config.js";
 import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
@@ -25,6 +25,7 @@ import { findPeelChains } from "./peelChain.js";
 import { scoreNode } from "./riskScore.js";
 import { flagsForEdge } from "./riskFlags.js";
 import { detectAddress } from "./blockchainDetect.js";
+import { rankChainActivity, probeChains } from "./chainProbe.js";
 import { methodName } from "./selectors.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
@@ -487,6 +488,7 @@ async function startScan() {
   $("startBtn").disabled = true;
   $("stopBtn").disabled = false;
   $("address").disabled = true;
+  $("detectChainBtn").disabled = true;
   collapseControls(); // give the map the full surface once a scan begins
 
   const banner = $("samplingBanner");
@@ -540,6 +542,7 @@ async function startScan() {
     $("stopBtn").disabled = true;
     $("stopBtn").removeEventListener("click", onStop);
     $("address").disabled = false;
+    $("detectChainBtn").disabled = false;
   }
 
   if (!summary) return; // runScan only rejects on programmer error; guard the post-scan path anyway
@@ -569,6 +572,139 @@ function resetGraph() {
   status.clear();
   clearDetails();
   $("samplingBanner").hidden = true;
+}
+
+// ---------------------------------------------------------------------------
+// Detect chain — probe a curated set of chains for on-chain activity and
+// auto-select the most active one. An EVM 0x… address is IDENTICAL across
+// every EVM chain, so this is an activity probe, not string parsing (see
+// blockchainDetect.js for the format-only EVM/non-EVM check). Honesty
+// invariant: an address can be active on several chains — this surfaces all
+// of them (ranked) and labels the auto-selected one "most active", never "the"
+// chain.
+// ---------------------------------------------------------------------------
+let detecting = false;
+let detectAbortController = null;
+
+/**
+ * Per-chain probe: does this address have ANY recent native tx or token
+ * transfer on `chainId`? A fresh client is created per candidate because
+ * createEtherscanClient binds apiKey+chainId at construction. No inner
+ * .catch here on purpose — a hard failure (network/timeout/rate-limit/
+ * invalid key) must propagate so probeChains' own try/catch can mark this
+ * chain error:true, distinguishing "errored" from "genuinely inactive" (an
+ * address with truly no txs resolves an empty array WITHOUT throwing).
+ */
+async function probeOneChain(chainId, address, signal) {
+  const apiKey = $("apiKey").value.trim();
+  const client = createEtherscanClient({ apiKey, chainId });
+  const [native, token] = await Promise.all([
+    client.fetchAction(address, "txlist", { offset: 1, page: 1, sort: "desc", signal }),
+    client.fetchAction(address, "tokentx", { offset: 1, page: 1, sort: "desc", signal }),
+  ]);
+  return { hasNativeTx: native.length > 0, hasTokenTx: token.length > 0 };
+}
+
+function resetDetectChainBtn() {
+  const btn = $("detectChainBtn");
+  btn.disabled = false;
+  btn.textContent = t("btn.detectChain");
+  btn.setAttribute("data-i18n", "btn.detectChain");
+}
+
+async function startDetectChain() {
+  // Clicking mid-probe cancels it (the button is in its Cancel state then).
+  if (detecting) {
+    if (detectAbortController) detectAbortController.abort();
+    return;
+  }
+  if (scanning) return; // don't collide with an in-progress scan
+
+  const address = $("address").value.trim();
+  const el = $("addressDetect");
+  const det = detectAddress(address);
+  if (!det.isEvm) {
+    logger.log({ level: "error", key: "detect.notEvm" });
+    if (el) {
+      el.className = "detect warn";
+      el.textContent = t("detect.notEvm");
+    }
+    return;
+  }
+  const apiKey = $("apiKey").value.trim();
+  if (!apiKey) {
+    logger.log({ level: "error", key: "error.apiKeyRequired" });
+    return;
+  }
+
+  const candidates = PROBE_CHAIN_IDS.map((id) => {
+    const c = CHAINS.find((x) => x.id === id);
+    return { chainId: id, name: c ? c.name : String(id) };
+  });
+
+  const rps = clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps);
+  const limiter = new RateLimiter(rps);
+  detectAbortController = new AbortController();
+  detecting = true;
+
+  const btn = $("detectChainBtn");
+  btn.textContent = t("btn.cancelDetect");
+  btn.setAttribute("data-i18n", "btn.cancelDetect");
+  $("startBtn").disabled = true;
+  indicator.setActive(true);
+
+  try {
+    const results = await probeChains(address, candidates, {
+      probeOne: probeOneChain,
+      limiter,
+      signal: detectAbortController.signal,
+      onProgress: (done, total) => {
+        if (el) {
+          el.className = "detect";
+          el.textContent = t("detect.progress", { done, total });
+        }
+      },
+    });
+
+    if (detectAbortController.signal.aborted) {
+      logger.log({ level: "info", key: "detect.cancelled" });
+      if (el) {
+        el.className = "detect warn";
+        el.textContent = t("detect.cancelled");
+      }
+      return;
+    }
+
+    const { ranked, best } = rankChainActivity(results);
+    if (best != null) {
+      $("chainSelect").value = String(best);
+      $("chainSelect").dispatchEvent(new Event("change"));
+      const activeNames = ranked.filter((r) => r.active).map((r) => r.name);
+      const bestCandidate = candidates.find((c) => c.chainId === best);
+      const bestName = bestCandidate ? bestCandidate.name : String(best);
+      const params = { chains: activeNames.join(", "), chain: bestName };
+      logger.log({ level: "info", key: "detect.result", params });
+      if (el) {
+        el.className = "detect ok";
+        el.textContent = t("detect.result", params);
+      }
+    } else {
+      const params = { n: candidates.length };
+      logger.log({ level: "info", key: "detect.none", params });
+      if (el) {
+        el.className = "detect warn";
+        el.textContent = t("detect.none", params);
+      }
+    }
+  } finally {
+    detecting = false;
+    detectAbortController = null;
+    $("startBtn").disabled = false;
+    // Restore the shared indicator to whatever the concurrent scan (if any)
+    // needs; only turns fully idle when nothing else is running.
+    indicator.setActive(scanning);
+    resetDetectChainBtn();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -705,6 +841,7 @@ function deleteSelectedNodes() {
 function wireControls() {
   $("startBtn").addEventListener("click", startScan);
   $("resetBtn").addEventListener("click", resetGraph);
+  $("detectChainBtn").addEventListener("click", startDetectChain);
   $("deleteNodesBtn").addEventListener("click", deleteSelectedNodes);
   $("rotateLeftBtn").addEventListener("click", () => rotateGraph(view.network, -20));
   $("rotateRightBtn").addEventListener("click", () => rotateGraph(view.network, 20));
