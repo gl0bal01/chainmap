@@ -87,6 +87,7 @@ export default {
   "btn.lang": "Français",
   "btn.hideFaucets": "Hide faucets",
   "btn.hideSinks": "Hide sinks",
+  "btn.peelChains": "Peel chains",
 
   // --- export ---------------------------------------------------------------
   "export.label": "Export:",
@@ -204,6 +205,7 @@ export default {
   "log.demoLoaded": "Demo workspace loaded (no API key needed).",
   "log.estimate": "Estimated: ~{addresses} addresses, ~{calls} API calls, ~{seconds}s at current settings.",
   "log.notesCleared": "Notes cleared.",
+  "log.peelChains": "Detected {n} peel chain(s)",
   "log.exportTooLarge": "Export too large ({pixels} pixels). Reduce the resolution or export CSV instead.",
 
   // --- errors ---------------------------------------------------------------

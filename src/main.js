@@ -21,6 +21,7 @@ import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
 import { classifyHubs } from "./sinkFaucet.js";
 import { findCycleNodes } from "./roundTrips.js";
+import { findPeelChains } from "./peelChain.js";
 import { scoreNode } from "./riskScore.js";
 import { flagsForEdge } from "./riskFlags.js";
 import { detectAddress } from "./blockchainDetect.js";
@@ -653,6 +654,12 @@ function wireControls() {
   $("hideSinksChk").addEventListener("change", applyHubHidden);
   $("roundTripToggle").addEventListener("change", () => view.setRoundTrip($("roundTripToggle").checked));
   $("ageToggle").addEventListener("change", () => view.setColorByAge($("ageToggle").checked));
+  $("peelChk").addEventListener("change", () => {
+    const on = $("peelChk").checked;
+    const chains = on ? findPeelChains(store.listEdges(), {}) : [];
+    view.setPeelChains(chains);
+    logger.log({ level: "info", key: "log.peelChains", params: { n: chains.length } });
+  });
   $("addNoteBtn").addEventListener("click", () => {
     const text = window.prompt(t("alias.notePrompt"), "");
     if (text && text.trim()) view.addAnnotation(text.trim());

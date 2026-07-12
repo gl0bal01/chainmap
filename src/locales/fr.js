@@ -86,6 +86,7 @@ export default {
   "btn.lang": "English",
   "btn.hideFaucets": "Masquer les robinets",
   "btn.hideSinks": "Masquer les puits",
+  "btn.peelChains": "Chaînes de pelage",
 
   // --- export ---------------------------------------------------------------
   "export.label": "Export :",
@@ -203,6 +204,7 @@ export default {
   "log.demoLoaded": "Espace démo chargé (aucune clé API requise).",
   "log.estimate": "Estimation : ~{addresses} adresses, ~{calls} appels API, ~{seconds}s avec les réglages actuels.",
   "log.notesCleared": "Notes effacées.",
+  "log.peelChains": "{n} chaîne(s) de pelage détectée(s)",
   "log.exportTooLarge": "Export trop volumineux ({pixels} pixels). Réduisez la résolution ou exportez en CSV.",
 
   // --- errors ---------------------------------------------------------------

@@ -100,6 +100,8 @@ export function createGraphView(container, store, deps) {
   // Investigator overlays
   let roundTripOn = false;
   let roundTripSet = new Set(); // addresses on a directed cycle
+  let peelNodes = new Set(); // addresses on a highlighted peel chain
+  const PEEL_COLOR = "#7b61ff";
   let colorByAge = false;
   let ageMin = 0;
   let ageMax = 0;
@@ -141,14 +143,16 @@ export function createGraphView(container, store, deps) {
     const dimOn = getHubDimOn ? getHubDimOn() : false; // dim-only toggle, decoupled from hide
     const bg = hub && dimOn ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs only when dim-only toggle is on
     const rt = roundTripOn && roundTripSet.has(node.address); // on a cycle -> amber ring
+    const onPeel = peelNodes.has(node.address); // on a highlighted peel chain -> violet ring (wins over round-trip)
     const cat = catFor(node.address);
     const icon = CAT_ICON[cat] || "";
     const baseTitle = hub ? `${visual.title} · ${hub}` : visual.title;
+    const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
       id: node.address,
       label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel }),
-      color: rt ? { background: bg, border: "#e8b84f" } : bg,
-      borderWidth: rt ? 3 : 1,
+      color: ringColor ? { background: bg, border: ringColor } : bg,
+      borderWidth: ringColor ? 3 : 1,
       title: icon ? `${icon} ${baseTitle}` : baseTitle,
     });
   }
@@ -268,6 +272,11 @@ export function createGraphView(container, store, deps) {
   function setRoundTrip(on) {
     roundTripOn = !!on;
     roundTripSet = roundTripOn ? findCycleNodes(store.listNodes(), store.listEdges()) : new Set();
+    store.listNodes().forEach(applyNode);
+  }
+
+  function setPeelChains(chains) {
+    peelNodes = new Set((chains || []).flat());
     store.listNodes().forEach(applyNode);
   }
 
@@ -433,6 +442,7 @@ export function createGraphView(container, store, deps) {
     getEdgeData,
     setLayout,
     setRoundTrip,
+    setPeelChains,
     setColorByAge,
     refreshHubs,
     setHubHidden,
