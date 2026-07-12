@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { findBridgeExits, matchReleases } from "../src/bridgeFollow.js";
+import { findBridgeExits, matchReleases, followBridgeExit } from "../src/bridgeFollow.js";
 
 const REG = {
   "1": {
@@ -122,5 +122,38 @@ describe("matchReleases", () => {
 
   test("empty/malformed recipient yields no matches (no '' === '' spurious match)", () => {
     expect(matchReleases({ recipient: "", amountText: "50", timeStamp: "1700000000" }, [cand({ to: "" })])).toEqual([]);
+  });
+});
+
+// Minimal fake limiter (runs fn immediately) + fake client.
+const limiter = { run: (fn) => fn() };
+function fakeClient(byAction) {
+  return { chainId: null, setChainId(id) { this.chainId = id; },
+    async fetchAction(address, action) { return (byAction[action] || []); } };
+}
+
+const EXIT4 = { recipient: "0xfeed000000000000000000000000000000000009", amountText: "50", timeStamp: "1700000000" };
+
+describe("followBridgeExit", () => {
+  test("sets dest chain, fetches recipient inbound, returns ranked candidates", async () => {
+    const client = fakeClient({
+      txlist: [{ to: "0xFEED000000000000000000000000000000000009", value: "50000000000000000000", tokenDecimal: "", timeStamp: "1700000600", hash: "0xr1" }],
+      tokentx: [],
+    });
+    const r = await followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137, offset: 20 });
+    expect(client.chainId).toBe(137);
+    expect(r).toHaveLength(1);
+    expect(r[0].hash).toBe("0xr1");
+    expect(r[0].confidence).toBe("exact"); // 50e18 / 18 decimals == 50
+  });
+
+  test("resolves [] (never throws) when a fetch errors", async () => {
+    const client = { setChainId() {}, async fetchAction() { throw new Error("boom"); } };
+    await expect(followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137 })).resolves.toEqual([]);
+  });
+
+  test("filters non-recipient inbound out via matchReleases", async () => {
+    const client = fakeClient({ txlist: [{ to: "0x0000000000000000000000000000000000000001", value: "50000000000000000000", timeStamp: "1700000600", hash: "0xx" }], tokentx: [] });
+    expect(await followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137 })).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@
 // never "confirmed". Node-testable.
 // =============================================================================
 
-import { isValidAddress, lc } from "./format.js";
+import { isValidAddress, lc, formatUnits } from "./format.js";
 import { bridgeInfo } from "./bridgeRegistry.js";
 
 function argByName(args, name) {
@@ -89,4 +89,51 @@ export function matchReleases(exit, candidates, opts) {
   }
   out.sort((a, b) => (RANK[a.confidence] - RANK[b.confidence]) || (a.matched.timeDeltaSecs - b.matched.timeDeltaSecs));
   return out;
+}
+
+/**
+ * Normalize a raw Etherscan tx into a matchReleases candidate. Native txs
+ * (no tokenDecimal) use 18 decimals; token txs use the tx's tokenDecimal.
+ * @param {Record<string,string>} tx
+ * @returns {{to:string,timeStamp:string,amountText:string,hash:string,symbol:string}}
+ */
+function normalizeTx(tx) {
+  const dec = tx.tokenDecimal != null && tx.tokenDecimal !== "" ? tx.tokenDecimal : 18;
+  const amt = formatUnits(tx.value, dec);
+  return {
+    to: lc(tx.to),
+    timeStamp: tx.timeStamp || "",
+    amountText: amt.indeterminate ? "indeterminate" : amt.text,
+    hash: tx.hash || "",
+    symbol: tx.tokenSymbol || "",
+  };
+}
+
+/**
+ * Scan the destination chain for candidate releases of a bridge exit. Sets the
+ * client to the dest chain, fetches the recipient's recent inbound native +
+ * ERC-20 txs (sampled "latest N", desc), normalizes, and correlates. Never
+ * throws — resolves [] on any fetch failure so callers can invoke it defensively.
+ * @param {{client:any, limiter:{run:(fn:()=>Promise<any>)=>Promise<any>},
+ *   exit:any, destChainId:number, offset?:number, windowSecs?:number, signal?:any}} args
+ * @returns {Promise<any[]>}
+ */
+export async function followBridgeExit(args) {
+  const { client, limiter, exit, destChainId, offset = 25, windowSecs, signal } = args || {};
+  if (!client || !exit || !exit.recipient) return [];
+  try {
+    client.setChainId(destChainId);
+    const actions = ["txlist", "tokentx"];
+    const raw = [];
+    for (const action of actions) {
+      const txs = await limiter.run(() =>
+        client.fetchAction(exit.recipient, action, { offset, sort: "desc", signal })
+      );
+      if (Array.isArray(txs)) raw.push(...txs);
+    }
+    const candidates = raw.map(normalizeTx);
+    return matchReleases(exit, candidates, windowSecs ? { windowSecs } : undefined);
+  } catch {
+    return [];
+  }
 }
