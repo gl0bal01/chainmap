@@ -109,6 +109,8 @@ export default {
   "legend.internal": "Internal tx",
   "legend.token": "Token transfer",
   "legend.data": "Contract call (input data)",
+  "legend.riskHigh": "High risk (mixer / bridge / sanctioned)",
+  "legend.riskInfo": "Info flag (approval / hidden recipient)",
   "legend.roundtrip": "Round-trip (cycle)",
   "legend.age": "Edge age (old → recent)",
 

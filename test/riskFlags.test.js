@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { flagsForEdge, resolvedRecipient, MAX_UINT256 } from "../src/riskFlags.js";
+import { flagsForEdge, resolvedRecipient, MAX_UINT256, flagSeverity, edgeSeverity } from "../src/riskFlags.js";
 
 const A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -48,4 +48,29 @@ test("bridge + sanctioned categories map to their flags", () => {
 test("clean plain transfer has no flags", () => {
   const edge = { methodId: "", to: A, hasData: false, methodArgs: [] };
   expect(flagsForEdge(edge, noCat)).toEqual([]);
+});
+
+test("flagSeverity: mixer/bridge/sanctioned are high, others are info", () => {
+  expect(flagSeverity("flag.mixer")).toBe("high");
+  expect(flagSeverity("flag.bridge")).toBe("high");
+  expect(flagSeverity("flag.sanctioned")).toBe("high");
+  expect(flagSeverity("flag.approvalUnlimited")).toBe("info");
+  expect(flagSeverity("flag.hiddenRecipient")).toBe("info");
+});
+
+test("edgeSeverity: high when any high-severity flag present, even mixed with info", () => {
+  expect(edgeSeverity(["flag.mixer"])).toBe("high");
+  expect(edgeSeverity(["flag.approvalUnlimited", "flag.bridge"])).toBe("high");
+  expect(edgeSeverity(["flag.sanctioned", "flag.hiddenRecipient"])).toBe("high");
+});
+
+test("edgeSeverity: info when only info flags present", () => {
+  expect(edgeSeverity(["flag.approvalUnlimited"])).toBe("info");
+  expect(edgeSeverity(["flag.hiddenRecipient", "flag.approvalUnlimited"])).toBe("info");
+});
+
+test("edgeSeverity: null for no flags", () => {
+  expect(edgeSeverity([])).toBeNull();
+  expect(edgeSeverity(null)).toBeNull();
+  expect(edgeSeverity(undefined)).toBeNull();
 });

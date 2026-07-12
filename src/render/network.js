@@ -17,6 +17,7 @@ import * as labels from "./labels.js";
 import { passesFilters, filtersActive, edgeAmountNumber, edgeWidth, bundleEdges, ageColor } from "../display.js";
 import { findCycleNodes } from "../roundTrips.js";
 import { shouldHideNode } from "../sinkFaucet.js";
+import { edgeSeverity } from "../riskFlags.js";
 
 /**
  * @typedef {object} DisplayOptions
@@ -134,7 +135,8 @@ export function createGraphView(container, store, deps) {
   const CAT_ICON = { mixer: "🌀", bridge: "🌉", sanctioned: "⛔" };
 
   const flagsForEdgeView = (edge) => (getEdgeFlags ? getEdgeFlags(edge) : []);
-  const RISK_COLOR = "#e0603a"; // amber-red for flagged edges
+  const RISK_COLOR = { high: "#e0603a", info: "#d8b24a" }; // red danger, soft-amber info
+  const RISK_MARK = { high: "⚠", info: "ⓘ" };
 
   function applyNode(node) {
     const knownLabel = knownFor(node.address);
@@ -163,23 +165,25 @@ export function createGraphView(container, store, deps) {
     const base = labels.edgeLabel(edge);
     // Contract-call edges (non-empty calldata) are dashed + marked "✱" so an
     // investigator can spot interactions vs plain transfers at a glance.
-    // Risk-flagged edges (unlimited approval, mixer/bridge/sanctioned recipient, …)
-    // escalate further: risk color, thicker, dashed, "⚠" — overrides the "✱" styling.
+    // Risk-flagged edges escalate further, tiered by severity: 'high' (mixer/
+    // bridge/sanctioned — money-flow waypoints or blocklist hits) gets the loud
+    // red "⚠" treatment; 'info' (unlimited approval, hidden recipient — context,
+    // not a verdict) gets a quieter amber "ⓘ" so it doesn't drown out real danger.
     const flags = flagsForEdgeView(edge);
-    const risky = flags.length > 0;
-    const label = risky ? `${base ? base + " " : ""}⚠` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base);
-    const title = risky
-      ? `${edgeTitle(edge, i18n)} · ⚠ ${flags.map((k) => i18n.t(k)).join(", ")}`
+    const sev = edgeSeverity(flags);
+    const label = sev ? `${base ? base + " " : ""}${RISK_MARK[sev]}` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base);
+    const title = sev
+      ? `${edgeTitle(edge, i18n)} · ${RISK_MARK[sev]} ${flags.map((k) => i18n.t(k)).join(", ")}`
       : (edge.hasData ? `${edgeTitle(edge, i18n)} · ${i18n.t("legend.data")}` : edgeTitle(edge, i18n));
     edgesDS.add({
       id: edge.key,
       from: edge.from,
       to: edge.to,
       label,
-      color: { color: risky ? RISK_COLOR : edgeColorFor(edge) },
+      color: { color: sev ? RISK_COLOR[sev] : edgeColorFor(edge) },
       title,
-      width: risky ? edgeWidth(amount, maxAmount) + 2 : edgeWidth(amount, maxAmount),
-      dashes: risky ? [6, 4] : !!edge.hasData,
+      width: sev === "high" ? edgeWidth(amount, maxAmount) + 2 : sev === "info" ? edgeWidth(amount, maxAmount) + 1 : edgeWidth(amount, maxAmount),
+      dashes: sev === "high" ? [6, 4] : sev === "info" ? [2, 3] : !!edge.hasData,
       data: edge,
     });
   }
@@ -205,13 +209,14 @@ export function createGraphView(container, store, deps) {
     ageMin = Number.isFinite(aMin) ? aMin : 0;
     ageMax = Number.isFinite(aMax) ? aMax : 0;
     // Respect flags here too — otherwise this recompute (amount/age refresh, filter
-    // changes, …) would clobber the risk color applyEdge set.
+    // changes, …) would clobber the tiered risk color applyEdge set.
     edgesDS.update(items.map((it) => {
-      const risky = flagsForEdgeView(it.data).length > 0;
+      const sev = edgeSeverity(flagsForEdgeView(it.data));
+      const base = edgeWidth(edgeAmountNumber(it.data), maxAmount);
       return {
         id: it.id,
-        width: risky ? edgeWidth(edgeAmountNumber(it.data), maxAmount) + 2 : edgeWidth(edgeAmountNumber(it.data), maxAmount),
-        color: { color: risky ? RISK_COLOR : edgeColorFor(it.data) },
+        width: sev === "high" ? base + 2 : sev === "info" ? base + 1 : base,
+        color: { color: sev ? RISK_COLOR[sev] : edgeColorFor(it.data) },
       };
     }));
   }
@@ -236,22 +241,28 @@ export function createGraphView(container, store, deps) {
   // (from,to,contract,symbol). Store per-tx rows are untouched; memberKeys let the
   // detail panel drill back. Rebuilt from the FILTERED edge view.
   function rebuildBundles() {
-    const bundles = bundleEdges(edgesView.get().map((e) => e.data));
+    const records = edgesView.get().map((e) => e.data);
+    const bundles = bundleEdges(records);
     let maxTotal = 0;
     bundles.forEach((b) => { if (b.total > maxTotal) maxTotal = b.total; });
+    const flagsByKey = new Map(records.map((r) => [r.key, flagsForEdgeView(r)]));
     bundledDS.clear();
     bundledDS.add(
       bundles.map((b) => {
-        const base = `${b.count}×  ${b.totalText} ${b.symbol}`.trim();
+        const label = `${b.count}×  ${b.totalText} ${b.symbol}`.trim();
+        const memberFlags = [...new Set((b.memberKeys || []).flatMap((k) => flagsByKey.get(k) || []))];
+        const sev = edgeSeverity(memberFlags);
+        const baseWidth = edgeWidth(b.total, maxTotal);
+        const baseTitle = `${b.count} tx — ${b.totalText} ${b.symbol}`.trim();
         return {
           id: b.id,
           from: b.from,
           to: b.to,
-          label: b.hasData ? `${base} ✱` : base,
-          color: { color: b.color },
-          width: edgeWidth(b.total, maxTotal),
-          dashes: !!b.hasData,
-          title: `${b.count} tx — ${b.totalText} ${b.symbol}`.trim(),
+          label: sev ? `${label} ${RISK_MARK[sev]}` : (b.hasData ? `${label} ✱` : label),
+          color: { color: sev ? RISK_COLOR[sev] : b.color },
+          width: sev === "high" ? baseWidth + 2 : sev === "info" ? baseWidth + 1 : baseWidth,
+          dashes: sev === "high" ? [6, 4] : sev === "info" ? [2, 3] : !!b.hasData,
+          title: sev ? `${baseTitle} · ${RISK_MARK[sev]} ${memberFlags.map((k) => i18n.t(k)).join(", ")}` : baseTitle,
           data: b,
           bundle: true,
         };
