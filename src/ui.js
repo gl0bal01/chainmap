@@ -87,7 +87,10 @@ function explorerLink(href, text) {
  * Render the node-details panel. Uses safe DOM nodes / escaped values only.
  * @param {HTMLElement} container  #detailsContent
  * @param {import('./graphStore.js').NodeRecord} node
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(addr:string)=>void }} deps
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(addr:string)=>void,
+ *           getKnownSource?:(addr:string)=>(string|null) }} deps
+ *   getKnownSource is optional (graceful when absent, e.g. known-address data not yet
+ *   loaded) — provenance string for a known-address entry, rendered only when truthy.
  */
 export function renderNodeDetails(container, node, deps) {
   const { i18n, explorer, onRename } = deps;
@@ -105,6 +108,10 @@ export function renderNodeDetails(container, node, deps) {
   }
   table.appendChild(detailRow(i18n.t("details.alias"), aliasValue));
   table.appendChild(detailRow(i18n.t("details.address"), node.address));
+  const knownSource = deps.getKnownSource && deps.getKnownSource(node.address);
+  if (knownSource) {
+    table.appendChild(detailRow(i18n.t("details.source"), knownSource));
+  }
   table.appendChild(detailRow(i18n.t("details.depth"), String(node.depth)));
   table.appendChild(
     detailRow(i18n.t("details.root"), node.isRoot ? i18n.t("details.yes") : i18n.t("details.no"))

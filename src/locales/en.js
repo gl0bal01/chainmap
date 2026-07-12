@@ -128,6 +128,7 @@ export default {
   "details.empty": "Click a node or an arrow in the graph.",
   "details.alias": "Alias",
   "details.address": "Address",
+  "details.source": "Source",
   "details.depth": "Depth",
   "details.root": "Root",
   "details.link": "Link",
