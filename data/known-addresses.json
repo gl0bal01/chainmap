@@ -14,6 +14,47 @@
     "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc": { "label": "Tornado Cash: 0.1 ETH", "category": "mixer", "source": "OFAC SDN 2022", "added": "2026-07-12" },
     "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936": { "label": "Tornado Cash: 1 ETH", "category": "mixer", "source": "OFAC SDN 2022", "added": "2026-07-12" },
     "0x722122df12d4e14e13ac3b6895a86e84145b6967": { "label": "Tornado Cash: Proxy", "category": "mixer", "source": "OFAC SDN 2022", "added": "2026-07-12" },
-    "0x40ec5b33f54e0e8a33a975908c5ba1c14e5bbbdf": { "label": "Polygon (Matic): ERC20 Bridge", "category": "bridge", "source": "Etherscan public label", "added": "2026-07-12" }
+    "0x40ec5b33f54e0e8a33a975908c5ba1c14e5bbbdf": { "label": "Polygon (Matic): ERC20 Bridge", "category": "bridge", "source": "Etherscan public label", "added": "2026-07-12" },
+    "0xa0c68c638235ee32657e8f720a23cec1bfc77c77": { "label": "Polygon PoS: RootChainManager", "category": "bridge", "source": "Polygon official docs", "added": "2026-07-13" },
+    "0xc3897302ab4b42931cb4857050fa60f53b775870": { "label": "Polygon PoS: Ether Predicate", "category": "bridge", "source": "Etherscan verified contract", "added": "2026-07-13" },
+    "0x99c9fc46f92e8a1c0dec1b1747d010903e884be1": { "label": "Optimism: L1StandardBridge", "category": "bridge", "source": "Optimism Superchain Registry", "added": "2026-07-13" },
+    "0x3154cf16ccdb4c6d922629664174b904d80f2c35": { "label": "Base: L1StandardBridge", "category": "bridge", "source": "Base official docs", "added": "2026-07-13" },
+    "0x72ce9c846789fdb6fc1f34ac4ad25dd9ef7031ef": { "label": "Arbitrum One: L1 Gateway Router", "category": "bridge", "source": "Arbitrum official docs", "added": "2026-07-13" },
+    "0x4dbd4fc535ac27206064b68ffcf827b0a60bab3f": { "label": "Arbitrum One: Delayed Inbox", "category": "bridge", "source": "Arbitrum official docs", "added": "2026-07-13" },
+    "0x64192819ac13ef72bf6b5ae239ac672b43a9af08": { "label": "Ronin: MainchainGatewayV3", "category": "bridge", "source": "Sky Mavis GitHub deployment", "added": "2026-07-13" },
+    "0xa0e1c89ef1a489c9c7de96311ed5ce5d32c20e4b": { "label": "Lazarus Group (DPRK), Ronin", "category": "sanctioned", "source": "OFAC SDN 2022-04-22 (FR 2022-10087)", "added": "2026-07-13" },
+    "0x3cffd56b47b7b41c56258d9c7731abadc360e073": { "label": "Lazarus Group (DPRK), Ronin", "category": "sanctioned", "source": "OFAC SDN 2022-04-22 (FR 2022-10087)", "added": "2026-07-13" },
+    "0x53b6936513e738f44fb50d2b9476730c0ab3bfc1": { "label": "Lazarus Group (DPRK), Ronin", "category": "sanctioned", "source": "OFAC SDN 2022-04-22 (FR 2022-10087)", "added": "2026-07-13" },
+    "0x35fb6f6db4fb05e6a4ce86f2c93691425626d4b1": { "label": "Lazarus Group (DPRK)", "category": "sanctioned", "source": "OFAC SDN 2022-05-06 (FR 2022-10087)", "added": "2026-07-13" },
+    "0xf7b31119c2682c88d88d455dbb9d5932c65cf1be": { "label": "Lazarus Group (DPRK)", "category": "sanctioned", "source": "OFAC SDN 2022-05-06 (FR 2022-10087)", "added": "2026-07-13" },
+    "0xdcbeffbecce100cce9e4b153c4e15cb885643193": { "label": "Roman Semenov (OFAC)", "category": "sanctioned", "source": "OFAC SDN 2023-08-23 (FR 2023-18600)", "added": "2026-07-13" },
+    "0x5f48c2a71b2cc96e3f0ccae4e39318ff0dc375b2": { "label": "Roman Semenov (OFAC)", "category": "sanctioned", "source": "OFAC SDN 2023-08-23 (FR 2023-18600)", "added": "2026-07-13" },
+    "0x4f47bc496083c727c5fbe3ce9cdf2b0f6496270c": { "label": "Sim Hyon Sop (DPRK/KKBC); also OFAC-active on BSC/Arbitrum", "category": "sanctioned", "source": "OFAC SDN 2023-04-24 (FR 2023-08944)", "added": "2026-07-13" },
+    "0xd04e33461fea8302c5e1e13895b60cee8aefda7f": { "label": "Sim Hyon Sop (DPRK/KKBC)", "category": "sanctioned", "source": "OFAC SDN 2026-03-12 (FR 2026-05114)", "added": "2026-07-13" },
+    "0xb637f84b66876ebf609c2a4208905f9ddac9d075": { "label": "Yun Song Guk (DPRK IT worker fraud)", "category": "sanctioned", "source": "OFAC SDN 2026-03-12 (FR 2026-05114)", "added": "2026-07-13" },
+    "0x95584c303fcd48af5c6b9873015f2ad0ca84eae3": { "label": "Yun Song Guk (DPRK IT worker fraud)", "category": "sanctioned", "source": "OFAC SDN 2026-03-12 (FR 2026-05114)", "added": "2026-07-13" },
+    "0xcb74874f1e06fcf80a306e06e5379a44b488ba2d": { "label": "Amnokgang Technology Development Co (DPRK front)", "category": "sanctioned", "source": "OFAC SDN 2026-03-12 (FR 2026-05114)", "added": "2026-07-13" },
+    "0xf977814e90da44bfa03b6295a0616a897441acec": { "label": "Binance: Hot Wallet 20", "category": "exchange", "source": "Etherscan public label 2026-07", "added": "2026-07-13" },
+    "0x71660c4005ba85c37ccec55d0c4493e66fe775d3": { "label": "Coinbase 1", "category": "exchange", "source": "Etherscan public label 2026-07", "added": "2026-07-13" },
+    "0xe9f7ecae3a53d2a67105292894676b00d1fab785": { "label": "Kraken: Hot Wallet", "category": "exchange", "source": "Etherscan public label 2026-07", "added": "2026-07-13" },
+    "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45": { "label": "Uniswap V3: SwapRouter02", "category": "router", "source": "Etherscan public label", "added": "2026-07-13" }
+  },
+  "56": {
+    "0x631fc1ea2270e98fbd9d92658ece0f5a269aa161": { "label": "Binance: Hot Wallet (BSC)", "category": "exchange", "source": "BscScan public label 2026-07", "added": "2026-07-13" },
+    "0x7c0629bbbaf7d68ffaa393e3fedc9b633679fa5f": { "label": "OKX: Hot Wallet (BSC)", "category": "exchange", "source": "BscScan public label 2026-07", "added": "2026-07-13" },
+    "0x13f4ea83d0bd40e75c8222255bc855a974568dd4": { "label": "PancakeSwap V3: Smart Router", "category": "router", "source": "BscScan public label", "added": "2026-07-13" }
+  },
+  "137": {
+    "0xf977814e90da44bfa03b6295a0616a897441acec": { "label": "Binance: Hot Wallet 20 (Polygon)", "category": "exchange", "source": "PolygonScan public label 2026-07", "added": "2026-07-13" },
+    "0x9810762578accf1f314320cca5b72506ae7d7630": { "label": "Coinbase 16 (Polygon)", "category": "exchange", "source": "PolygonScan public label 2026-07", "added": "2026-07-13" }
+  },
+  "10": {
+    "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45": { "label": "Uniswap V3: SwapRouter02 (Optimism)", "category": "router", "source": "Optimistic Etherscan public label", "added": "2026-07-13" }
+  },
+  "42161": {
+    "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45": { "label": "Uniswap V3: SwapRouter02 (Arbitrum)", "category": "router", "source": "Uniswap official docs (Arbiscan 403 at fetch)", "added": "2026-07-13" }
+  },
+  "8453": {
+    "0x2626664c2603336e57b271c5c0b26f421741e481": { "label": "Uniswap V3: SwapRouter02 (Base)", "category": "router", "source": "BaseScan public label", "added": "2026-07-13" }
   }
 }
