@@ -27,6 +27,7 @@ export default {
   "detect.empty": "Enter an address first",
   "detect.notEvm": "Not an EVM address — can't probe",
   "detect.cancelled": "Detection cancelled",
+  "detect.localHit": "Known: {label} on {chains} — no API call needed",
   "form.addressFormat.label": "Address display",
   "form.addressFormat.short": "Short (0x + 3 chars + last 4)",
   "form.addressFormat.full": "Full",

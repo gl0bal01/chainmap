@@ -64,3 +64,22 @@ export function knownCategory(address, chainId, data) {
   const entry = chain[address.toLowerCase()];
   return entry && entry.category ? entry.category : null;
 }
+
+/**
+ * Every chain on which `address` is a KNOWN labeled entity, from the bundled dataset.
+ * Zero network — pure lookup over the already-loaded known-address map.
+ * @param {string} address
+ * @param {KnownData} data
+ * @returns {{ chainId:number, label:string, category:string }[]} (empty if none)
+ */
+export function chainsForKnownAddress(address, data) {
+  const out = [];
+  if (!data || !address) return out;
+  const addr = String(address).toLowerCase();
+  for (const chainId of Object.keys(data)) {
+    const chain = data[chainId];
+    const entry = chain && chain[addr];
+    if (entry) out.push({ chainId: Number(chainId), label: entry.label || "", category: entry.category || "" });
+  }
+  return out;
+}

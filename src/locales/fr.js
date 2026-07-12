@@ -27,6 +27,7 @@ export default {
   "detect.empty": "Entrez d'abord une adresse",
   "detect.notEvm": "Pas une adresse EVM — sondage impossible",
   "detect.cancelled": "Détection annulée",
+  "detect.localHit": "Connu : {label} sur {chains} — aucun appel API",
   "form.addressFormat.label": "Affichage des adresses",
   "form.addressFormat.short": "Abrégée (0x + 3 caractères + 4 derniers)",
   "form.addressFormat.full": "Complète",
