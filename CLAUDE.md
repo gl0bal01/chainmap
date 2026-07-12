@@ -66,5 +66,13 @@ Frozen module contracts live in `INTERFACES.md`.
 - **Sampling is explicit**: scans fetch "latest N" (page 1, sort desc, offset N), not full history — surfaced in UI + exports. Never present sampled data as complete.
 - **i18n**: no hardcoded UI text in logic. Modules emit `{level, key, params}`; `ui`+`i18n` render it. en/fr key sets must stay at parity (a test enforces it).
 - **Security**: strict CSP (script-src 'self', connect-src limited to api.etherscan.io); user/API strings reach the DOM via `textContent`/escaped only; no inline `onclick`.
-- Adding a chain / tx-type / selector / known-address = one entry in the relevant table (`config.js` / `selectors.js` / `data/*.json`).
+- Adding a chain / tx-type / selector / known-address = one entry in the relevant table
+  (`config.js` / `selectors.js` / `data/*.json`). A new selector gets an entry in
+  `SELECTORS` (signature) and, if its leading static args are worth naming, a matching
+  entry in `SELECTOR_PARAMS` (param names, in `selectors.js`) — `abiDecode.summarizeCall`
+  and the CSV `decoded_amount`/`real_recipient` columns depend on those names being present.
+- **Risk flags** (`riskFlags.js`), **peel-chain** detection (`peelChain.js`), and **hide
+  faucets/sinks** (`sinkFaucet.shouldHideNode`) are display projections over the store
+  mirror, same as filters/bundling — they never mutate `graphStore`, so CSV/detail always
+  reflect the full graph regardless of what's hidden or highlighted on screen.
 
