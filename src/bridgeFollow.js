@@ -30,7 +30,8 @@ export function findBridgeExits(edges, registry, chainId) {
     const entry = bridgeInfo(to, chainId, registry);
     if (!entry) continue;
     const depositor = lc(e.from);
-    const decoded = argByName(e.methodArgs, "recipient");
+    const paramName = entry.recipientParam || "recipient";
+    const decoded = argByName(e.methodArgs, paramName);
     const recipient = decoded && isValidAddress(decoded) ? lc(decoded) : depositor;
     out.push({
       bridgeAddr: to,
@@ -123,7 +124,7 @@ export async function followBridgeExit(args) {
   if (!client || !exit || !exit.recipient) return [];
   try {
     client.setChainId(destChainId);
-    const actions = ["txlist", "tokentx"];
+    const actions = ["txlist", "txlistinternal", "tokentx"];
     const raw = [];
     for (const action of actions) {
       const txs = await limiter.run(() =>

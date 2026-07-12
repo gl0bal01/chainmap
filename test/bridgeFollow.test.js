@@ -54,6 +54,14 @@ describe("findBridgeExits", () => {
     findBridgeExits(edges, REG, 1);
     expect(JSON.stringify(edges)).toBe(snapshot);
   });
+
+  test("honors entry.recipientParam when the recipient arg isn't named 'recipient'", () => {
+    const reg = { "1": { "0xbbbb000000000000000000000000000000000003": { name: "Custom", kind: "lock-mint", destChains: [137], recipientParam: "user" } } };
+    const e = { from: "0xdead000000000000000000000000000000000001", to: "0xbbbb000000000000000000000000000000000003",
+      amountText: "5", symbol: "ETH", timeStamp: "1700000000", hash: "0xc",
+      methodId: "0x00000000", methodArgs: [{ type: "address", value: "0xFEED000000000000000000000000000000000009", name: "user" }] };
+    expect(findBridgeExits([e], reg, 1)[0].recipient).toBe("0xfeed000000000000000000000000000000000009");
+  });
 });
 
 const EXIT = {
@@ -155,5 +163,14 @@ describe("followBridgeExit", () => {
   test("filters non-recipient inbound out via matchReleases", async () => {
     const client = fakeClient({ txlist: [{ to: "0x0000000000000000000000000000000000000001", value: "50000000000000000000", timeStamp: "1700000600", hash: "0xx" }], tokentx: [] });
     expect(await followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137 })).toEqual([]);
+  });
+
+  test("finds a release delivered as an internal tx (txlistinternal)", async () => {
+    const client = fakeClient({
+      txlist: [], tokentx: [],
+      txlistinternal: [{ to: "0xFEED000000000000000000000000000000000009", value: "50000000000000000000", tokenDecimal: "", timeStamp: "1700000600", hash: "0xint1" }],
+    });
+    const r = await followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137, offset: 20 });
+    expect(r.map((x) => x.hash)).toContain("0xint1");
   });
 });
