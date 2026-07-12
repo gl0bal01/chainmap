@@ -9,7 +9,7 @@
 // offset, not a value — so we never mis-report a dynamic arg.
 // =============================================================================
 
-import { SELECTORS } from "./selectors.js";
+import { SELECTORS, paramNames } from "./selectors.js";
 
 /** Split a signature's top-level parameter list into types. Bails (returns [])
  *  on nested tuples "(...)" so we never mis-split them. */
@@ -31,7 +31,7 @@ function isStatic(type) {
 }
 
 /**
- * @typedef {{ methodId:string, signature:string|null, args:{type:string, value:string}[] }} DecodedCall
+ * @typedef {{ methodId:string, signature:string|null, args:{type:string, value:string, name?:string}[] }} DecodedCall
  */
 
 /**
@@ -46,6 +46,7 @@ export function decodeCall(input) {
   const args = [];
   if (signature) {
     const types = paramTypes(signature);
+    const names = paramNames(methodId) || [];
     let word = 0;
     for (const type of types) {
       if (!isStatic(type)) break; // dynamic/tuple head is an offset, not a value
@@ -58,9 +59,49 @@ export function decodeCall(input) {
       else if (/^u?int/.test(type)) {
         try { value = BigInt("0x" + hex).toString(); } catch { value = "0x" + hex; }
       } else value = "0x" + hex;
-      args.push({ type, value });
+      const name = names[word];
+      args.push(name ? { type, value, name } : { type, value });
       word += 1;
     }
   }
   return { methodId, signature, args };
+}
+
+/** Find a decoded arg by its role name. */
+function argByName(args, name) {
+  const a = (args || []).find((x) => x && x.name === name);
+  return a ? a.value : null;
+}
+
+/**
+ * Plain-language summary of a decoded call as an i18n message. Returns raw param
+ * values (addresses / raw integers) — the RENDER layer resolves aliases + formats
+ * amounts with token decimals + escapes. Null when there is nothing worth summarizing.
+ * @param {{methodId:string, args:{type:string,value:string,name?:string}[]}|null} call
+ * @returns {{key:string, params:object}|null}
+ */
+export function summarizeCall(call) {
+  if (!call || !call.methodId) return null;
+  const id = String(call.methodId).toLowerCase();
+  const args = call.args || [];
+  switch (id) {
+    case "0xa9059cbb": // transfer(recipient, amount)
+    case "0x40c10f19": // mint(recipient, amount)
+      return { key: "summary.transfer", params: { amount: argByName(args, "amount"), recipient: argByName(args, "recipient") } };
+    case "0x23b872dd": // transferFrom(from, recipient, amount)
+    case "0x42842e0e": // safeTransferFrom(from, recipient, tokenId)
+      return { key: "summary.transferFrom", params: { from: argByName(args, "from"), recipient: argByName(args, "recipient") } };
+    case "0x095ea7b3": // approve(spender, amount)
+      return { key: "summary.approve", params: { amount: argByName(args, "amount"), spender: argByName(args, "spender") } };
+    case "0xa22cb465": { // setApprovalForAll(operator, approved)
+      const approved = argByName(args, "approved");
+      return { key: approved === "true" ? "summary.approveAll" : "summary.revokeAll", params: { operator: argByName(args, "operator") } };
+    }
+    case "0x2e1a7d4d": // withdraw(amount)
+      return { key: "summary.withdraw", params: { amount: argByName(args, "amount") } };
+    case "0xb214faa5": // Tornado deposit(bytes32)
+      return { key: "summary.mixerDeposit", params: {} };
+    default:
+      return null;
+  }
 }

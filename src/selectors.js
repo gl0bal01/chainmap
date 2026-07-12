@@ -61,3 +61,29 @@ export function methodName(selector) {
   if (!selector) return null;
   return SELECTORS[String(selector).toLowerCase()] || null;
 }
+
+/** selector -> ordered parameter names (for the selectors we decode). Names are
+ *  the canonical argument roles an investigator cares about, not just types. */
+export const SELECTOR_PARAMS = {
+  "0xa9059cbb": ["recipient", "amount"],
+  "0x23b872dd": ["from", "recipient", "amount"],
+  "0x095ea7b3": ["spender", "amount"],
+  "0x39509351": ["spender", "addedValue"],
+  "0xa457c2d7": ["spender", "subtractedValue"],
+  "0x42966c68": ["amount"],
+  "0xa22cb465": ["operator", "approved"],
+  "0x42842e0e": ["from", "recipient", "tokenId"],
+  "0x40c10f19": ["recipient", "amount"],
+  "0x2e1a7d4d": ["amount"],
+  "0xf2fde38b": ["newOwner"],
+};
+
+/**
+ * Ordered parameter names for a known selector, or null.
+ * @param {string} selector "0x" + 8 hex (case-insensitive)
+ * @returns {string[]|null}
+ */
+export function paramNames(selector) {
+  if (!selector) return null;
+  return SELECTOR_PARAMS[String(selector).toLowerCase()] || null;
+}

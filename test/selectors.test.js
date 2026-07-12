@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { methodName, SELECTORS } from "../src/selectors.js";
+import { methodName, SELECTORS, SELECTOR_PARAMS, paramNames } from "../src/selectors.js";
 
 test("methodName decodes known selectors, case-insensitive", () => {
   expect(methodName("0xa9059cbb")).toBe("transfer(address,uint256)");
@@ -18,5 +18,17 @@ test("selector dictionary keys are well-formed 0x+8 hex, no junk", () => {
     expect(k).toMatch(/^0x[0-9a-f]{8}$/);
     expect(typeof SELECTORS[k]).toBe("string");
     expect(SELECTORS[k].length).toBeGreaterThan(0);
+  }
+});
+
+test("paramNames returns ordered names for known selector", () => {
+  expect(paramNames("0xa9059cbb")).toEqual(["recipient", "amount"]);
+  expect(paramNames("0xA9059CBB")).toEqual(["recipient", "amount"]); // case-insensitive
+  expect(paramNames("0xdeadbeef")).toBeNull();
+});
+
+test("every SELECTOR_PARAMS key exists in SELECTORS", () => {
+  for (const sel of Object.keys(SELECTOR_PARAMS)) {
+    expect(SELECTORS[sel]).toBeDefined();
   }
 });
