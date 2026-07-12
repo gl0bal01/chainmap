@@ -78,3 +78,25 @@ export function flagsForEdge(edge, ctx) {
 
   return [...flags];
 }
+
+/** Danger-tier flags: money-flow waypoints / blocklist hits. Everything else is informational. */
+const HIGH_SEVERITY = new Set(["flag.mixer", "flag.bridge", "flag.sanctioned"]);
+
+/**
+ * Severity of one flag key: 'high' (danger) or 'info' (context).
+ * @param {string} flagKey
+ * @returns {'high'|'info'}
+ */
+export function flagSeverity(flagKey) {
+  return HIGH_SEVERITY.has(flagKey) ? "high" : "info";
+}
+
+/**
+ * Highest severity across an edge's flags: 'high' | 'info' | null (no flags).
+ * @param {string[]} flags
+ * @returns {'high'|'info'|null}
+ */
+export function edgeSeverity(flags) {
+  if (!flags || !flags.length) return null;
+  return flags.some((f) => HIGH_SEVERITY.has(f)) ? "high" : "info";
+}

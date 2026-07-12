@@ -108,6 +108,8 @@ export default {
   "legend.internal": "Tx interne",
   "legend.token": "Transfert token",
   "legend.data": "Appel de contrat (données input)",
+  "legend.riskHigh": "Risque élevé (mixeur / pont / sanctionné)",
+  "legend.riskInfo": "Signal info (approbation / destinataire caché)",
   "legend.roundtrip": "Aller-retour (cycle)",
   "legend.age": "Âge de l'arête (ancien → récent)",
 

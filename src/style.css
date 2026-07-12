@@ -213,6 +213,8 @@ select:focus-visible, label:focus-visible, summary:focus-visible {
 .line-internal { background: #f7a24f; }
 .line-token { background: #4fd67a; }
 .line-data { background: repeating-linear-gradient(90deg, #c9d3e3 0 4px, transparent 4px 7px); }
+.line-risk-high { background: #e0603a; }
+.line-risk-info { background: #d8b24a; }
 .dot-cycle { background: transparent; border: 2px solid #e8b84f; }
 .line-age { background: linear-gradient(90deg, hsl(210, 72%, 45%), hsl(30, 72%, 60%)); }
 
