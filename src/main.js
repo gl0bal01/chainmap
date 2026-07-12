@@ -674,6 +674,7 @@ function init() {
     getKnownLabel: (address) => knownLabel(address, $("chainSelect").value, knownData),
     getHubKind: (address) => (hubOn ? hubMap.get(address) || null : null),
     getCategory: (address) => knownCategory(address, $("chainSelect").value, knownData),
+    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, $("chainSelect").value, knownData) }),
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

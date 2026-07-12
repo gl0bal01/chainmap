@@ -78,11 +78,12 @@ function buildOptions(layout) {
  *           getLayout?:()=>('force'|'hierarchical'),
  *           getKnownLabel?:(address:string)=>(string|null),
  *           getHubKind?:(address:string)=>('sink'|'faucet'|null),
- *           getCategory?:(address:string)=>(string|null) }} deps
+ *           getCategory?:(address:string)=>(string|null),
+ *           getEdgeFlags?:(edge:import('../graphStore.js').EdgeRecord)=>string[] }} deps
  * @returns {GraphView}
  */
 export function createGraphView(container, store, deps) {
-  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind, getCategory } = deps;
+  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind, getCategory, getEdgeFlags } = deps;
   const vis = window.vis;
 
   const nodesDS = new vis.DataSet([]); // full graph (mirror of store) + annotation nodes
@@ -120,6 +121,9 @@ export function createGraphView(container, store, deps) {
   const catFor = (address) => (getCategory ? getCategory(address) : null);
   const CAT_ICON = { mixer: "🌀", bridge: "🌉", sanctioned: "⛔" };
 
+  const flagsForEdgeView = (edge) => (getEdgeFlags ? getEdgeFlags(edge) : []);
+  const RISK_COLOR = "#e0603a"; // amber-red for flagged edges
+
   function applyNode(node) {
     const knownLabel = knownFor(node.address);
     const visual = labels.nodeVisual(node, { knownLabel });
@@ -144,17 +148,23 @@ export function createGraphView(container, store, deps) {
     const base = labels.edgeLabel(edge);
     // Contract-call edges (non-empty calldata) are dashed + marked "✱" so an
     // investigator can spot interactions vs plain transfers at a glance.
-    const label = edge.hasData ? (base ? `${base} ✱` : "✱") : base;
-    const title = edge.hasData ? `${edgeTitle(edge, i18n)} · ${i18n.t("legend.data")}` : edgeTitle(edge, i18n);
+    // Risk-flagged edges (unlimited approval, mixer/bridge/sanctioned recipient, …)
+    // escalate further: risk color, thicker, dashed, "⚠" — overrides the "✱" styling.
+    const flags = flagsForEdgeView(edge);
+    const risky = flags.length > 0;
+    const label = risky ? `${base ? base + " " : ""}⚠` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base);
+    const title = risky
+      ? `${edgeTitle(edge, i18n)} · ⚠ ${flags.map((k) => i18n.t(k)).join(", ")}`
+      : (edge.hasData ? `${edgeTitle(edge, i18n)} · ${i18n.t("legend.data")}` : edgeTitle(edge, i18n));
     edgesDS.add({
       id: edge.key,
       from: edge.from,
       to: edge.to,
       label,
-      color: { color: edgeColorFor(edge) },
+      color: { color: risky ? RISK_COLOR : edgeColorFor(edge) },
       title,
-      width: edgeWidth(amount, maxAmount),
-      dashes: !!edge.hasData,
+      width: risky ? edgeWidth(amount, maxAmount) + 2 : edgeWidth(amount, maxAmount),
+      dashes: risky ? [6, 4] : !!edge.hasData,
       data: edge,
     });
   }
@@ -179,11 +189,16 @@ export function createGraphView(container, store, deps) {
     });
     ageMin = Number.isFinite(aMin) ? aMin : 0;
     ageMax = Number.isFinite(aMax) ? aMax : 0;
-    edgesDS.update(items.map((it) => ({
-      id: it.id,
-      width: edgeWidth(edgeAmountNumber(it.data), maxAmount),
-      color: { color: edgeColorFor(it.data) },
-    })));
+    // Respect flags here too — otherwise this recompute (amount/age refresh, filter
+    // changes, …) would clobber the risk color applyEdge set.
+    edgesDS.update(items.map((it) => {
+      const risky = flagsForEdgeView(it.data).length > 0;
+      return {
+        id: it.id,
+        width: risky ? edgeWidth(edgeAmountNumber(it.data), maxAmount) + 2 : edgeWidth(edgeAmountNumber(it.data), maxAmount),
+        color: { color: risky ? RISK_COLOR : edgeColorFor(it.data) },
+      };
+    }));
   }
 
   function recomputeVisibleNodes() {
