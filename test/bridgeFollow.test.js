@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { findBridgeExits } from "../src/bridgeFollow.js";
+import { findBridgeExits, matchReleases } from "../src/bridgeFollow.js";
 
 const REG = {
   "1": {
@@ -53,5 +53,44 @@ describe("findBridgeExits", () => {
     const snapshot = JSON.stringify(edges);
     findBridgeExits(edges, REG, 1);
     expect(JSON.stringify(edges)).toBe(snapshot);
+  });
+});
+
+const EXIT = {
+  recipient: "0xfeed000000000000000000000000000000000009",
+  amountText: "50", timeStamp: "1700000000",
+};
+const cand = (o) => ({ to: "0xfeed000000000000000000000000000000000009", timeStamp: "1700000600", amountText: "50", hash: "0xr", symbol: "WETH", ...o });
+
+describe("matchReleases", () => {
+  test("recipient + forward-time + tight amount => exact, sorted first", () => {
+    const r = matchReleases(EXIT, [cand({})]);
+    expect(r).toHaveLength(1);
+    expect(r[0].confidence).toBe("exact");
+    expect(r[0].matched.recipient).toBe(true);
+    expect(r[0].matched.timeDeltaSecs).toBe(600);
+  });
+
+  test("excludes wrong recipient, and releases before the exit (time must move forward)", () => {
+    expect(matchReleases(EXIT, [cand({ to: "0x0000000000000000000000000000000000000001" })])).toEqual([]);
+    expect(matchReleases(EXIT, [cand({ timeStamp: "1699999999" })])).toEqual([]);
+  });
+
+  test("excludes releases outside the time window", () => {
+    expect(matchReleases(EXIT, [cand({ timeStamp: String(1700000000 + 90000) })], { windowSecs: 86400 })).toEqual([]);
+  });
+
+  test("loose amount => amount+time; indeterminate amount => weak", () => {
+    expect(matchReleases(EXIT, [cand({ amountText: "49" })])[0].confidence).toBe("amount+time"); // ~2% off
+    expect(matchReleases(EXIT, [cand({ amountText: "indeterminate" })])[0].confidence).toBe("weak");
+  });
+
+  test("orders exact before amount+time before weak", () => {
+    const r = matchReleases(EXIT, [
+      cand({ amountText: "indeterminate", hash: "0xw" }),
+      cand({ amountText: "49", hash: "0xa" }),
+      cand({ amountText: "50", hash: "0xe" }),
+    ]);
+    expect(r.map((x) => x.hash)).toEqual(["0xe", "0xa", "0xw"]);
   });
 });

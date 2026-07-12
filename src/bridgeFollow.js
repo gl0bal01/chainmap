@@ -47,3 +47,45 @@ export function findBridgeExits(edges, registry, chainId) {
   }
   return out;
 }
+
+const RANK = { exact: 0, "amount+time": 1, weak: 2 };
+
+/**
+ * Correlate candidate dest-chain releases to a bridge exit. Pure; candidates are
+ * pre-normalized (see Task 4 orchestrator). Never asserts a match — every result
+ * carries a candidate confidence.
+ * @param {{recipient:string,amountText:string,timeStamp:string}} exit
+ * @param {Array<{to:string,timeStamp:string,amountText:string,hash:string,symbol:string}>} candidates
+ * @param {{windowSecs?:number,exactTol?:number,looseTol?:number}} [opts]
+ * @returns {Array<{hash:string,to:string,symbol:string,confidence:'exact'|'amount+time'|'weak',
+ *   matched:{recipient:boolean,amountDelta:number|null,timeDeltaSecs:number}}>}
+ */
+export function matchReleases(exit, candidates, opts) {
+  const o = opts || {};
+  const windowSecs = typeof o.windowSecs === "number" ? o.windowSecs : 86400;
+  const exactTol = typeof o.exactTol === "number" ? o.exactTol : 0.005;
+  const looseTol = typeof o.looseTol === "number" ? o.looseTol : 0.05;
+  if (!exit || !Array.isArray(candidates)) return [];
+  const recipient = lc(exit.recipient);
+  const exitTs = Number(exit.timeStamp);
+  const exitAmt = Number(exit.amountText);
+  const out = [];
+  for (const c of candidates) {
+    if (!c || lc(c.to) !== recipient) continue;
+    const ts = Number(c.timeStamp);
+    if (!Number.isFinite(ts) || !Number.isFinite(exitTs)) continue;
+    const dt = ts - exitTs;
+    if (dt < 0 || dt > windowSecs) continue; // forward time, within window
+    const candAmt = Number(c.amountText);
+    let confidence = "weak";
+    let amountDelta = null;
+    if (Number.isFinite(candAmt) && Number.isFinite(exitAmt) && exitAmt > 0) {
+      amountDelta = Math.abs(candAmt - exitAmt) / exitAmt;
+      confidence = amountDelta <= exactTol ? "exact" : amountDelta <= looseTol ? "amount+time" : "weak";
+    }
+    out.push({ hash: c.hash, to: recipient, symbol: c.symbol || "", confidence,
+      matched: { recipient: true, amountDelta, timeDeltaSecs: dt } });
+  }
+  out.sort((a, b) => (RANK[a.confidence] - RANK[b.confidence]) || (a.matched.timeDeltaSecs - b.matched.timeDeltaSecs));
+  return out;
+}
