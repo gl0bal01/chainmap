@@ -10,8 +10,10 @@
 // =============================================================================
 
 import { RESOLUTION_PRESETS, EXPORT_PIXELS } from "../config.js";
-import { csvEscape, formatTimestamp } from "../format.js";
+import { csvEscape, formatTimestamp, formatUnits } from "../format.js";
 import { nodeLabel, nodeVisual, edgeLabel } from "./labels.js";
+import { methodName } from "../selectors.js";
+import { resolvedRecipient, flagsForEdge } from "../riskFlags.js";
 
 /** Opaque background baked into export canvases (see renderExportCanvas). */
 const DEFAULT_BACKGROUND = "#0b0d11";
@@ -245,27 +247,23 @@ export async function exportPdf(view, store, deps) {
 }
 
 /** Header row for the CSV export (node rows leave tx_type/from/... blank, and
- *  vice versa — one wide sparse table keeps a single header for both kinds). */
+ *  vice versa — one wide sparse table keeps a single header for both kinds).
+ *  The last five columns are decoded-calldata columns (edge rows only). */
 const CSV_HEADER = [
   "row_type", "address", "alias", "depth", "is_root",
   "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
+  "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags",
 ];
 
 /**
- * CSV export: node rows + edge rows (with sampling caveat header). Walks the store.
+ * Build all CSV rows (caveat + header + node/edge rows). Pure — no DOM.
  * @param {import('../graphStore.js').GraphStore} store
- * @param {{ onLog:(e:{level:string,key:string,params?:object})=>void }} deps
+ * @param {{ category:(addr:string)=>(string|null), formatTimestamp?:(t:string)=>string }} ctx
+ * @returns {string[][]}
  */
-export function exportCsv(store, deps) {
-  const { onLog } = deps;
-  const nodes = store.listNodes();
-  const edges = store.listEdges();
-
-  if (!nodes.length) {
-    onLog({ level: "error", key: "log.exportEmpty" });
-    return;
-  }
-
+export function buildCsvRows(store, ctx) {
+  const fmtTs = (ctx && ctx.formatTimestamp) || formatTimestamp;
+  const category = (ctx && ctx.category) || (() => null);
   const rows = [
     // Sampling caveat: this graph reflects only the transactions retrieved
     // during the scan (latest-first, capped per address/type) — not full
@@ -274,19 +272,52 @@ export function exportCsv(store, deps) {
     CSV_HEADER,
   ];
 
-  for (const n of nodes) {
+  for (const n of store.listNodes()) {
     rows.push([
       "node", n.address, n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
       "", "", "", "", "", "", "", "",
+      "", "", "", "", "",
     ]);
   }
-  for (const e of edges) {
+  for (const e of store.listEdges()) {
+    let method = "", sig = "", realRecipient = "", decodedAmount = "", flags = "";
+    if (e.hasData) {
+      method = e.methodId || "";
+      sig = methodName(e.methodId) || "";
+      const rr = resolvedRecipient(e);
+      realRecipient = rr || "";
+      const amtArg = (e.methodArgs || []).find((a) => a && /amount|value/i.test(a.name || ""));
+      if (amtArg) {
+        const f = formatUnits(amtArg.value, e.tokenDecimal);
+        decodedAmount = f.indeterminate ? amtArg.value : f.text;
+      }
+      flags = flagsForEdge(e, { category }).join(";");
+    }
     rows.push([
       "edge", "", "", "", "",
       e.group || "", e.from || "", e.to || "", e.amountText || "", e.symbol || "",
-      e.hash || "", e.blockNumber || "", formatTimestamp(e.timeStamp),
+      e.hash || "", e.blockNumber || "", fmtTs(e.timeStamp),
+      method, sig, realRecipient, decodedAmount, flags,
     ]);
   }
+  return rows;
+}
+
+/**
+ * CSV export: node rows + edge rows (with sampling caveat header). Walks the store.
+ * @param {import('../graphStore.js').GraphStore} store
+ * @param {{ onLog:(e:{level:string,key:string,params?:object})=>void,
+ *           category?:(addr:string)=>(string|null) }} deps
+ */
+export function exportCsv(store, deps) {
+  const { onLog } = deps;
+
+  if (!store.listNodes().length) {
+    onLog({ level: "error", key: "log.exportEmpty" });
+    return;
+  }
+
+  const rows = buildCsvRows(store, { category: (deps && deps.category) || (() => null) });
 
   const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });

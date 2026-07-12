@@ -622,7 +622,9 @@ function wireControls() {
       onLog,
     })
   );
-  $("exportCsvBtn").addEventListener("click", () => exportCsv(store, { onLog }));
+  $("exportCsvBtn").addEventListener("click", () =>
+    exportCsv(store, { onLog, category: (a) => knownCategory(a, $("chainSelect").value, knownData) })
+  );
 
   // Noise-reduction filters (live display projection; store is untouched).
   $("minAmount").addEventListener("input", applyDisplayOptions);
