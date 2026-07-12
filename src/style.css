@@ -204,6 +204,18 @@ select:focus-visible, label:focus-visible, summary:focus-visible {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted); margin: 0 0 7px; font-weight: 700;
 }
+.card > summary.card-title {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 700; margin: 0 0 7px;
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: 6px;
+}
+.card > summary.card-title::-webkit-details-marker { display: none; }
+.card > summary.card-title::before {
+  content: "▸"; color: var(--muted); font-size: 10px; transition: transform .15s ease;
+}
+.card[open] > summary.card-title::before { transform: rotate(90deg); }
+details.card:not([open]) > summary.card-title { margin-bottom: 0; }
 .legend-row { font-size: 12px; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .line { width: 18px; height: 3px; border-radius: 2px; display: inline-block; flex-shrink: 0; }

@@ -149,6 +149,7 @@ export default {
   "details.dataYes": "Oui — appel de contrat ✱",
   "details.method": "Méthode",
   "details.methodUnknown": "sélecteur inconnu",
+  "details.decodedInput": "Entrée décodée",
   "details.inputRaw": "Input brut",
   "details.risk": "Risque",
   "details.summary": "Résumé",

@@ -12,7 +12,7 @@
 import { formatTimestamp, formatUnits, isValidAddress } from "./format.js";
 import { TX_TYPE_GROUPS } from "./config.js";
 import { methodName } from "./selectors.js";
-import { summarizeCall } from "./abiDecode.js";
+import { summarizeCall, decodeCalldataWords } from "./abiDecode.js";
 import { flagsForEdge } from "./riskFlags.js";
 
 // action -> i18n labelKey (flattened from config.TX_TYPE_GROUPS), used to render
@@ -216,6 +216,30 @@ export function renderEdgeDetails(container, edge, deps) {
       }
       table.appendChild(detailRow(key, val));
     });
+  }
+  if (edge.hasData && edge.rawInput) {
+    // Structural word-by-word breakdown of the FULL calldata layout (unlike the
+    // named-args rows above, which stop at the first dynamic type). Best-effort
+    // per word: an address interpretation (resolved to alias/known-label) when
+    // the word looks like a left-padded 20-byte address, else the raw integer.
+    const decoded = decodeCalldataWords(edge.rawInput);
+    if (decoded && decoded.words.length) {
+      const box = document.createElement("div");
+      box.style.cssText = "display:block;max-height:10em;overflow:auto;font-family:monospace;font-size:11px";
+      decoded.words.forEach((w) => {
+        const line = document.createElement("div");
+        let interp;
+        if (w.address) {
+          interp = `${w.uint != null ? w.uint : w.hex}  ·  addr? ${resolveAddr(w.address, deps)}`;
+        } else {
+          interp = w.uint != null ? w.uint : w.hex;
+        }
+        line.textContent = `#${w.index}  ${interp}`;
+        line.title = w.hex; // full 32-byte word on hover (textContent-safe attribute)
+        box.appendChild(line);
+      });
+      table.appendChild(detailRow(i18n.t("details.decodedInput"), box));
+    }
   }
   if (edge.hasData && edge.rawInput) {
     // Full raw calldata hex — untrusted, so rendered as textContent in a

@@ -213,8 +213,8 @@
     <div id="graph"></div>
 
     <aside id="sidebar">
-      <section class="card">
-        <h3 data-i18n="legend.title">Legend</h3>
+      <details class="card" data-panel="legend" open>
+        <summary class="card-title"><span data-i18n="legend.title">Legend</span></summary>
         <div class="legend-row"><span class="dot dot-root"></span> <span data-i18n="legend.root">Searched address</span></div>
         <div class="legend-row"><span class="dot dot-discovered"></span> <span data-i18n="legend.discovered">Discovered address</span></div>
         <div class="legend-row"><span class="line line-normal"></span> <span data-i18n="legend.normal">Normal tx</span></div>
@@ -225,7 +225,7 @@
         <div class="legend-row"><span class="line line-risk-info"></span> <span data-i18n="legend.riskInfo">Info flag (approval / hidden recipient)</span></div>
         <div class="legend-row"><span class="dot dot-cycle"></span> <span data-i18n="legend.roundtrip">Round-trip (cycle)</span></div>
         <div class="legend-row"><span class="line line-age"></span> <span data-i18n="legend.age">Edge age (old → recent)</span></div>
-      </section>
+      </details>
       <section class="card">
         <h3 data-i18n="details.title">Details</h3>
         <div id="detailsContent" data-i18n="details.empty">Click a node or an arrow in the graph.</div>
