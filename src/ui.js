@@ -228,7 +228,12 @@ export function renderEdgeDetails(container, edge, deps) {
       box.style.cssText = "display:block;max-height:10em;overflow:auto;font-family:monospace;font-size:11px";
       decoded.words.forEach((w) => {
         const line = document.createElement("div");
-        const interp = w.address ? resolveAddr(w.address, deps) : (w.uint != null ? w.uint : w.hex);
+        let interp;
+        if (w.address) {
+          interp = `${w.uint != null ? w.uint : w.hex}  ·  addr? ${resolveAddr(w.address, deps)}`;
+        } else {
+          interp = w.uint != null ? w.uint : w.hex;
+        }
         line.textContent = `#${w.index}  ${interp}`;
         line.title = w.hex; // full 32-byte word on hover (textContent-safe attribute)
         box.appendChild(line);

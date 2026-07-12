@@ -401,3 +401,30 @@ test("ui renderers are XSS-inert (alias + spoofed token symbol)", async () => {
   expect(container2.querySelector("img")).toBeNull();
   expect(container2.textContent).toContain(payload);
 });
+
+test("decoded input words show the integer; address-shaped words marked as candidates (never hide the value)", async () => {
+  const ui = await import("../src/ui.js");
+  const container = document.createElement("div");
+
+  // Build a transfer(recipient, amount) calldata where amount = 1 ETH (10^18).
+  // The amount word is address-shaped (< 2^160), so pre-fix would show ONLY the
+  // address interpretation, hiding the true integer. Post-fix shows the integer
+  // first, then marks the address as a candidate.
+  const ONE_ETH_HEX = (10n ** 18n).toString(16); // "de0b6b3a7640000"
+  const recipientPadded = "0000000000000000000000004444444444444444444444444444444444444444"; // N4 padded to 64
+  const amountPadded = ONE_ETH_HEX.padStart(64, "0"); // amount padded to 64
+  const rawInput = "0xa9059cbb" + recipientPadded + amountPadded; // selector + word1 + word2
+
+  ui.renderEdgeDetails(container, {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N2, hash: "0x1",
+    symbol: "ETH", amountText: "1", amountIndeterminate: false, tokenContract: "", tokenId: "",
+    value: "1000000000000000000", timeStamp: "1700000000", blockNumber: "1",
+    hasData: true, methodId: "0xa9059cbb", rawInput,
+  }, { i18n: { t: (k) => k, getLocale: () => "en" }, explorer: "etherscan.io", getAlias: () => null });
+
+  // The decoded input section must show the integer value of the amount word,
+  // not hide it behind the address interpretation.
+  expect(container.textContent).toContain("1000000000000000000");
+  // And the recipient word must be marked as a candidate address with "addr?".
+  expect(container.textContent).toContain("addr?");
+});
