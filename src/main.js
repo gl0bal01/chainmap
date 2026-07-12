@@ -514,6 +514,7 @@ function applyWorkspace(ws) {
   view.setAnnotations(ws.annotations || []);
   recomputeHubs();
   if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
+  if ($("peelChk").checked) view.setPeelChains(findPeelChains(store.listEdges(), {}));
   view.refreshLabels();
   view.setBundling(!!f.bundle);
   applyDisplayOptions();

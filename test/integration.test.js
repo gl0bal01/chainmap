@@ -274,6 +274,46 @@ test("edge details render an interpolated call summary + risk flags for calldata
   expect(container.textContent).toContain("spender"); // decoded arg uses its named role, not "#1 address"
 });
 
+test("edge details skip the summary row when decoded params are unresolved (legacy edge without named args), but still show a summary with no placeholders", async () => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+
+  // transfer(recipient, amount), but methodArgs are missing `name` — e.g. a workspace
+  // saved before named-args existed. argByName finds nothing -> summary.params values
+  // are all null. Rendering "Transfer {amount} -> {recipient}" verbatim would be worse
+  // than no summary row at all, so it must be skipped entirely.
+  const legacy = document.createElement("div");
+  ui.renderEdgeDetails(legacy, {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N4, hash: "0x1",
+    symbol: "USDC", amountText: "5", amountIndeterminate: false, tokenContract: TOKEN, tokenId: "",
+    value: "5000000", timeStamp: "1700000000", blockNumber: "1",
+    hasData: true, methodId: "0xa9059cbb",
+    methodArgs: [
+      { type: "address", value: N4 }, // no `name`
+      { type: "uint256", value: "5000000" }, // no `name`
+    ],
+  }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+  expect(legacy.textContent).not.toContain("{amount}"); // no literal placeholder leaked
+  expect(legacy.textContent).not.toContain("{recipient}");
+  expect(legacy.textContent).not.toContain("►"); // summary row not rendered at all
+
+  // Tornado-style deposit(bytes32) -> summary.mixerDeposit with an EMPTY params object.
+  // Empty params has no placeholders to fail to resolve, so it must still render.
+  const mixer = document.createElement("div");
+  ui.renderEdgeDetails(mixer, {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N4, hash: "0x2",
+    symbol: "ETH", amountText: "1", amountIndeterminate: false, tokenContract: "", tokenId: "",
+    value: "1000000000000000000", timeStamp: "1700000000", blockNumber: "1",
+    hasData: true, methodId: "0xb214faa5",
+    methodArgs: [{ type: "bytes32", value: "0x00" }],
+  }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+  expect(mixer.textContent).toContain("►"); // summary row still rendered (no placeholders to fail)
+  expect(mixer.textContent).toContain(i18n.t("summary.mixerDeposit")); // real i18n text
+});
+
 test("edge details format decoded amounts using the edge's real token decimals, never a silent 18 default", async () => {
   const { createI18n } = await import("../src/i18n.js");
   const en = (await import("../src/locales/en.js")).default;

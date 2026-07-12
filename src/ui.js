@@ -167,7 +167,14 @@ export function renderEdgeDetails(container, edge, deps) {
     // (0x1234…abcd)"). summarizeCall returns RAW param values; resolve/format them
     // here at the render boundary (alias/known-label lookups, token formatting).
     const summary = summarizeCall({ methodId: edge.methodId, args: edge.methodArgs });
-    if (summary) {
+    // Skip the row entirely when summary.params has placeholders that failed to
+    // resolve (e.g. a legacy edge whose methodArgs lack `name`, so argByName found
+    // nothing) — better no summary than a literal "Transfer {amount} -> {recipient}".
+    // An empty params object (e.g. summary.mixerDeposit -> {}) has no placeholders
+    // to fail, so it still renders.
+    const summaryVals = summary ? Object.values(summary.params || {}) : [];
+    const summaryHasGap = summaryVals.length > 0 && summaryVals.some((v) => v == null);
+    if (summary && !summaryHasGap) {
       const p = summary.params || {};
       const params = {};
       if (p.recipient != null) params.recipient = resolveAddr(p.recipient, deps);

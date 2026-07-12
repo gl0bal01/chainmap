@@ -34,7 +34,7 @@ test("approvalRisk adds risk.approval and +2", () => {
   expect(withApproval.score).toBe(base.score + 2);
 });
 
-test("sanctioned adds risk.sanctioned and +3 and pushes to high", () => {
+test("sanctioned adds risk.sanctioned and +3 (lands at med)", () => {
   const r = scoreNode({ inDeg: 0, outDeg: 0, sanctioned: true });
   expect(r.reasons).toContain("risk.sanctioned");
   expect(r.score).toBe(3);

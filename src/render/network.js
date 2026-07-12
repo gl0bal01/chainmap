@@ -146,7 +146,7 @@ export function createGraphView(container, store, deps) {
     const onPeel = peelNodes.has(node.address); // on a highlighted peel chain -> violet ring (wins over round-trip)
     const cat = catFor(node.address);
     const icon = CAT_ICON[cat] || "";
-    const baseTitle = hub ? `${visual.title} · ${hub}` : visual.title;
+    const baseTitle = hub ? `${visual.title} · ${i18n.t("risk." + hub)}` : visual.title;
     const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
       id: node.address,
