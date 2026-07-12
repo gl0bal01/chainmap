@@ -109,6 +109,12 @@ export const CHAINS = [
   { id: 6343,     name: "MegaETH (testnet)",            explorer: "testnet-mega.etherscan.io",      native: "ETH" },
 ];
 
+/** Chains probed by "Detect chain", in priority order. All are in CHAINS.
+ *  Ethereum, Base, Arbitrum One, Optimism, Polygon, BNB, Avalanche, Linea,
+ *  Blast, Gnosis, Mantle, Celo. zkSync Era (324) / Scroll (534352) are NOT on
+ *  Etherscan v2 -> intentionally excluded (see CHAINS' sourcing note). */
+export const PROBE_CHAIN_IDS = [1, 8453, 42161, 10, 137, 56, 43114, 59144, 81457, 100, 5000, 42220];
+
 /**
  * UI tx-type checkboxes -> underlying Etherscan `action`s. "token" fans out to
  * three actions, each with its own edge color and i18n label key.

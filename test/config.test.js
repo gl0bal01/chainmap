@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { CHAINS } from "../src/config.js";
+import { CHAINS, PROBE_CHAIN_IDS } from "../src/config.js";
 
 // explorer must be a bare host: no scheme, no path/slash (config.js builds
 // `https://<explorer>/address/...` and `/tx/...` links directly from it).
@@ -91,5 +91,31 @@ describe("CHAINS", () => {
       expect(chain).toBeDefined();
       expect(chain.native).toBe(native);
     }
+  });
+});
+
+describe("PROBE_CHAIN_IDS", () => {
+  test("every id exists in CHAINS", () => {
+    const ids = new Set(CHAINS.map((c) => c.id));
+    for (const id of PROBE_CHAIN_IDS) {
+      expect(ids.has(id)).toBe(true);
+    }
+  });
+
+  test("has no duplicate ids", () => {
+    expect(new Set(PROBE_CHAIN_IDS).size).toBe(PROBE_CHAIN_IDS.length);
+  });
+
+  test("is non-empty and all-positive-integer ids", () => {
+    expect(PROBE_CHAIN_IDS.length).toBeGreaterThan(0);
+    for (const id of PROBE_CHAIN_IDS) {
+      expect(Number.isInteger(id)).toBe(true);
+      expect(id).toBeGreaterThan(0);
+    }
+  });
+
+  test("excludes zkSync Era (324) and Scroll (534352) — not on Etherscan v2", () => {
+    expect(PROBE_CHAIN_IDS).not.toContain(324);
+    expect(PROBE_CHAIN_IDS).not.toContain(534352);
   });
 });
