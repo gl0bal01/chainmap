@@ -26,3 +26,24 @@ test("known address adds a reason but not score", () => {
   expect(r.score).toBe(0);
   expect(r.reasons).toEqual(["risk.known"]);
 });
+
+test("approvalRisk adds risk.approval and +2", () => {
+  const base = scoreNode({ inDeg: 0, outDeg: 0 });
+  const withApproval = scoreNode({ inDeg: 0, outDeg: 0, approvalRisk: true });
+  expect(withApproval.reasons).toContain("risk.approval");
+  expect(withApproval.score).toBe(base.score + 2);
+});
+
+test("sanctioned adds risk.sanctioned and +3 and pushes to high", () => {
+  const r = scoreNode({ inDeg: 0, outDeg: 0, sanctioned: true });
+  expect(r.reasons).toContain("risk.sanctioned");
+  expect(r.score).toBe(3);
+  expect(r.level).toBe("med"); // 3 -> med per existing thresholds
+});
+
+test("no new flags -> unchanged", () => {
+  const r = scoreNode({ inDeg: 1, outDeg: 1, onCycle: true });
+  expect(r.reasons).toContain("risk.cycle");
+  expect(r.reasons).not.toContain("risk.approval");
+  expect(r.reasons).not.toContain("risk.sanctioned");
+});

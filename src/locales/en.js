@@ -147,6 +147,8 @@ export default {
   "risk.faucet": "faucet hub",
   "risk.highDegree": "high degree",
   "risk.contract": "contract calls",
+  "risk.approval": "unlimited token approval",
+  "risk.sanctioned": "sanctioned entity",
   "risk.known": "labeled entity",
 
   // --- sidebar: log ---------------------------------------------------------

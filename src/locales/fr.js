@@ -146,6 +146,8 @@ export default {
   "risk.faucet": "hub source",
   "risk.highDegree": "degré élevé",
   "risk.contract": "appels de contrat",
+  "risk.approval": "approbation de jeton illimitée",
+  "risk.sanctioned": "entité sanctionnée",
   "risk.known": "entité identifiée",
 
   // --- sidebar: log ---------------------------------------------------------

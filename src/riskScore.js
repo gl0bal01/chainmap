@@ -13,6 +13,8 @@
  * @property {boolean} onCycle            lies on a round-trip
  * @property {boolean} hasContractCalls   any connected edge carried calldata
  * @property {boolean} known              labeled known address (exchange/router/…)
+ * @property {boolean} approvalRisk       emits an unlimited/blanket approval
+ * @property {boolean} sanctioned         labeled or interacts with a sanctioned entity
  */
 
 /**
@@ -30,6 +32,8 @@ export function scoreNode(input) {
   else if (i.hubKind === "faucet") { score += 2; reasons.push("risk.faucet"); }
   if ((Number(i.inDeg) || 0) + (Number(i.outDeg) || 0) >= 20) { score += 1; reasons.push("risk.highDegree"); }
   if (i.hasContractCalls) { score += 1; reasons.push("risk.contract"); }
+  if (i.approvalRisk) { score += 2; reasons.push("risk.approval"); }
+  if (i.sanctioned) { score += 3; reasons.push("risk.sanctioned"); }
   if (i.known) { reasons.push("risk.known"); } // context only — no score
 
   const level = score >= 4 ? "high" : score >= 2 ? "med" : "low";
