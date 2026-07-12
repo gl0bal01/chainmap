@@ -79,12 +79,13 @@ function buildOptions(layout) {
  *           getLayout?:()=>('force'|'hierarchical'),
  *           getKnownLabel?:(address:string)=>(string|null),
  *           getHubKind?:(address:string)=>('sink'|'faucet'|null),
+ *           getHubDimOn?:()=>boolean,
  *           getCategory?:(address:string)=>(string|null),
  *           getEdgeFlags?:(edge:import('../graphStore.js').EdgeRecord)=>string[] }} deps
  * @returns {GraphView}
  */
 export function createGraphView(container, store, deps) {
-  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind, getCategory, getEdgeFlags } = deps;
+  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind, getHubDimOn, getCategory, getEdgeFlags } = deps;
   const vis = window.vis;
 
   const nodesDS = new vis.DataSet([]); // full graph (mirror of store) + annotation nodes
@@ -136,8 +137,9 @@ export function createGraphView(container, store, deps) {
   function applyNode(node) {
     const knownLabel = knownFor(node.address);
     const visual = labels.nodeVisual(node, { knownLabel });
-    const hub = hubFor(node.address); // 'sink' | 'faucet' | null
-    const bg = hub ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs
+    const hub = hubFor(node.address); // 'sink' | 'faucet' | null — used for title + (elsewhere) hide filter
+    const dimOn = getHubDimOn ? getHubDimOn() : false; // dim-only toggle, decoupled from hide
+    const bg = hub && dimOn ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs only when dim-only toggle is on
     const rt = roundTripOn && roundTripSet.has(node.address); // on a cycle -> amber ring
     const cat = catFor(node.address);
     const icon = CAT_ICON[cat] || "";

@@ -91,6 +91,15 @@ function recomputeHubs() {
   hubMap = classifyHubs(store.listNodes(), store.listEdges());
 }
 
+// Re-apply the current hide-faucets/hide-sinks checkbox state to the view.
+// Called from the checkbox handlers AND after anything that can introduce
+// newly-classified hubs (scan completion, workspace load) so "Hide faucets"/
+// "Hide sinks" never go stale — mirrors how the dim-only hubToggle
+// self-corrects post-scan via `if (hubOn) view.refreshHubs()`.
+function syncHubHidden() {
+  view.setHubHidden({ faucet: $("hideFaucetsChk").checked, sink: $("hideSinksChk").checked });
+}
+
 // Per-node risk from the graph's own signals (cycle / hub / degree / calldata /
 // known). Explainable — every reason surfaced in the details panel.
 function computeRisk(address) {
@@ -439,6 +448,7 @@ async function startScan() {
   view.refreshProjection(); // normalize edge widths + rebuild bundles now the graph is complete
   recomputeHubs();
   if (hubOn) view.refreshHubs();
+  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
 
   const inv = store.checkInvariants();
   // Dev signal only — never dump inv.errors (they embed addresses / tx hashes)
@@ -502,6 +512,7 @@ function applyWorkspace(ws) {
   }
   view.setAnnotations(ws.annotations || []);
   recomputeHubs();
+  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
   view.refreshLabels();
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
@@ -634,7 +645,7 @@ function wireControls() {
   // untouched). Independent of the dim-only hubToggle above.
   function applyHubHidden() {
     if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) recomputeHubs();
-    view.setHubHidden({ faucet: $("hideFaucetsChk").checked, sink: $("hideSinksChk").checked });
+    syncHubHidden();
   }
   $("hideFaucetsChk").addEventListener("change", applyHubHidden);
   $("hideSinksChk").addEventListener("change", applyHubHidden);
@@ -683,9 +694,16 @@ function init() {
     getKnownLabel: (address) => knownLabel(address, $("chainSelect").value, knownData),
     // Returns the hub classification whenever ANY hub-driven feature is engaged
     // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
-    // so "Hide faucets"/"Hide sinks" work independently of the dim toggle.
+    // so "Hide faucets"/"Hide sinks" work independently of the dim toggle. The
+    // DIM decision itself is separate — see getHubDimOn — so checking only
+    // "Hide faucets" never greys out sinks too.
     getHubKind: (address) =>
       hubOn || $("hideFaucetsChk").checked || $("hideSinksChk").checked ? hubMap.get(address) || null : null,
+    // Gates the grey "de-emphasized hub" node background in applyNode. ONLY the
+    // dim-only hubToggle — independent of the hide checkboxes above — so
+    // checking "Hide faucets" (hubToggle OFF) hides faucets without dimming
+    // sinks (or anything else).
+    getHubDimOn: () => hubOn,
     getCategory: (address) => knownCategory(address, $("chainSelect").value, knownData),
     getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, $("chainSelect").value, knownData) }),
   });
