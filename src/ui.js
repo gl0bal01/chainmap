@@ -9,9 +9,11 @@
 // STAGE A: interface frozen. STAGE B: bodies implemented here.
 // =============================================================================
 
-import { formatTimestamp } from "./format.js";
+import { formatTimestamp, formatUnits, isValidAddress } from "./format.js";
 import { TX_TYPE_GROUPS } from "./config.js";
 import { methodName } from "./selectors.js";
+import { summarizeCall } from "./abiDecode.js";
+import { flagsForEdge } from "./riskFlags.js";
 
 // action -> i18n labelKey (flattened from config.TX_TYPE_GROUPS), used to render
 // the edge "Type" cell (e.g. "tokentx" -> "tx.type.erc20").
@@ -44,6 +46,26 @@ function detailRow(labelText, value) {
   tr.appendChild(tdKey);
   tr.appendChild(tdVal);
   return tr;
+}
+
+/** Short 0x1234…abcd form for display. */
+function shortAddr(a) {
+  return typeof a === "string" && a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : String(a || "");
+}
+
+/**
+ * Resolve an address to "alias/known (0x1234…)" for display. Alias/known-label
+ * are untrusted display strings (user aliases, bundled-JSON labels) — this
+ * returns a plain string only, always rendered downstream via textContent
+ * (detailRow / table cells), never innerHTML.
+ * @param {string} addr
+ * @param {{ getAlias?:(a:string)=>(string|null), getKnownLabel?:(a:string)=>(string|null) }} deps
+ * @returns {string}
+ */
+function resolveAddr(addr, deps) {
+  if (!isValidAddress(addr)) return String(addr || "");
+  const label = (deps.getAlias && deps.getAlias(addr)) || (deps.getKnownLabel && deps.getKnownLabel(addr));
+  return label ? `${label} (${shortAddr(addr)})` : addr;
 }
 
 /**
@@ -113,7 +135,11 @@ export function renderNodeDetails(container, node, deps) {
  * @param {HTMLElement} container
  * @param {import('./graphStore.js').EdgeRecord} edge
  * @param {{ i18n:import('./i18n.js').I18n, explorer:string,
- *           getAlias:(addr:string)=>(string|null) }} deps
+ *           getAlias:(addr:string)=>(string|null),
+ *           getKnownLabel?:(addr:string)=>(string|null),
+ *           getCategory?:(addr:string)=>(string|null) }} deps
+ *   getKnownLabel/getCategory are optional (graceful when absent — e.g. Feature
+ *   Layer 1 known-address data not yet loaded).
  */
 export function renderEdgeDetails(container, edge, deps) {
   const { i18n, explorer, getAlias } = deps;
@@ -136,9 +162,53 @@ export function renderEdgeDetails(container, edge, deps) {
     const name = methodName(edge.methodId); // decoded 4-byte selector, or null if unknown
     table.appendChild(detailRow(i18n.t("details.method"), `${edge.methodId} — ${name || i18n.t("details.methodUnknown")}`));
   }
+  if (edge.hasData) {
+    // Plain-language summary of the decoded call (e.g. "Transfer 5 USDC -> alias
+    // (0x1234…abcd)"). summarizeCall returns RAW param values; resolve/format them
+    // here at the render boundary (alias/known-label lookups, token formatting).
+    const summary = summarizeCall({ methodId: edge.methodId, args: edge.methodArgs });
+    if (summary) {
+      const p = summary.params || {};
+      const params = {};
+      if (p.recipient != null) params.recipient = resolveAddr(p.recipient, deps);
+      if (p.spender != null) params.spender = resolveAddr(p.spender, deps);
+      if (p.operator != null) params.operator = resolveAddr(p.operator, deps);
+      if (p.from != null) params.from = resolveAddr(p.from, deps);
+      if (p.amount != null) {
+        const f = formatUnits(p.amount, edge.tokenDecimal);
+        params.amount = f.indeterminate ? `${p.amount}` : `${f.text} ${edge.symbol || ""}`.trim();
+      }
+      const em = document.createElement("strong");
+      em.textContent = "► " + i18n.t(summary.key, params);
+      table.appendChild(detailRow(i18n.t("details.summary"), em));
+    }
+  }
+  {
+    // Risk flags are computed from the edge's own signals (approvals, hidden
+    // recipient, mixer/bridge/sanctioned category) regardless of hasData — a
+    // plain-value transfer TO a known mixer/sanctioned address still flags.
+    const flags = flagsForEdge(edge, { category: (a) => (deps.getCategory ? deps.getCategory(a) : null) });
+    if (flags.length) {
+      const warn = document.createElement("strong");
+      warn.style.color = "#e0603a";
+      warn.textContent = "⚠ " + flags.map((k) => i18n.t(k)).join(" · ");
+      table.appendChild(detailRow(i18n.t("details.flags"), warn));
+    }
+  }
   if (edge.hasData && Array.isArray(edge.methodArgs)) {
-    // Decoded leading static args (e.g. the real recipient of a transfer()).
-    edge.methodArgs.forEach((a, i) => table.appendChild(detailRow(`#${i + 1} ${a.type}`, a.value)));
+    // Decoded leading static args, resolved for humans: addresses -> alias/known
+    // label, uint amounts -> token-formatted best-effort (raw when decimals unknown).
+    edge.methodArgs.forEach((a, i) => {
+      const key = a.name ? a.name : `#${i + 1} ${a.type}`;
+      let val = a.value;
+      if (a.type === "address") {
+        val = resolveAddr(a.value, deps);
+      } else if (/^u?int/.test(a.type) && /amount|value/i.test(a.name || "")) {
+        const f = formatUnits(a.value, edge.tokenDecimal); // edge.tokenDecimal may be undefined -> 18
+        val = f.indeterminate ? `${a.value} (raw)` : `${f.text} ${edge.symbol || ""}`.trim();
+      }
+      table.appendChild(detailRow(key, val));
+    });
   }
   if (edge.hasData && edge.rawInput) {
     // Full raw calldata hex — untrusted, so rendered as textContent in a

@@ -139,6 +139,8 @@ export default {
   "details.methodUnknown": "unknown selector",
   "details.inputRaw": "Raw input",
   "details.risk": "Risk",
+  "details.summary": "Summary",
+  "details.flags": "Risk flags",
   "risk.high": "High",
   "risk.med": "Medium",
   "risk.low": "Low",
@@ -150,6 +152,20 @@ export default {
   "risk.approval": "unlimited token approval",
   "risk.sanctioned": "sanctioned entity",
   "risk.known": "labeled entity",
+
+  // --- edge decode: call summary + risk flags --------------------------------
+  "summary.transfer": "Transfer {amount} → {recipient}",
+  "summary.transferFrom": "Transfer from {from} → {recipient}",
+  "summary.approve": "Approve {spender} to spend {amount}",
+  "summary.approveAll": "Approve ALL tokens to {operator}",
+  "summary.revokeAll": "Revoke all-token approval for {operator}",
+  "summary.withdraw": "Withdraw {amount}",
+  "summary.mixerDeposit": "Deposit into mixer",
+  "flag.approvalUnlimited": "unlimited approval",
+  "flag.hiddenRecipient": "hidden recipient (differs from tx target)",
+  "flag.mixer": "mixer interaction",
+  "flag.bridge": "bridge interaction",
+  "flag.sanctioned": "sanctioned entity",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Log",

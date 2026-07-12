@@ -244,6 +244,36 @@ test("node details show risk; edge details show decoded args", async () => {
   expect(ec.textContent).toContain(N4); // decoded transfer recipient revealed
 });
 
+test("edge details render an interpolated call summary + risk flags for calldata", async () => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+
+  // approve(spender, MAX_UINT256) -> summary line + "unlimited approval" flag.
+  const MAX_UINT256 = (2n ** 256n - 1n).toString();
+  const container = document.createElement("div");
+  ui.renderEdgeDetails(container, {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N4, hash: "0x1",
+    symbol: "USDC", amountText: "0", amountIndeterminate: false, tokenContract: TOKEN, tokenId: "",
+    value: "0", timeStamp: "1700000000", blockNumber: "1",
+    hasData: true, methodId: "0x095ea7b3",
+    methodArgs: [
+      { type: "address", value: N4, name: "spender" },
+      { type: "uint256", value: MAX_UINT256, name: "amount" },
+    ],
+  }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+
+  expect(container.textContent).toContain("►"); // summary row rendered
+  expect(container.textContent).toContain("Approve"); // real i18n text, not the raw "summary.approve" key
+  expect(container.textContent).not.toContain("{amount}"); // params were interpolated, not left literal
+  expect(container.textContent).not.toContain("{spender}");
+  expect(container.textContent).toContain("⚠"); // risk-flags row rendered
+  expect(container.textContent).toContain("unlimited approval"); // flag.approvalUnlimited resolved
+  expect(container.textContent).toContain("spender"); // decoded arg uses its named role, not "#1 address"
+});
+
 test("workspace serialize -> parse -> loadSnapshot round-trips through the store", async () => {
   const { GraphStore } = await import("../src/graphStore.js");
   const { serializeWorkspace, parseWorkspace } = await import("../src/workspace.js");

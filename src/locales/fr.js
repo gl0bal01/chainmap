@@ -138,6 +138,8 @@ export default {
   "details.methodUnknown": "sélecteur inconnu",
   "details.inputRaw": "Input brut",
   "details.risk": "Risque",
+  "details.summary": "Résumé",
+  "details.flags": "Signaux de risque",
   "risk.high": "Élevé",
   "risk.med": "Moyen",
   "risk.low": "Faible",
@@ -149,6 +151,20 @@ export default {
   "risk.approval": "approbation de jeton illimitée",
   "risk.sanctioned": "entité sanctionnée",
   "risk.known": "entité identifiée",
+
+  // --- edge decode: call summary + risk flags --------------------------------
+  "summary.transfer": "Transfert {amount} → {recipient}",
+  "summary.transferFrom": "Transfert de {from} → {recipient}",
+  "summary.approve": "Autorise {spender} à dépenser {amount}",
+  "summary.approveAll": "Autorise TOUS les jetons à {operator}",
+  "summary.revokeAll": "Révoque l'autorisation totale pour {operator}",
+  "summary.withdraw": "Retrait {amount}",
+  "summary.mixerDeposit": "Dépôt dans un mixeur",
+  "flag.approvalUnlimited": "autorisation illimitée",
+  "flag.hiddenRecipient": "destinataire caché (diffère de la cible de la tx)",
+  "flag.mixer": "interaction avec un mixeur",
+  "flag.bridge": "interaction avec un pont",
+  "flag.sanctioned": "entité sanctionnée",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Journal",

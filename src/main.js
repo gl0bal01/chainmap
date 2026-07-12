@@ -307,7 +307,14 @@ function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
   currentDetail = { kind: "edge", id: edgeKey };
-  const deps = { i18n, explorer: explorerFor($("chainSelect").value), getAlias: (a) => store.getAlias(a) };
+  const chainId = $("chainSelect").value;
+  const deps = {
+    i18n,
+    explorer: explorerFor(chainId),
+    getAlias: (a) => store.getAlias(a),
+    getKnownLabel: (a) => knownLabel(a, chainId, knownData),
+    getCategory: (a) => knownCategory(a, chainId, knownData),
+  };
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
   else renderEdgeDetails($("detailsContent"), data, deps);
 }
