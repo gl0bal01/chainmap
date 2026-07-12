@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { CHAINS, PROBE_CHAIN_IDS } from "../src/config.js";
+import { CHAINS, PROBE_CHAIN_IDS, KNOWN_CATEGORIES } from "../src/config.js";
 
 // explorer must be a bare host: no scheme, no path/slash (config.js builds
 // `https://<explorer>/address/...` and `/tx/...` links directly from it).
@@ -117,5 +117,24 @@ describe("PROBE_CHAIN_IDS", () => {
   test("excludes zkSync Era (324) and Scroll (534352) — not on Etherscan v2", () => {
     expect(PROBE_CHAIN_IDS).not.toContain(324);
     expect(PROBE_CHAIN_IDS).not.toContain(534352);
+  });
+});
+
+describe("KNOWN_CATEGORIES", () => {
+  test("is a non-empty array of unique lowercase strings", () => {
+    expect(Array.isArray(KNOWN_CATEGORIES)).toBe(true);
+    expect(KNOWN_CATEGORIES.length).toBeGreaterThan(0);
+    for (const c of KNOWN_CATEGORIES) {
+      expect(typeof c).toBe("string");
+      expect(c).toBe(c.toLowerCase());
+      expect(c.trim().length).toBeGreaterThan(0);
+    }
+    expect(new Set(KNOWN_CATEGORIES).size).toBe(KNOWN_CATEGORIES.length);
+  });
+
+  test("covers the categories used by the flag mechanism", () => {
+    for (const c of ["exchange", "router", "bridge", "burn", "mixer", "contract", "sanctioned", "other"]) {
+      expect(KNOWN_CATEGORIES).toContain(c);
+    }
   });
 });
