@@ -41,7 +41,7 @@ import { decodeCall } from "./abiDecode.js";
  * @property {boolean} amountIndeterminate decimals/value untrusted (see formatUnits)
  * @property {boolean} hasData             tx carried non-empty input calldata (contract call)
  * @property {string}  methodId            4-byte selector (0x+8 hex) when calldata present, else ""
- * @property {{type:string,value:string}[]} methodArgs decoded leading static args (empty if none/unknown)
+ * @property {{type:string,value:string,name?:string}[]} methodArgs decoded leading static args (empty if none/unknown)
  * @property {string}  rawInput            raw tx `input` calldata hex ("" when none / non-string)
  * @property {string}  timeStamp
  * @property {string}  blockNumber

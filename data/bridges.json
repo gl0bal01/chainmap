@@ -1,0 +1,8 @@
+{
+  "1": {
+    "0xa0c68c638235ee32657e8f720a23cec1bfc77c77": { "name": "Polygon PoS: RootChainManager", "kind": "lock-mint", "destChains": [137] },
+    "0x99c9fc46f92e8a1c0dec1b1747d010903e884be1": { "name": "Optimism: L1StandardBridge", "kind": "lock-mint", "destChains": [10] },
+    "0x3154cf16ccdb4c6d922629664174b904d80f2c35": { "name": "Base: L1StandardBridge", "kind": "lock-mint", "destChains": [8453] },
+    "0x72ce9c846789fdb6fc1f34ac4ad25dd9ef7031ef": { "name": "Arbitrum One: L1 Gateway Router", "kind": "lock-mint", "destChains": [42161] }
+  }
+}
