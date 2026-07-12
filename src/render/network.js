@@ -76,11 +76,13 @@ function buildOptions(layout) {
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ i18n:import('../i18n.js').I18n, getAddressFormat:()=>('short'|'full'),
  *           getLayout?:()=>('force'|'hierarchical'),
- *           getKnownLabel?:(address:string)=>(string|null) }} deps
+ *           getKnownLabel?:(address:string)=>(string|null),
+ *           getHubKind?:(address:string)=>('sink'|'faucet'|null),
+ *           getCategory?:(address:string)=>(string|null) }} deps
  * @returns {GraphView}
  */
 export function createGraphView(container, store, deps) {
-  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind } = deps;
+  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind, getCategory } = deps;
   const vis = window.vis;
 
   const nodesDS = new vis.DataSet([]); // full graph (mirror of store) + annotation nodes
@@ -115,18 +117,24 @@ export function createGraphView(container, store, deps) {
 
   const hubFor = (address) => (getHubKind ? getHubKind(address) : null);
 
+  const catFor = (address) => (getCategory ? getCategory(address) : null);
+  const CAT_ICON = { mixer: "🌀", bridge: "🌉", sanctioned: "⛔" };
+
   function applyNode(node) {
     const knownLabel = knownFor(node.address);
     const visual = labels.nodeVisual(node, { knownLabel });
     const hub = hubFor(node.address); // 'sink' | 'faucet' | null
     const bg = hub ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs
     const rt = roundTripOn && roundTripSet.has(node.address); // on a cycle -> amber ring
+    const cat = catFor(node.address);
+    const icon = CAT_ICON[cat] || "";
+    const baseTitle = hub ? `${visual.title} · ${hub}` : visual.title;
     nodesDS.update({
       id: node.address,
       label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel }),
       color: rt ? { background: bg, border: "#e8b84f" } : bg,
       borderWidth: rt ? 3 : 1,
-      title: hub ? `${visual.title} · ${hub}` : visual.title,
+      title: icon ? `${icon} ${baseTitle}` : baseTitle,
     });
   }
 

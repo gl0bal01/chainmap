@@ -16,12 +16,13 @@ import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
 import { isValidAddress, isFailedTx, shortAddress } from "./format.js";
-import { loadKnownAddresses, knownLabel } from "./knownAddresses.js";
+import { loadKnownAddresses, knownLabel, knownCategory } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
 import { classifyHubs } from "./sinkFaucet.js";
 import { findCycleNodes } from "./roundTrips.js";
 import { scoreNode } from "./riskScore.js";
+import { flagsForEdge } from "./riskFlags.js";
 import { detectAddress } from "./blockchainDetect.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
@@ -95,19 +96,26 @@ function recomputeHubs() {
 function computeRisk(address) {
   const inC = new Set();
   const outC = new Set();
+  const outEdges = [];
   let hasCall = false;
   for (const e of store.listEdges()) {
     if (e.to === address) { inC.add(e.from); if (e.hasData) hasCall = true; }
-    if (e.from === address) { outC.add(e.to); if (e.hasData) hasCall = true; }
+    if (e.from === address) { outC.add(e.to); if (e.hasData) hasCall = true; outEdges.push(e); }
   }
   const cyc = findCycleNodes(store.listNodes(), store.listEdges());
+  const chainId = $("chainSelect").value;
+  const categoryFor = (a) => knownCategory(a, chainId, knownData);
+  // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
+  const flags = outEdges.flatMap((e) => flagsForEdge(e, { category: categoryFor }));
   return scoreNode({
     inDeg: inC.size,
     outDeg: outC.size,
     hubKind: hubMap.get(address) || null,
     onCycle: cyc.has(address),
     hasContractCalls: hasCall,
-    known: !!knownLabel(address, $("chainSelect").value, knownData),
+    known: !!knownLabel(address, chainId, knownData),
+    approvalRisk: flags.includes("flag.approvalUnlimited"),
+    sanctioned: categoryFor(address) === "sanctioned" || flags.includes("flag.sanctioned"),
   });
 }
 function applyDisplayOptions() {
@@ -658,6 +666,7 @@ function init() {
     getAddressFormat: () => $("addressFormat").value,
     getKnownLabel: (address) => knownLabel(address, $("chainSelect").value, knownData),
     getHubKind: (address) => (hubOn ? hubMap.get(address) || null : null),
+    getCategory: (address) => knownCategory(address, $("chainSelect").value, knownData),
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

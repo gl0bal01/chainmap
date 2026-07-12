@@ -10,6 +10,10 @@
     "0x1a2a1c938ce3ec39b6d47113c7955baa9dd454f2": { "label": "Ronin: Bridge", "category": "bridge" },
     "0x098b716b8aaf21512996dc57eb0615e2383e2f96": { "label": "Ronin Exploiter (Lazarus, OFAC)", "category": "sanctioned" },
     "0xa160cdab225685da1d56aa342ad8841c3b53f291": { "label": "Tornado Cash: 100 ETH", "category": "mixer" },
-    "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf": { "label": "Tornado Cash: 10 ETH", "category": "mixer" }
+    "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf": { "label": "Tornado Cash: 10 ETH", "category": "mixer" },
+    "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc": { "label": "Tornado Cash: 0.1 ETH", "category": "mixer" },
+    "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936": { "label": "Tornado Cash: 1 ETH", "category": "mixer" },
+    "0x722122df12d4e14e13ac3b6895a86e84145b6967": { "label": "Tornado Cash: Proxy", "category": "mixer" },
+    "0x40ec5b33f54e0e8a33a975908c5ba1c14e5bbbdf": { "label": "Polygon (Matic): ERC20 Bridge", "category": "bridge" }
   }
 }
