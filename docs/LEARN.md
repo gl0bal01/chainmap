@@ -118,7 +118,7 @@ but **moves no value**. Etherscan marks these (`isError = "1"`, `txreceipt_statu
 
 ## 9. The EVM & multichain
 
-Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom… are all
+Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Sonic… are all
 **EVM-compatible**: same address format, same tx model. They differ by **chain id**.
 Etherscan v2 exposes them through **one endpoint**, selected by a `chainid` parameter.
 
@@ -140,8 +140,14 @@ investigators look for:
   loops) is a classic **layering / wash-trading** signal. Tarjan's SCC algorithm rings
   every address on a cycle.
 - **Color by age** — old flows cool/dim → recent flows warm/bright, to read tempo.
-- **Known-address labels** — a bundled local list names well-known contracts (WETH, USDC,
-  routers) with **no network lookup**.
+- **Known-address labels & risk flags** — a bundled local list names well-known entities —
+  not just contracts (WETH, USDC, routers) but **exchanges, bridges, mixers, and
+  OFAC-sanctioned addresses**, across several chains — with **no network lookup**. The
+  high-signal categories drive the **risk flags**: an edge whose recipient is a mixer,
+  bridge, or sanctioned entity is escalated on the graph, and a node's details panel shows
+  the label plus a **Source** line giving the label's provenance (e.g. an OFAC action, or a
+  public explorer label). The list is a **dated snapshot, not a live sanctions feed** —
+  verify against the live OFAC SDN list before acting on a `sanctioned` hit.
 - **Per-node risk score** — an *explainable* triage number combining the above (on a cycle,
   hub, high degree, contract calls, known entity). Click a node to see the score **and
   every reason** — no black box.
