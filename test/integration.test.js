@@ -428,3 +428,44 @@ test("decoded input words show the integer; address-shaped words marked as candi
   // And the recipient word must be marked as a candidate address with "addr?".
   expect(container.textContent).toContain("addr?");
 });
+
+test("node details render a Source provenance row only when getKnownSource returns a value (XSS-inert)", async () => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const node = { address: ROOT, depth: 0, isRoot: false, alias: null };
+
+  // WITH a source -> the "Source" row renders with the provenance string (real i18n label).
+  const withSrc = document.createElement("div");
+  ui.renderNodeDetails(withSrc, node, {
+    i18n, explorer: "etherscan.io", onRename: () => {},
+    getKnownSource: () => "OFAC SDN 2022",
+  });
+  expect(withSrc.textContent).toContain(i18n.t("details.source")); // "Source", not the raw key
+  expect(withSrc.textContent).toContain("OFAC SDN 2022"); // provenance shown
+
+  // dep ABSENT -> no provenance row, no crash.
+  const noDep = document.createElement("div");
+  ui.renderNodeDetails(noDep, node, { i18n, explorer: "etherscan.io", onRename: () => {} });
+  expect(noDep.textContent).not.toContain("OFAC SDN 2022");
+
+  // dep returns null (address has no source) -> no provenance row.
+  const nullSrc = document.createElement("div");
+  ui.renderNodeDetails(nullSrc, node, {
+    i18n, explorer: "etherscan.io", onRename: () => {},
+    getKnownSource: () => null,
+  });
+  expect(nullSrc.textContent).not.toContain("OFAC SDN 2022");
+
+  // XSS: a malicious source string is inert (textContent, never parsed as HTML).
+  const xss = document.createElement("div");
+  const payload = '<img src=x onerror="alert(1)">';
+  ui.renderNodeDetails(xss, node, {
+    i18n, explorer: "etherscan.io", onRename: () => {},
+    getKnownSource: () => payload,
+  });
+  expect(xss.querySelector("img")).toBeNull(); // NOT parsed as HTML
+  expect(xss.textContent).toContain(payload); // present as inert text
+});
