@@ -428,3 +428,95 @@ test("decoded input words show the integer; address-shaped words marked as candi
   // And the recipient word must be marked as a candidate address with "addr?".
   expect(container.textContent).toContain("addr?");
 });
+
+test("node details render a Source provenance row only when getKnownSource returns a value (XSS-inert)", async () => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const node = { address: ROOT, depth: 0, isRoot: false, alias: null };
+
+  // WITH a source -> the "Source" row renders with the provenance string (real i18n label).
+  const withSrc = document.createElement("div");
+  ui.renderNodeDetails(withSrc, node, {
+    i18n, explorer: "etherscan.io", onRename: () => {},
+    getKnownSource: () => "OFAC SDN 2022",
+  });
+  expect(withSrc.textContent).toContain(i18n.t("details.source")); // "Source", not the raw key
+  expect(withSrc.textContent).toContain("OFAC SDN 2022"); // provenance shown
+
+  // dep ABSENT -> no provenance row, no crash.
+  const noDep = document.createElement("div");
+  ui.renderNodeDetails(noDep, node, { i18n, explorer: "etherscan.io", onRename: () => {} });
+  expect(noDep.textContent).not.toContain(i18n.t("details.source")); // no "Source" row at all
+
+  // dep returns null (address has no source) -> no provenance row.
+  const nullSrc = document.createElement("div");
+  ui.renderNodeDetails(nullSrc, node, {
+    i18n, explorer: "etherscan.io", onRename: () => {},
+    getKnownSource: () => null,
+  });
+  expect(nullSrc.textContent).not.toContain(i18n.t("details.source")); // no "Source" row at all
+
+  // XSS: a malicious source string is inert (textContent, never parsed as HTML).
+  const xss = document.createElement("div");
+  const payload = '<img src=x onerror="alert(1)">';
+  ui.renderNodeDetails(xss, node, {
+    i18n, explorer: "etherscan.io", onRename: () => {},
+    getKnownSource: () => payload,
+  });
+  expect(xss.querySelector("img")).toBeNull(); // NOT parsed as HTML
+  expect(xss.textContent).toContain(payload); // present as inert text
+});
+
+test("demo workspace showcases every investigator overlay (6 categories, all 5 risk flags, peel chain, NFT) and holds store invariants", async () => {
+  const { parseWorkspace } = await import("../src/workspace.js");
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { flagsForEdge } = await import("../src/riskFlags.js");
+  const { findPeelChains } = await import("../src/peelChain.js");
+  const { knownCategory } = await import("../src/knownAddresses.js");
+
+  const demo = JSON.parse(await Bun.file(new URL("../data/demo-workspace.json", import.meta.url)).text());
+  const knownData = JSON.parse(await Bun.file(new URL("../data/known-addresses.json", import.meta.url)).text());
+  const cat = (a) => knownCategory(a, "1", knownData);
+  const flagsOf = (hash) => flagsForEdge(demo.edges.find((e) => e.hash === hash), { category: cat });
+
+  // Store invariants: every edge endpoint resolves to a node. A corrupted/typo'd
+  // address would drop the edge (endpoint invariant) — this catches it.
+  const parsed = parseWorkspace(JSON.stringify(demo));
+  expect(parsed.ok).toBe(true);
+  const store = new GraphStore();
+  store.loadSnapshot(parsed.data.nodes, parsed.data.edges);
+  expect(store.checkInvariants().ok).toBe(true);
+  expect(store.listEdges().length).toBe(demo.edges.length); // no edge silently dropped
+
+  // All 6 known categories appear as labeled nodes.
+  const cats = new Set(demo.nodes.map((n) => cat(n.address)).filter(Boolean));
+  for (const c of ["sanctioned", "mixer", "bridge", "exchange", "router", "contract"]) {
+    expect(cats.has(c)).toBe(true);
+  }
+
+  // All 5 risk-flag types fire in the demo.
+  expect(flagsOf("0xb1")).toContain("flag.approvalUnlimited"); // approve(spender, MAX_UINT)
+  expect(flagsOf("0xb2")).toContain("flag.hiddenRecipient");   // transfer recipient != tx target
+  expect(flagsOf("0xa2")).toContain("flag.mixer");             // Tornado deposit
+  expect(flagsOf("0xb7")).toContain("flag.bridge");            // send into a known bridge
+  expect(cat(demo.root)).toBe("sanctioned");                   // root node is a sanctioned entity
+
+  // Peel chain: a >=3-node forwarding chain through the illustrative 0xf00d hops.
+  const peelHit = findPeelChains(demo.edges).some(
+    (p) => p.length >= 3 && p.includes("0xf00d000000000000000000000000000000000002")
+  );
+  expect(peelHit).toBe(true);
+
+  // NFT (ERC-721) edge present with a tokenId (dedup key carries tokenID).
+  const nft = demo.edges.find((e) => e.action === "tokennfttx");
+  expect(nft).toBeDefined();
+  expect(nft.tokenId).toBe("8817");
+
+  // Round-trip preserved: root <-> Uniswap (ETH out, USDC back).
+  const uni = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
+  expect(demo.edges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
+  expect(demo.edges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+});
