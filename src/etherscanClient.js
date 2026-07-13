@@ -65,7 +65,6 @@ export class EtherscanError extends Error {
  *   Resolves to the result array (possibly empty). Rejects with {@link EtherscanError}.
  * @property {(apiKey:string) => void} setApiKey
  * @property {(chainId:number|string) => void} setChainId
- * @property {() => (number|string)} getChainId  current chain id
  */
 
 // --- internal helpers (module-private) --------------------------------------
@@ -332,9 +331,6 @@ export function createEtherscanClient(options) {
     },
     setChainId(id) {
       chainId = id;
-    },
-    getChainId() {
-      return chainId;
     },
   };
 }
