@@ -449,7 +449,7 @@ test("node details render a Source provenance row only when getKnownSource retur
   // dep ABSENT -> no provenance row, no crash.
   const noDep = document.createElement("div");
   ui.renderNodeDetails(noDep, node, { i18n, explorer: "etherscan.io", onRename: () => {} });
-  expect(noDep.textContent).not.toContain("OFAC SDN 2022");
+  expect(noDep.textContent).not.toContain(i18n.t("details.source")); // no "Source" row at all
 
   // dep returns null (address has no source) -> no provenance row.
   const nullSrc = document.createElement("div");
@@ -457,7 +457,7 @@ test("node details render a Source provenance row only when getKnownSource retur
     i18n, explorer: "etherscan.io", onRename: () => {},
     getKnownSource: () => null,
   });
-  expect(nullSrc.textContent).not.toContain("OFAC SDN 2022");
+  expect(nullSrc.textContent).not.toContain(i18n.t("details.source")); // no "Source" row at all
 
   // XSS: a malicious source string is inert (textContent, never parsed as HTML).
   const xss = document.createElement("div");
