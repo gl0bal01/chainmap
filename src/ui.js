@@ -12,7 +12,7 @@
 import { formatTimestamp, formatUnits, isValidAddress } from "./format.js";
 import { TX_TYPE_GROUPS } from "./config.js";
 import { methodName } from "./selectors.js";
-import { summarizeCall, decodeCalldataWords } from "./abiDecode.js";
+import { summarizeCall, decodeCalldataWords, decodeInputText } from "./abiDecode.js";
 import { flagsForEdge } from "./riskFlags.js";
 
 // action -> i18n labelKey (flattened from config.TX_TYPE_GROUPS), used to render
@@ -249,6 +249,16 @@ export function renderEdgeDetails(container, edge, deps) {
     }
   }
   if (edge.hasData && edge.rawInput) {
+    // Best-effort human-readable text hidden in the calldata (on-chain messages,
+    // notes). Absent for pure ABI binary — the decoder gates those out. Untrusted,
+    // so rendered as textContent (never HTML).
+    const text = decodeInputText(edge.rawInput);
+    if (text) {
+      const box = document.createElement("div");
+      box.textContent = text;
+      box.style.cssText = "white-space:pre-wrap;word-break:break-word;max-height:8em;overflow:auto";
+      table.appendChild(detailRow(i18n.t("details.inputText"), box));
+    }
     // Full raw calldata hex — untrusted, so rendered as textContent in a
     // scrollable monospace block (never parsed as HTML).
     const code = document.createElement("code");

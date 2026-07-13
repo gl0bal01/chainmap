@@ -18,6 +18,9 @@ import { passesFilters, filtersActive, edgeAmountNumber, edgeWidth, bundleEdges,
 import { findCycleNodes } from "../roundTrips.js";
 import { shouldHideNode } from "../sinkFaucet.js";
 import { edgeSeverity } from "../riskFlags.js";
+import { methodName } from "../selectors.js";
+import { decodeInputText } from "../abiDecode.js";
+import { escapeHtml } from "../format.js";
 
 /**
  * @typedef {object} DisplayOptions
@@ -51,6 +54,20 @@ Object.values(TX_TYPE_GROUPS).forEach((infos) => {
 function edgeTitle(edge, i18n) {
   const key = ACTION_LABEL_KEYS.get(edge.action) || `tx.type.${edge.group}`;
   return i18n.t(key);
+}
+
+// Hover tooltip for a contract-call edge: type + decoded method (selector name)
+// + any human-readable calldata text, so the decoded data shows on the graph
+// itself — no click into the details panel needed. The calldata text is
+// untrusted, and vis renders string titles via innerHTML, so escape it (never
+// strip — escapeHtml keeps the message intact and is safe in that context).
+function edgeDataTitle(edge, i18n) {
+  const parts = [`${edgeTitle(edge, i18n)} · ${i18n.t("legend.data")}`];
+  const name = edge.methodId ? methodName(edge.methodId) : null;
+  if (name) parts.push(`${edge.methodId} ${name}`);
+  const text = decodeInputText(edge.rawInput);
+  if (text) parts.push(`“${escapeHtml(text.slice(0, 80))}”`);
+  return parts.join(" · ");
 }
 
 const DEFAULT_FIT_OPTS = { animation: { duration: 400, easingFunction: "easeInOutQuad" } };
@@ -177,7 +194,7 @@ export function createGraphView(container, store, deps) {
     const label = sev ? `${base ? base + " " : ""}${RISK_MARK[sev]}` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base);
     const title = sev
       ? `${edgeTitle(edge, i18n)} · ${RISK_MARK[sev]} ${flags.map((k) => i18n.t(k)).join(", ")}`
-      : (edge.hasData ? `${edgeTitle(edge, i18n)} · ${i18n.t("legend.data")}` : edgeTitle(edge, i18n));
+      : (edge.hasData ? edgeDataTitle(edge, i18n) : edgeTitle(edge, i18n));
     edgesDS.add({
       id: edge.key,
       from: edge.from,

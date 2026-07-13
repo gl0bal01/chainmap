@@ -222,6 +222,41 @@ test("edge details decode the 4-byte method selector for contract calls", async 
   expect(container.textContent).toContain("swapExactETHForTokens"); // decoded signature shown
 });
 
+test("edge details surface a human-readable UTF-8 message hidden in calldata", async () => {
+  const ui = await import("../src/ui.js");
+  const i18n = { t: (k) => k, getLocale: () => "en" };
+  const msg = "gm fren, wagmi";
+  const rawInput = "0x" + Array.from(new TextEncoder().encode(msg)).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  const withText = document.createElement("div");
+  ui.renderEdgeDetails(withText, {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N2, hash: "0x1",
+    symbol: "ETH", amountText: "1", amountIndeterminate: false, tokenContract: "", tokenId: "",
+    value: "1", timeStamp: "1", blockNumber: "1", hasData: true, methodId: "", methodArgs: [], rawInput,
+  }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+  expect(withText.textContent).toContain("details.inputText"); // row label rendered
+  expect(withText.textContent).toContain(msg); // the decoded message itself
+
+  // ABI-encoded binary (transfer) has no readable text -> no inputText row.
+  const noText = document.createElement("div");
+  ui.renderEdgeDetails(noText, {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N2, hash: "0x1",
+    symbol: "ETH", amountText: "1", amountIndeterminate: false, tokenContract: "", tokenId: "",
+    value: "1", timeStamp: "1", blockNumber: "1",
+    hasData: true, methodId: "0xa9059cbb", methodArgs: [], rawInput: "0xa9059cbb" + "0".repeat(128),
+  }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+  expect(noText.textContent).not.toContain("details.inputText");
+});
+
+test("appbar search button opens the command palette (touch-reachable, no Ctrl+K)", () => {
+  const palette = document.getElementById("palette");
+  const btn = document.getElementById("searchBtn");
+  expect(btn).not.toBeNull();
+  expect(palette.hidden).toBe(true); // closed initially
+  btn.click();
+  expect(palette.hidden).toBe(false); // same modal Ctrl/Cmd+K opens
+});
+
 test("node details show risk; edge details show decoded args", async () => {
   const ui = await import("../src/ui.js");
   const i18n = { t: (k) => k, getLocale: () => "en" };

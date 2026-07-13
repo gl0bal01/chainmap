@@ -1004,7 +1004,10 @@ function init() {
     onLog: (e) => logger.log(e),
   });
 
-  createPalette({ i18n, getRecords: buildSearchRecords, onPick: revealAndFocus });
+  // Command palette also opens via Ctrl/Cmd+K; the appbar button is the visible,
+  // touch-reachable entry point (mobile has no keyboard shortcut).
+  const palette = createPalette({ i18n, getRecords: buildSearchRecords, onPick: revealAndFocus });
+  $("searchBtn").addEventListener("click", () => palette.open());
 
   wireControls();
   wirePanels();

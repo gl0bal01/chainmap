@@ -94,6 +94,36 @@ export function decodeCalldataWords(input) {
   return { selector, words };
 }
 
+/**
+ * Best-effort human-readable text hidden in raw calldata. Most contract calls
+ * are ABI-encoded binary (this returns "" after the readability gate), but plain
+ * value transfers sometimes carry a UTF-8 message in `input` — on-chain notes,
+ * "gm", ransom demands — which this surfaces without a block explorer. Pure/DOM-free.
+ * @param {string} input raw calldata hex ("0x"+bytes)
+ * @returns {string} readable text, or "" when the calldata isn't textual
+ */
+export function decodeInputText(input) {
+  if (!input || typeof input !== "string") return "";
+  let clean = /^0x/i.test(input) ? input.slice(2) : input;
+  if (!clean) return "";
+  if (clean.length % 2) clean = "0" + clean;
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    const b = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    if (Number.isNaN(b)) return ""; // non-hex payload — not calldata we can read
+    bytes[i] = b;
+  }
+  // fatal:false never throws — it emits U+FFFD for undecodable bytes, stripped below.
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  // Drop control chars + U+FFFD decode failures, then squeeze whitespace.
+  const cleaned = text.replace(/[\u0000-\u001F\u007F-\u009F\uFFFD]+/g, " ").replace(/\s+/g, " ").trim();
+  // Readability gate: ABI-encoded binary yields only a few stray printable bytes.
+  // Count Unicode letters/digits (not just ASCII) so non-Latin messages — Cyrillic,
+  // CJK, Arabic — surface too; require a handful so genuine text clears the noise.
+  if ((cleaned.match(/[\p{L}\p{N}]/gu) || []).length < 4) return "";
+  return cleaned;
+}
+
 /** Find a decoded arg by its role name. */
 function argByName(args, name) {
   const a = (args || []).find((x) => x && x.name === name);

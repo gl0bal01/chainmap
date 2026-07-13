@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { decodeCall, summarizeCall, decodeCalldataWords } from "../src/abiDecode.js";
+import { decodeCall, summarizeCall, decodeCalldataWords, decodeInputText } from "../src/abiDecode.js";
 
 const pad = (h) => h.padStart(64, "0");
 const addr = "0x1111111111111111111111111111111111111111";
@@ -104,4 +104,37 @@ test("decodeCalldataWords: a trailing partial word (< 64 hex chars) is included 
   expect(d.words[1].hex).toBe("0xabcd");
   expect(d.words[1].uint).toBe(BigInt("0xabcd").toString());
   expect(d.words[1].address).toBeNull();
+});
+
+// --- decodeInputText: readable UTF-8 message hidden in raw calldata ---------
+
+const hexOf = (s) => "0x" + Array.from(new TextEncoder().encode(s)).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+test("decodeInputText surfaces a plain-text message carried in the input", () => {
+  expect(decodeInputText(hexOf("gm fren, wagmi"))).toBe("gm fren, wagmi");
+});
+
+test("decodeInputText keeps UTF-8 letters and squeezes whitespace/control noise", () => {
+  expect(decodeInputText(hexOf("café\n\n  note"))).toBe("café note");
+});
+
+test("decodeInputText surfaces non-Latin messages (Cyrillic / CJK)", () => {
+  expect(decodeInputText(hexOf("привет мир"))).toBe("привет мир");
+  expect(decodeInputText(hexOf("你好世界这是消息"))).toBe("你好世界这是消息");
+});
+
+test("decodeInputText gates out ABI-encoded binary (transfer calldata) -> empty", () => {
+  const input = "0xa9059cbb" + pad(addr.slice(2)) + pad("de0b6b3a7640000");
+  expect(decodeInputText(input)).toBe("");
+});
+
+test("decodeInputText returns empty for no/short/invalid calldata", () => {
+  expect(decodeInputText("0x")).toBe("");
+  expect(decodeInputText("")).toBe("");
+  expect(decodeInputText(null)).toBe("");
+  expect(decodeInputText("0xzz")).toBe(""); // non-hex
+});
+
+test("decodeInputText below the alphanumeric gate (too little text) -> empty", () => {
+  expect(decodeInputText(hexOf("hi"))).toBe(""); // only 2 alnum, under the 4-char gate
 });

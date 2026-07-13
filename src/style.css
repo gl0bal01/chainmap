@@ -282,7 +282,8 @@ details.card:not([open]) > summary.card-title { margin-bottom: 0; }
   background: var(--elev);
   color: var(--text);
   padding: 0 14px;
-  font-size: 14px;
+  /* 16px keeps iOS Safari from auto-zooming the viewport when the field focuses. */
+  font-size: 16px;
   font-family: inherit;
 }
 .palette-input:focus { outline: none; }
