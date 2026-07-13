@@ -130,7 +130,7 @@ Une transaction peut être *incluse dans un bloc tout en échouant* (manque de g
 
 ## 9. EVM et multichaîne
 
-Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom… sont toutes
+Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Sonic… sont toutes
 **compatibles EVM** : même format d'adresse, même modèle de tx. Elles diffèrent par leur
 **chain id**. Etherscan v2 les expose via **un seul point d'accès**, sélectionné par un
 paramètre `chainid`.
@@ -155,8 +155,15 @@ motifs que recherchent les enquêteurs :
   SCC de Tarjan cercle chaque adresse d'un cycle.
 - **Coloration par ancienneté** — flux anciens froids/ternes → flux récents chauds/vifs, pour
   lire le tempo.
-- **Libellés d'adresses connues** — une liste locale intégrée nomme les contrats bien connus
-  (WETH, USDC, routeurs) **sans aucune requête réseau**.
+- **Libellés d'adresses connues et risk-flags** — une liste locale intégrée nomme des entités
+  bien connues — pas seulement des contrats (WETH, USDC, routeurs) mais aussi des
+  **exchanges, ponts, mixeurs et adresses sanctionnées par l'OFAC**, sur plusieurs chaînes —
+  **sans aucune requête réseau**. Les catégories à fort signal alimentent les **risk-flags** :
+  une arête dont le destinataire est un mixeur, un pont ou une entité sanctionnée est escaladée
+  sur le graphe, et le panneau de détails d'un nœud affiche le libellé plus une ligne
+  **Source** donnant la provenance (ex. une action OFAC, ou un libellé public d'explorateur).
+  La liste est un **instantané daté, pas un flux de sanctions en direct** — vérifiez contre la
+  liste OFAC SDN officielle avant d'agir sur un résultat `sanctioned`.
 - **Score de risque par nœud** — un chiffre de triage *explicable* combinant ce qui précède
   (sur un cycle, hub, degré élevé, appels de contrat, entité connue). Cliquez un nœud pour
   voir le score **et toutes les raisons** — aucune boîte noire.
