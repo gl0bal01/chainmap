@@ -195,7 +195,6 @@ export const STORAGE_KEYS = {
 export const DATA_PATHS = {
   knownAddresses: "./data/known-addresses.json",
   spamTokens: "./data/spam-tokens.json",
-  bridges: "./data/bridges.json",
   demo: "./data/demo-workspace.json",
 };
 
