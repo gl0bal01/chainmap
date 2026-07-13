@@ -6,6 +6,10 @@ node_modules/
 .omo/
 .codegraph
 .claude/
+# Implementation plans are process artifacts (TDD step lists, agent workflow
+# headers) — kept local, not in the public repo. Design specs under
+# docs/superpowers/specs/ ARE tracked (product rationale).
+docs/superpowers/plans/
 
 # OS / editor
 .DS_Store
