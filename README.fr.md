@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **321 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **351 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -64,7 +64,10 @@ multichaîne unifié).
   chacune une arête colorée.
 - **Décodage du calldata** — sélecteurs 4 octets → noms de méthode lisibles + arguments de
   tête **nommés** décodés et une ligne `► Résumé` en langage clair, de sorte que le vrai
-  destinataire d'un `transfer()` (caché dans le calldata) est révélé.
+  destinataire d'un `transfer()` (caché dans le calldata) est révélé. Tout **message lisible**
+  transporté dans l'input d'une transaction (notes on-chain, « gm », demandes de rançon —
+  latin, cyrillique, CJC ou arabe) est décodé et affiché à la fois dans le panneau de détails
+  de l'arête *et* directement dans l'infobulle au survol sur le graphe, pour le repérer sans clic.
 - **Réduction du bruit** — filtres montant/date/valeur-nulle/spam, et regroupement d'arêtes
   (fusionner plusieurs transferts A→B en une flèche pondérée).
 - **Superpositions d'enquête** — détection de cycles (allers-retours), hubs puits/source
@@ -82,8 +85,13 @@ multichaîne unifié).
 - **Exports** — PNG, PDF et CSV (avec la mise en garde d'échantillonnage intégrée, plus les
   colonnes méthode décodée, destinataire réel, montant décodé et signaux de risque par
   arête). Sauvegarde / chargement d'espaces de travail.
-- **Navigation au clavier** — Ctrl/Cmd+Flèche déplace la sélection vers le nœud le plus
-  proche dans cette direction. **Palette de commandes Ctrl/Cmd+K** — cherchez des nœuds par adresse / alias / libellé connu / catégorie et des transactions par hash / méthode (classement hybride substring + fuzzy) ; choisir un résultat le met au centre, le sélectionne et l'affiche automatiquement s'il était masqué par un filtre/hub-hide.
+- **Recherche & navigation au clavier** — un **bouton 🔍 Rechercher** dans la barre du haut
+  (ou **Ctrl/Cmd+K**) ouvre une palette de commandes qui cherche des nœuds par adresse / alias /
+  libellé connu / catégorie et des transactions par hash / méthode (classement hybride substring
+  + fuzzy) ; choisir un résultat le met au centre, le sélectionne et l'affiche automatiquement
+  s'il était masqué par un filtre/hub-hide. Le bouton rend la recherche accessible sur
+  **mobile / tactile**, où il n'y a pas de raccourci clavier. Ctrl/Cmd+Flèche déplace la
+  sélection vers le nœud le plus proche dans cette direction.
 - **Honnête par conception** — montants en entiers (jamais de virgule flottante), tx
   échouées écartées, échantillonnage signalé partout. La mise en garde d'échantillonnage
   s'applique à toutes les fonctionnalités ci-dessus : superpositions, signaux et détection
@@ -150,7 +158,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 321 tests unitaires + d'intégration
+bun test        # 351 tests unitaires + d'intégration
 ```
 
 `bun test` couvre les modules sans DOM (arithmétique des montants, clés de déduplication,

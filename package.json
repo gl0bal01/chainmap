@@ -1,6 +1,6 @@
 {
   "name": "chainmap",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Client-side EVM fund-flow graph explorer for OSINT investigation and learning how blockchains work. Buildless; the app runs with zero install (node_modules is dev-only, for tests).",

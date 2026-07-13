@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **321 unit/integration tests** on the DOM-free core.
+- **351 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -61,7 +61,9 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   colored edge.
 - **Calldata decoding** — 4-byte selectors → human method names + **named** decoded args and
   a plain-language `► Summary` line, so a `transfer()`'s real recipient (hidden in calldata)
-  is surfaced.
+  is surfaced. Any **human-readable message** carried in a transaction's input (on-chain notes,
+  "gm", ransom demands — Latin, Cyrillic, CJK or Arabic) is decoded and shown both in the edge
+  details panel *and* directly in the on-graph hover tooltip, so you spot it without a click.
 - **Noise reduction** — amount/date/zero-value/spam filters, and edge bundling (collapse
   many A→B transfers into one weighted arrow).
 - **Investigation overlays** — round-trip (cycle) detection, sink/faucet hubs (with
@@ -76,8 +78,12 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
 - **Chain detector** — paste any address; it tells you the chain family (or non-EVM) by format. Then click **Detect chain** to probe ~12 popular chains for on-chain activity and auto-select the one where the address is most active, showing where else it's active.
 - **Exports** — PNG, PDF, and CSV (with a sampling caveat baked in, plus decoded method,
   real recipient, decoded amount, and risk-flag columns per edge). Save/load workspaces.
-- **Keyboard navigation** — Ctrl/Cmd+Arrow jumps selection to the nearest node in that
-  direction. **Ctrl/Cmd+K command palette** — search nodes by address / alias / known-label / category and transactions by hash / method (hybrid substring + fuzzy ranking); picking a result focuses + selects it and auto-reveals it if hidden by a filter/hub-hide.
+- **Search & keyboard navigation** — a **🔍 search button** in the top bar (or **Ctrl/Cmd+K**)
+  opens a command palette that searches nodes by address / alias / known-label / category and
+  transactions by hash / method (hybrid substring + fuzzy ranking); picking a result focuses +
+  selects it and auto-reveals it if hidden by a filter/hub-hide. The button makes search
+  reachable on **mobile / touch**, where there's no keyboard shortcut. Ctrl/Cmd+Arrow jumps
+  selection to the nearest node in that direction.
 - **Honest by design** — big-integer amounts (never floating point), failed txs dropped,
   and sampling surfaced everywhere. The sampling caveat applies to every feature above:
   overlays, flags, and hub/peel-chain detection only ever see the sampled graph, never full
@@ -140,7 +146,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 321 unit + integration tests
+bun test        # 351 unit + integration tests
 ```
 
 `bun test` covers the DOM-free modules (amount math, dedup keys, BFS guards, failed-tx
