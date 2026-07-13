@@ -173,4 +173,31 @@ describe("followBridgeExit", () => {
     const r = await followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137, offset: 20 });
     expect(r.map((x) => x.hash)).toContain("0xint1");
   });
+
+  test("restores the client's chain id after running (leaves a shared client untouched)", async () => {
+    const client = {
+      chainId: 1,
+      fetchedOnChain: null,
+      getChainId() { return this.chainId; },
+      setChainId(id) { this.chainId = id; },
+      async fetchAction(address, action) {
+        this.fetchedOnChain = this.chainId; // prove the fetch happened on the dest chain
+        return action === "txlist"
+          ? [{ to: "0xFEED000000000000000000000000000000000009", value: "50000000000000000000", tokenDecimal: "", timeStamp: "1700000600", hash: "0xr1" }]
+          : [];
+      },
+    };
+    const r = await followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137, offset: 20 });
+    expect(r.map((x) => x.hash)).toContain("0xr1");
+    expect(client.fetchedOnChain).toBe(137); // fetched on dest
+    expect(client.getChainId()).toBe(1);     // restored afterwards
+  });
+
+  test("restores the client's chain id even when a fetch throws", async () => {
+    const client = { chainId: 5, getChainId() { return this.chainId; }, setChainId(id) { this.chainId = id; },
+      async fetchAction() { throw new Error("boom"); } };
+    const r = await followBridgeExit({ client, limiter, exit: EXIT4, destChainId: 137 });
+    expect(r).toEqual([]);
+    expect(client.getChainId()).toBe(5); // restored despite the throw
+  });
 });
