@@ -469,3 +469,54 @@ test("node details render a Source provenance row only when getKnownSource retur
   expect(xss.querySelector("img")).toBeNull(); // NOT parsed as HTML
   expect(xss.textContent).toContain(payload); // present as inert text
 });
+
+test("demo workspace showcases every investigator overlay (6 categories, all 5 risk flags, peel chain, NFT) and holds store invariants", async () => {
+  const { parseWorkspace } = await import("../src/workspace.js");
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { flagsForEdge } = await import("../src/riskFlags.js");
+  const { findPeelChains } = await import("../src/peelChain.js");
+  const { knownCategory } = await import("../src/knownAddresses.js");
+
+  const demo = JSON.parse(await Bun.file(new URL("../data/demo-workspace.json", import.meta.url)).text());
+  const knownData = JSON.parse(await Bun.file(new URL("../data/known-addresses.json", import.meta.url)).text());
+  const cat = (a) => knownCategory(a, "1", knownData);
+  const flagsOf = (hash) => flagsForEdge(demo.edges.find((e) => e.hash === hash), { category: cat });
+
+  // Store invariants: every edge endpoint resolves to a node. A corrupted/typo'd
+  // address would drop the edge (endpoint invariant) — this catches it.
+  const parsed = parseWorkspace(JSON.stringify(demo));
+  expect(parsed.ok).toBe(true);
+  const store = new GraphStore();
+  store.loadSnapshot(parsed.data.nodes, parsed.data.edges);
+  expect(store.checkInvariants().ok).toBe(true);
+  expect(store.listEdges().length).toBe(demo.edges.length); // no edge silently dropped
+
+  // All 6 known categories appear as labeled nodes.
+  const cats = new Set(demo.nodes.map((n) => cat(n.address)).filter(Boolean));
+  for (const c of ["sanctioned", "mixer", "bridge", "exchange", "router", "contract"]) {
+    expect(cats.has(c)).toBe(true);
+  }
+
+  // All 5 risk-flag types fire in the demo.
+  expect(flagsOf("0xb1")).toContain("flag.approvalUnlimited"); // approve(spender, MAX_UINT)
+  expect(flagsOf("0xb2")).toContain("flag.hiddenRecipient");   // transfer recipient != tx target
+  expect(flagsOf("0xa2")).toContain("flag.mixer");             // Tornado deposit
+  expect(flagsOf("0xb7")).toContain("flag.bridge");            // send into a known bridge
+  expect(cat(demo.root)).toBe("sanctioned");                   // root node is a sanctioned entity
+
+  // Peel chain: a >=3-node forwarding chain through the illustrative 0xf00d hops.
+  const peelHit = findPeelChains(demo.edges).some(
+    (p) => p.length >= 3 && p.includes("0xf00d000000000000000000000000000000000002")
+  );
+  expect(peelHit).toBe(true);
+
+  // NFT (ERC-721) edge present with a tokenId (dedup key carries tokenID).
+  const nft = demo.edges.find((e) => e.action === "tokennfttx");
+  expect(nft).toBeDefined();
+  expect(nft.tokenId).toBe("8817");
+
+  // Round-trip preserved: root <-> Uniswap (ETH out, USDC back).
+  const uni = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
+  expect(demo.edges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
+  expect(demo.edges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+});
