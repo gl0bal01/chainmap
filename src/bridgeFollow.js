@@ -115,6 +115,11 @@ function normalizeTx(tx) {
  * client to the dest chain, fetches the recipient's recent inbound native +
  * ERC-20 txs (sampled "latest N", desc), normalizes, and correlates. Never
  * throws — resolves [] on any fetch failure so callers can invoke it defensively.
+ * Restores the client's chain id in a `finally` (on success AND on error), so a
+ * client shared with the rest of the app is safe to pass in — it is left exactly
+ * as it was found. Backward-compatible: if the injected client has no
+ * `getChainId` (e.g. a minimal test fake), the restore is skipped rather than
+ * throwing.
  * @param {{client:any, limiter:{run:(fn:()=>Promise<any>)=>Promise<any>},
  *   exit:any, destChainId:number, offset?:number, windowSecs?:number, signal?:any}} args
  * @returns {Promise<any[]>}
@@ -122,6 +127,7 @@ function normalizeTx(tx) {
 export async function followBridgeExit(args) {
   const { client, limiter, exit, destChainId, offset = 25, windowSecs, signal } = args || {};
   if (!client || !exit || !exit.recipient) return [];
+  const prevChainId = typeof client.getChainId === "function" ? client.getChainId() : null;
   try {
     client.setChainId(destChainId);
     const actions = ["txlist", "txlistinternal", "tokentx"];
@@ -136,5 +142,7 @@ export async function followBridgeExit(args) {
     return matchReleases(exit, candidates, windowSecs ? { windowSecs } : undefined);
   } catch {
     return [];
+  } finally {
+    if (prevChainId != null) client.setChainId(prevChainId);
   }
 }

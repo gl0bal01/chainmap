@@ -341,4 +341,11 @@ describe("setApiKey / setChainId", () => {
     expect(u.searchParams.get("apikey")).toBe("NEWKEY");
     expect(u.searchParams.get("chainid")).toBe("137");
   });
+
+  test("getChainId returns the constructed chain id and reflects setChainId", () => {
+    const client = createEtherscanClient({ apiKey: "k", chainId: 1, fetchImpl: async () => ({ status: 200, headers: { get: () => null }, json: async () => ({ status: "1", result: [] }) }) });
+    expect(client.getChainId()).toBe(1);
+    client.setChainId(137);
+    expect(client.getChainId()).toBe(137);
+  });
 });
