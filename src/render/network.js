@@ -124,6 +124,7 @@ export function createGraphView(container, store, deps) {
   let roundTripSet = new Set(); // addresses on a directed cycle
   let peelNodes = new Set(); // addresses on a highlighted peel chain
   const PEEL_COLOR = "#7b61ff";
+  const MORE_BORDER = "#e8eef7"; // light so the dashed more-history border contrasts the fill
   let colorByAge = false;
   let ageMin = 0;
   let ageMax = 0;
@@ -175,7 +176,7 @@ export function createGraphView(container, store, deps) {
     nodesDS.update({
       id: node.address,
       label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel }),
-      color: ringColor ? { background: bg, border: ringColor } : bg,
+      color: ringColor ? { background: bg, border: ringColor } : more ? { background: bg, border: MORE_BORDER } : bg,
       borderWidth: ringColor ? 3 : more ? 2 : 1,
       shapeProperties: { borderDashes: more ? [4, 3] : false },
       title: icon ? `${icon} ${baseTitle}` : baseTitle,

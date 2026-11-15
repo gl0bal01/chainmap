@@ -587,6 +587,10 @@ test("scan marks nodes with more history using a dashed border", async () => {
   const nodes = window.vis.Network.first.nodes.get();
   expect(nodes.find((n) => n.id === ROOT).shapeProperties.borderDashes).toEqual([4, 3]);
   expect(nodes.find((n) => n.id === N2).shapeProperties.borderDashes).toBe(false);
+  const rc = nodes.find((n) => n.id === ROOT).color;
+  expect(rc.border).toBe("#e8eef7");
+  expect(typeof rc.background).toBe("string");
+  expect(nodes.find((n) => n.id === N2).color?.border).not.toBe("#e8eef7");
   $("maxTxPerAddress").value = "20";
 });
 
