@@ -19,6 +19,9 @@ const CANNED = {
   ],
 };
 
+// Every Etherscan (non-`data/`) URL main.js requests, in order.
+const apiUrls = [];
+
 function stubFetch() {
   globalThis.fetch = async (url) => {
     const u = String(url);
@@ -32,6 +35,7 @@ function stubFetch() {
         return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) };
       }
     }
+    apiUrls.push(u);
     const action = new URL(u).searchParams.get("action");
     const result = CANNED[action] || [];
     return {
@@ -627,4 +631,146 @@ test("blocked load shows the reason and disables the button", async () => {
   const busy = render([H("more", 40)], { busy: true });
   expect(busy.querySelectorAll("button")[1].disabled).toBe(true);
   expect(busy.textContent).not.toContain("This graph was built");
+});
+
+// --- Load older wiring (main.js): chain guard, busy guard, workspace chain ---
+const until = async (pred) => {
+  for (let i = 0; i < 60 && !pred(); i++) await sleep(50);
+};
+const setChain = (id) => {
+  $("chainSelect").value = id;
+  $("chainSelect").dispatchEvent(new window.Event("change"));
+};
+const restoreForm = () => {
+  $("maxTxPerAddress").value = "20";
+  setChain("1");
+};
+async function freshScan(maxTx) {
+  $("resetBtn").click();
+  $("apiKey").value = "TESTKEY";
+  $("address").value = ROOT;
+  $("depth").value = "1";
+  $("maxTxPerAddress").value = maxTx;
+  $("startBtn").click();
+  await until(() => /Done/.test($("status").textContent || ""));
+  expect($("status").textContent).toContain("Done");
+}
+const openRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ROOT], edges: [] });
+const loadBtn = () => $("detailsContent").querySelectorAll("button")[1];
+const txlistUrls = () => apiUrls.filter((u) => new URL(u).searchParams.get("action") === "txlist");
+const lastTxlist = () => new URL(txlistUrls().at(-1)).searchParams;
+const waitLoaded = () => until(() => /Loaded/.test($("status").textContent || ""));
+
+test("scan on another chain into a non-empty graph is refused", async () => {
+  try {
+    await freshScan("20");
+    const n = apiUrls.length;
+    setChain("137");
+    $("startBtn").click();
+    await sleep(50);
+    expect(apiUrls.length).toBe(n); // no request at all, so none with chainid=137
+    expect($("logContent").textContent).toContain("This graph was built on Ethereum");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("load older goes through details with an inclusive endblock, then pages inside the block", async () => {
+  try {
+    await freshScan("2"); // txlist returns 2 rows = N -> root has older history
+    openRoot();
+    expect(loadBtn().textContent).toBe("Load older (+2)");
+    loadBtn().click();
+    expect($("status").textContent).toContain("Loading older history");
+    await waitLoaded();
+    let q = lastTxlist();
+    expect(q.get("endblock")).toBe("100"); // inclusive: re-reads the cut-off boundary block
+    expect(q.get("startblock")).toBe("0");
+    expect(q.get("page")).toBe("1");
+    expect($("logContent").textContent).toContain("Load older " + ROOT);
+
+    // Both canned rows sit at/above block 100 -> no progress -> page inside block 100.
+    loadBtn().click();
+    await waitLoaded();
+    q = lastTxlist();
+    expect(q.get("startblock")).toBe("100");
+    expect(q.get("endblock")).toBe("100");
+    expect(q.get("page")).toBe("2");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("double click starts one load", async () => {
+  try {
+    await freshScan("2");
+    openRoot();
+    const n = txlistUrls().length;
+    const b = loadBtn();
+    b.click();
+    // A plain Event bypasses happy-dom's disabled-button block, so main.js's own
+    // busy guard (not just the button's disabled state) must stop the 2nd load.
+    b.dispatchEvent(new window.Event("click"));
+    await waitLoaded();
+    await sleep(50);
+    expect(txlistUrls().length).toBe(n + 1);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("load refused after switching the chain selector", async () => {
+  try {
+    await freshScan("2");
+    openRoot();
+    expect(loadBtn().disabled).toBe(false);
+    setChain("137");
+    openRoot();
+    const b = loadBtn();
+    expect(b.disabled).toBe(true);
+    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
+    const n = apiUrls.length;
+    b.dispatchEvent(new window.Event("click")); // even if the handler fires, main.js refuses
+    await sleep(50);
+    expect(apiUrls.length).toBe(n);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("saved workspace records the graph's chain, not the selector's", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  try {
+    await freshScan("20");
+    setChain("137");
+    $("saveBtn").click();
+    expect(captured).not.toBeNull();
+    expect(JSON.parse(await captured.text()).chainId).toBe("1");
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    restoreForm();
+  }
+});
+
+test("node details without history, or with an empty one, render only Rename and no History row", async () => {
+  const { render } = await historyEnv();
+  for (const c of [render(undefined), render([])]) {
+    const buttons = c.querySelectorAll("button");
+    expect(buttons.length).toBe(1);
+    expect(buttons[0].textContent).toBe("Rename (alias)");
+    expect(c.textContent).not.toContain("History");
+  }
+});
+
+test("blocked note is linked to the load button via aria-describedby", async () => {
+  const { render } = await historyEnv();
+  const c = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  const id = c.querySelectorAll("button")[1].getAttribute("aria-describedby");
+  expect(id).toBeTruthy();
+  expect(c.querySelector("#" + id).textContent).toContain("This graph was built on Ethereum.");
+  expect(render([H("more", 40)]).querySelectorAll("button")[1].hasAttribute("aria-describedby")).toBe(false);
 });

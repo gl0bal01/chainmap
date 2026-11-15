@@ -246,6 +246,9 @@ export default {
   "error.retriesExhausted": "Failed after several attempts ({action}).",
   "error.planRequired": "This chain needs a paid Etherscan API plan (free keys are not supported) — scan stopped",
   "status.planRequired": "Stopped — {chain} needs a paid Etherscan API plan",
+  "status.loadingOlder": "Loading older history for {addr}…",
+  "status.loadOlderDone": "Loaded {edges} new transfers for {addr}",
+  "log.loadOlderDone": "Load older {addr}: {edges} new transfers, {nodes} new addresses, {calls} API calls",
   "detect.planRequired": "Skipped (paid Etherscan plan needed): {chains}",
   "error.fetch": "Fetch failed for {address} ({action}): {message}",
 

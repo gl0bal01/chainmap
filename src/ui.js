@@ -121,7 +121,8 @@ export function renderNodeDetails(container, node, deps) {
     const txt = reasons ? `${i18n.t("risk." + deps.risk.level)} — ${reasons}` : i18n.t("risk." + deps.risk.level);
     table.appendChild(detailRow(i18n.t("details.risk"), txt));
   }
-  if (deps.history) {
+  // An empty list (no tx type selected) renders neither the row nor the button.
+  if (deps.history && deps.history.length) {
     const lines = deps.history.map(
       (h) => `${i18n.t(h.labelKey)}: ${i18n.t("history." + h.state, { count: h.count })}`
     );
@@ -148,10 +149,10 @@ export function renderNodeDetails(container, node, deps) {
   renameBtn.addEventListener("click", () => onRename(node.address));
   container.appendChild(renameBtn);
 
-  if (deps.history) {
+  if (deps.history && deps.history.length) {
     const hs = deps.history;
     const n = deps.pageSize;
-    const allComplete = hs.length > 0 && hs.every((h) => h.state === "complete");
+    const allComplete = hs.every((h) => h.state === "complete");
     const allUnloaded = hs.every((h) => h.state === "unloaded");
     const btn = document.createElement("button");
     btn.type = "button";
@@ -167,6 +168,8 @@ export function renderNodeDetails(container, node, deps) {
     container.appendChild(btn);
     if (deps.loadBlocked) {
       const note = document.createElement("small");
+      note.id = "loadBlockedNote";
+      btn.setAttribute("aria-describedby", note.id);
       note.style.marginLeft = "8px";
       note.textContent = i18n.t(deps.loadBlocked.key, deps.loadBlocked.params);
       container.appendChild(note);

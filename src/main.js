@@ -30,7 +30,8 @@ import { methodName } from "./selectors.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
-import { runScan, selectedTypes } from "./scanner.js";
+import { runScan, loadOlder, selectedTypes } from "./scanner.js";
+import { historyState } from "./history.js";
 import { createGraphView } from "./render/network.js";
 import { createPalette } from "./render/palette.js";
 import { attachInteractions, rotateGraph, selectHighDegree } from "./render/interaction.js";
@@ -58,6 +59,14 @@ const nativeSymbolFor = (chainId) => {
   const c = CHAINS.find((x) => String(x.id) === String(chainId));
   return c ? c.native : "ETH";
 };
+const chainName = (id) => (CHAINS.find((c) => String(c.id) === String(id)) || {}).name || String(id);
+// Tx types ticked in the scan form (what a scan or a load fetches).
+const formTypes = () =>
+  selectedTypes({
+    normal: $("typeNormal").checked,
+    internal: $("typeInternal").checked,
+    token: $("typeToken").checked,
+  });
 
 // --- i18n bootstrap ---------------------------------------------------------
 const dictionaries = { en, fr };
@@ -148,8 +157,10 @@ function applyDisplayOptions() {
 }
 
 // --- scan lifecycle state ---------------------------------------------------
-let scanning = false;
-let abortController = null;
+let scanning = false; // a scan OR a load is running (see withBusy) — never both
+// Chain the current graph was built on (scan on an empty graph / workspace / demo);
+// null after reset. Etherscan data from two chains must never mix in one graph.
+let graphChainId = null;
 /** Remember the current details selection so it can be re-rendered on locale change. */
 let currentDetail = null; // { kind:'node'|'edge', id }
 
@@ -168,6 +179,7 @@ function populateChains() {
   sel.addEventListener("change", () => {
     localStorage.setItem(STORAGE_KEYS.chainId, sel.value);
     if (view) view.refreshLabels(); // known-address labels are chain-scoped
+    rerenderDetails(); // load button reflects the chain guard
   });
 }
 
@@ -308,10 +320,18 @@ function wirePanels() {
 // ---------------------------------------------------------------------------
 // Details panel
 // ---------------------------------------------------------------------------
+// Refusal for using `chainId` against the current graph, or null when allowed.
+function chainRefusal(chainId) {
+  return graphChainId && chainId !== graphChainId
+    ? { key: "error.chainMismatch", params: { chain: chainName(graphChainId) } }
+    : null;
+}
+
 function showNodeDetails(address) {
   const node = store.getNode(address);
   if (!node) return;
   currentDetail = { kind: "node", id: address };
+  const types = formTypes();
   renderNodeDetails($("detailsContent"), node, {
     i18n,
     explorer: explorerFor($("chainSelect").value),
@@ -322,6 +342,11 @@ function showNodeDetails(address) {
       const entry = chain && chain[String(a).toLowerCase()];
       return entry && entry.source ? entry.source : null;
     },
+    history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
+    pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
+    onLoadOlder: () => loadOlderFor(address),
+    busy: scanning,
+    loadBlocked: chainRefusal($("chainSelect").value),
   });
 }
 
@@ -460,6 +485,54 @@ function revealAndFocus(record) {
 // ---------------------------------------------------------------------------
 // Scan
 // ---------------------------------------------------------------------------
+// Run `fn` as THE one network operation (scan or load): sets `scanning`, locks
+// Start/address/detect, enables Stop, shows the request indicator. Stop aborts
+// in-flight fetches AND drops the limiter queue. Callers check `scanning` first;
+// that check plus this synchronous set is what keeps scans/loads from
+// overlapping (loadOlder's counts are store-wide deltas, overlap would mis-credit).
+async function withBusy(fn) {
+  scanning = true;
+  const abortController = new AbortController();
+  const limiter = new RateLimiter(clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps));
+  const onStop = () => {
+    abortController.abort();
+    limiter.clear();
+    logger.log({ level: "info", key: "log.stopRequested" });
+  };
+  $("startBtn").disabled = true;
+  $("stopBtn").disabled = false;
+  $("address").disabled = true;
+  $("detectChainBtn").disabled = true;
+  indicator.setActive(true);
+  $("stopBtn").addEventListener("click", onStop, { once: true });
+  rerenderDetails(); // load button -> disabled while busy
+  try {
+    return await fn({ signal: abortController.signal, limiter });
+  } finally {
+    scanning = false;
+    indicator.setActive(false);
+    $("startBtn").disabled = false;
+    $("stopBtn").disabled = true;
+    $("stopBtn").removeEventListener("click", onStop);
+    $("address").disabled = false;
+    $("detectChainBtn").disabled = false;
+    rerenderDetails();
+  }
+}
+
+// Post-processing once the graph has grown (end of a scan or a load).
+function afterGraphChange() {
+  view.refreshProjection(); // normalize edge widths + rebuild bundles now the graph is complete
+  recomputeHubs();
+  if (hubOn) view.refreshHubs();
+  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
+
+  const inv = store.checkInvariants();
+  // Dev signal only — never dump inv.errors (they embed addresses / tx hashes)
+  // into the console where an extension or shoulder-surfer could read them.
+  if (!inv.ok) console.warn(`graphStore invariant violation: ${inv.errors.length} issue(s)`);
+}
+
 async function startScan() {
   if (scanning) return;
 
@@ -469,37 +542,27 @@ async function startScan() {
   const maxDepth = clampInt($("depth").value, LIMITS.depth, DEFAULTS.depth);
   const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
   const safetyCap = clampInt($("safetyCap").value, LIMITS.safetyCap, DEFAULTS.safetyCap);
-  const rps = clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps);
-  const types = selectedTypes({
-    normal: $("typeNormal").checked,
-    internal: $("typeInternal").checked,
-    token: $("typeToken").checked,
-  });
+  const types = formTypes();
 
   if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
   if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
   if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
+  // Roots on the same chain accumulate; another chain needs an empty graph.
+  const refusal = store.stats().nodes > 0 && chainRefusal(chainId);
+  if (refusal) return logger.log({ level: "error", ...refusal });
+  graphChainId = chainId;
 
   // Native-value txs (no tokenSymbol) must show THIS chain's ticker, not a
   // hardcoded "ETH" — set before any edges are added so the whole scan is
   // consistent (a graph is single-chain per scan).
   store.setNativeSymbol(nativeSymbolFor(chainId));
-
-  scanning = true;
-  abortController = new AbortController();
-  const limiter = new RateLimiter(rps);
   const client = createEtherscanClient({ apiKey, chainId });
 
-  $("startBtn").disabled = true;
-  $("stopBtn").disabled = false;
-  $("address").disabled = true;
-  $("detectChainBtn").disabled = true;
   collapseControls(); // give the map the full surface once a scan begins
 
   const banner = $("samplingBanner");
   banner.hidden = false;
   banner.textContent = t("sampling.banner", { n: maxTxPerAddress });
-  indicator.setActive(true);
 
   logger.log({
     level: "info",
@@ -507,17 +570,8 @@ async function startScan() {
     params: { root: address.toLowerCase(), depth: maxDepth, types: types.map((x) => t(x.labelKey)).join(", ") },
   });
 
-  // Stop aborts in-flight fetches AND drops the limiter queue.
-  const onStop = () => {
-    abortController.abort();
-    limiter.clear();
-    logger.log({ level: "info", key: "log.stopRequested" });
-  };
-  $("stopBtn").addEventListener("click", onStop, { once: true });
-
-  let summary;
-  try {
-    summary = await runScan({
+  const summary = await withBusy(({ signal, limiter }) =>
+    runScan({
       client,
       store,
       limiter,
@@ -526,7 +580,7 @@ async function startScan() {
       maxTxPerAddress,
       safetyCap,
       types,
-      signal: abortController.signal,
+      signal,
       onProgress: (p) =>
         status.set(
           t("status.analyzing", {
@@ -539,19 +593,10 @@ async function startScan() {
           })
         ),
       onLog: (e) => logger.log(e),
-    });
-  } finally {
-    scanning = false;
-    indicator.setActive(false);
-    $("startBtn").disabled = false;
-    $("stopBtn").disabled = true;
-    $("stopBtn").removeEventListener("click", onStop);
-    $("address").disabled = false;
-    $("detectChainBtn").disabled = false;
-  }
+    })
+  );
 
   if (!summary) return; // runScan only rejects on programmer error; guard the post-scan path anyway
-  const planChain = (CHAINS.find((c) => String(c.id) === $("chainSelect").value) || {}).name || $("chainSelect").value;
   if (summary.capped) logger.log({ level: "error", key: "log.safetyCap", params: { cap: safetyCap } });
   logger.log({
     level: "info",
@@ -560,23 +605,64 @@ async function startScan() {
   });
   status.set(
     summary.planRequired
-      ? t("status.planRequired", { chain: planChain })
+      ? t("status.planRequired", { chain: chainName(chainId) })
       : t("status.done", { nodes: summary.nodes, edges: summary.edges })
   );
 
-  view.refreshProjection(); // normalize edge widths + rebuild bundles now the graph is complete
-  recomputeHubs();
-  if (hubOn) view.refreshHubs();
-  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
+  afterGraphChange();
+}
 
-  const inv = store.checkInvariants();
-  // Dev signal only — never dump inv.errors (they embed addresses / tx hashes)
-  // into the console where an extension or shoulder-surfer could read them.
-  if (!inv.ok) console.warn(`graphStore invariant violation: ${inv.errors.length} issue(s)`);
+// Details-panel "Load older": fetch the next older page per selected type for
+// one node, on the graph's chain. Counterparties are added, never expanded.
+async function loadOlderFor(address) {
+  // Busy (or probing chains): ignore, but re-render so the clicked button isn't left disabled.
+  if (scanning || detecting) return rerenderDetails();
+  const apiKey = $("apiKey").value.trim();
+  const types = formTypes();
+  const refusal = !apiKey
+    ? { key: "error.apiKeyRequired" }
+    : !types.length
+      ? { key: "error.noTypeSelected" }
+      : chainRefusal($("chainSelect").value);
+  if (refusal) {
+    logger.log({ level: "error", ...refusal });
+    return rerenderDetails();
+  }
+
+  const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
+  store.setNativeSymbol(nativeSymbolFor(graphChainId));
+  status.set(t("status.loadingOlder", { addr: shortAddress(address) }));
+
+  const res = await withBusy(({ signal, limiter }) =>
+    loadOlder({
+      client: createEtherscanClient({ apiKey, chainId: graphChainId }),
+      store,
+      limiter,
+      address,
+      types,
+      maxTxPerAddress,
+      signal,
+      onLog: (e) => logger.log(e),
+    })
+  );
+
+  afterGraphChange();
+  rerenderDetails();
+  logger.log({
+    level: "info",
+    key: "log.loadOlderDone",
+    params: { addr: address, edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
+  });
+  status.set(
+    res.planRequired
+      ? t("status.planRequired", { chain: chainName(graphChainId) })
+      : t("status.loadOlderDone", { edges: res.newEdges, addr: shortAddress(address) })
+  );
 }
 
 function resetGraph() {
   if (scanning) return;
+  graphChainId = null;
   store.reset(); // view clears via 'reset' event
   logger.clear();
   status.clear();
@@ -653,11 +739,10 @@ async function startDetectChain() {
   // No-API shortcut: a known labeled address already tells us its chain(s) locally.
   const localHits = chainsForKnownAddress(address, knownData);
   if (localHits.length) {
-    const nameOf = (id) => (CHAINS.find((c) => String(c.id) === String(id)) || {}).name || String(id);
     const hit = localHits[0]; // first-listed chain wins
     $("chainSelect").value = String(hit.chainId);
     $("chainSelect").dispatchEvent(new Event("change"));
-    const chains = localHits.map((h) => nameOf(h.chainId)).join(", ");
+    const chains = localHits.map((h) => chainName(h.chainId)).join(", ");
     logger.log({ level: "info", key: "detect.localHit", params: { label: hit.label, chains } });
     if (el) {
       el.className = "detect ok";
@@ -768,7 +853,7 @@ function currentFilters() {
 function saveWorkspace() {
   if (!store.stats().nodes) return logger.log({ level: "error", key: "log.exportEmpty" });
   const ws = serializeWorkspace({
-    chainId: $("chainSelect").value,
+    chainId: graphChainId || $("chainSelect").value, // the graph's chain, not whatever the selector shows now
     root: $("address").value.trim().toLowerCase() || null,
     nodes: store.listNodes(),
     edges: store.listEdges(),
@@ -784,6 +869,7 @@ function saveWorkspace() {
 
 function applyWorkspace(ws) {
   if (ws.chainId) $("chainSelect").value = String(ws.chainId);
+  graphChainId = String(ws.chainId || $("chainSelect").value);
   store.loadSnapshot(ws.nodes, ws.edges);
   const f = ws.filters || {};
   $("minAmount").value = f.minAmount || 0;
@@ -833,11 +919,7 @@ async function runEstimate() {
   const chainId = $("chainSelect").value;
   if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
   if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
-  const types = selectedTypes({
-    normal: $("typeNormal").checked,
-    internal: $("typeInternal").checked,
-    token: $("typeToken").checked,
-  });
+  const types = formTypes();
   if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
 
   const maxDepth = clampInt($("depth").value, LIMITS.depth, DEFAULTS.depth);
