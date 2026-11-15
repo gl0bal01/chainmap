@@ -1,0 +1,4 @@
+[
+  { "name": "OP Mainnet", "identifier": "mainnet/op", "chainId": 10, "parent": { "type": "L2", "chain": "mainnet" } },
+  { "name": "OP Sepolia Testnet", "identifier": "sepolia/op", "chainId": 11155420, "parent": { "type": "L2", "chain": "sepolia" } }
+]
