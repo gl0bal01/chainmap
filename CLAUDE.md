@@ -24,7 +24,7 @@ Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 bun test        # 355 tests
 ```
 
-`vis-network` (10.1.0) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
+`vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
 
 ## Architecture (native ES modules, no bundler)
 
