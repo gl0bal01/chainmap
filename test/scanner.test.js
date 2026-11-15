@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { runScan, selectedTypes } from "../src/scanner.js";
+import { runScan, loadOlder, selectedTypes } from "../src/scanner.js";
 import { TX_TYPE_GROUPS } from "../src/config.js";
 
 // -----------------------------------------------------------------------------
@@ -30,7 +30,7 @@ function makeClient(responses = {}, throwOn = new Set()) {
     calls,
     async fetchAction(address, action, o = {}) {
       const key = `${address}|${action}`;
-      calls.push({ address, action, offset: o.offset, signal: o.signal });
+      calls.push({ address, action, offset: o.offset, signal: o.signal, page: o.page, startblock: o.startblock, endblock: o.endblock, sort: o.sort });
       if (throwOn.has(key)) throw new Error(`boom:${key}`);
       return responses[key] ? responses[key].slice() : [];
     },
@@ -72,6 +72,16 @@ function makeStore() {
     },
     stats() {
       return { nodes: nodes.size, edges: edges.length };
+    },
+    historyCalls: [],
+    hasNode: (a) => nodes.has(a),
+    getNode: (a) => nodes.get(a),
+    removeNode: (a) => nodes.delete(a),
+    setHistory(a, action, entry) {
+      this.historyCalls.push({ a, action, entry });
+      const n = nodes.get(a);
+      if (!n) return;
+      n.history = { ...(n.history || {}), [action]: entry };
     },
   };
 }
@@ -322,5 +332,137 @@ describe("runScan — BFS", () => {
     expect(progress[0]).toHaveProperty("depth");
     expect(progress[0].maxDepth).toBe(2);
     expect(progress[progress.length - 1]).toHaveProperty("queued");
+  });
+});
+
+describe("scan cursors", () => {
+  const tx = (from, to, block, extra = {}) => ({ from, to, hash: `0xh${from}${to}${block}`, blockNumber: String(block), ...extra });
+
+  test("runScan records a first-load cursor per expanded node; frontier nodes get none", async () => {
+    const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 10), tx(R, A, 9, { hash: "0xz" })] });
+    const store = makeStore();
+    await runScan(baseOpts({ client, store, maxDepth: 1, maxTxPerAddress: 2 }));
+    expect(store.getNode(R).history.txlist).toEqual({ oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 });
+    expect(store.getNode(A).history).toBeUndefined();
+  });
+
+  test("runScan replaces an existing entry instead of merging", async () => {
+    const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 10)] });
+    const store = makeStore();
+    store.addNode(R, { depth: 0, isRoot: true });
+    store.getNode(R).history = { txlist: { oldestBlock: "5", blockPage: 0, pageSize: 0, done: true, count: 40 } };
+    await runScan(baseOpts({ client, store, maxDepth: 1, maxTxPerAddress: 2 }));
+    expect(store.getNode(R).history.txlist).toEqual({ oldestBlock: "10", blockPage: 0, pageSize: 0, done: true, count: 1 });
+  });
+});
+
+describe("loadOlder", () => {
+  const tx = (from, to, block, extra = {}) => ({ from, to, hash: `0xh${from}${to}${block}`, blockNumber: String(block), ...extra });
+  const done = { oldestBlock: "1", blockPage: 0, pageSize: 0, done: true, count: 5 };
+  const lo = (o) => loadOlder({ limiter: fakeLimiter, address: R, types: selectedTypes({ normal: true }), maxTxPerAddress: 2, ...o });
+  const seeded = (history) => {
+    const store = makeStore();
+    store.addNode(R, { depth: 1 });
+    if (history) store.getNode(R).history = history;
+    return store;
+  };
+
+  test("never-loaded node fetches the newest page", async () => {
+    const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 5)] });
+    const r = await lo({ client, store: seeded() });
+    expect(client.calls[0].page).toBe(1);
+    expect(client.calls[0].endblock).toBeUndefined();
+    expect(client.calls[0].sort).toBe("desc");
+    expect(r.newEdges).toBe(1);
+  });
+
+  test("passes inclusive endblock and advances", async () => {
+    const store = seeded({ txlist: { oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 } });
+    const dup = tx(R, A, 9);
+    store.addEdge({ action: "txlist", from: R, to: A, tx: dup });
+    const client = makeClient({ [`${R}|txlist`]: [dup, tx(R, B, 7)] });
+    const r = await lo({ client, store });
+    expect(client.calls[0].endblock).toBe(9);
+    expect(store.getNode(R).history.txlist.oldestBlock).toBe("7");
+    expect(r.newEdges).toBe(1);
+  });
+
+  test("adds counterparties at depth+1 without expanding them", async () => {
+    const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 5)] });
+    const store = seeded();
+    await lo({ client, store });
+    expect(store.getNode(A).depth).toBe(2);
+    expect(client.calls.every((c) => c.address === R)).toBe(true);
+  });
+
+  test("skips done types", async () => {
+    const client = makeClient();
+    const r = await lo({ client, store: seeded({ txlist: done }) });
+    expect(client.calls.length).toBe(0);
+    expect(r.allDone).toBe(true);
+  });
+
+  test("failed rows advance the cursor but draw nothing", async () => {
+    const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 8), tx(R, B, 7, { isError: "1" })] });
+    const store = seeded();
+    const r = await lo({ client, store });
+    expect(store.getNode(R).history.txlist.oldestBlock).toBe("7");
+    expect(r.newEdges).toBe(1);
+    expect(r.failed).toBe(1);
+  });
+
+  test("per-type fetch error logs error.fetch and leaves that cursor", async () => {
+    const entry = { oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 };
+    const client = makeClient({ [`${R}|tokentx`]: [tx(R, A, 3)] }, new Set([`${R}|txlist`]));
+    const store = seeded({ txlist: entry });
+    const logs = [];
+    await lo({ client, store, types: selectedTypes({ normal: true }).concat(TX_TYPE_GROUPS.token.slice(0, 1)), onLog: (e) => logs.push(e) });
+    expect(store.getNode(R).history.txlist).toEqual(entry);
+    expect(store.getNode(R).history.tokentx.oldestBlock).toBe("3");
+    expect(logs.map((l) => l.key)).toEqual(["error.fetch"]);
+  });
+
+  test("plan_required stops the load", async () => {
+    const client = makeClient();
+    client.fetchAction = async () => {
+      client.calls.push({});
+      throw Object.assign(new Error("x"), { kind: "plan_required" });
+    };
+    const logs = [];
+    const r = await lo({ client, store: seeded(), types: selectedTypes({ normal: true, internal: true }), onLog: (e) => logs.push(e) });
+    expect(r.planRequired).toBe(true);
+    expect(client.calls.length).toBe(1);
+    expect(logs.map((l) => l.key)).toEqual(["error.planRequired"]);
+  });
+
+  test("abort leaves cursor and reports stopped", async () => {
+    const client = makeClient();
+    const store = seeded();
+    const c = new AbortController();
+    c.abort();
+    const r = await lo({ client, store, signal: c.signal });
+    expect(client.calls.length).toBe(0);
+    expect(r.stopped).toBe(true);
+    expect(store.getNode(R).history).toBeUndefined();
+  });
+
+  test("stops if node removed mid-load", async () => {
+    const client = makeClient();
+    const store = seeded();
+    client.fetchAction = async (address, action) => {
+      client.calls.push({ address, action });
+      store.removeNode(R);
+      return [tx(R, A, 5)];
+    };
+    await lo({ client, store, types: selectedTypes({ normal: true, internal: true }) });
+    expect(client.calls.length).toBe(1);
+    expect(store.hasNode(R)).toBe(false);
+  });
+
+  test("unknown address: no fetch, zeroed", async () => {
+    const client = makeClient();
+    const r = await lo({ client, store: makeStore() });
+    expect(client.calls.length).toBe(0);
+    expect(r).toMatchObject({ apiCalls: 0, allDone: false, stopped: false });
   });
 });

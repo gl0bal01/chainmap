@@ -10,10 +10,21 @@
 //  - cooperative + real cancel: check `signal.aborted`; in-flight fetch aborts
 //  - sampling is explicit: fetch "latest N" (offset N, per etherscanClient defaults)
 //  - count and report skipped / failed / capped in the summary
+//
+// loadOlder({ client, store, limiter, address, types, maxTxPerAddress, signal?, onLog? })
+//  Per-node "load older" paging by block cursor (history.js). Fetches ONE older
+//  page per selected type for `address`, ingests rows through the same path as
+//  runScan (failed-tx drop, endpoint validation) but never expands new
+//  counterparties (they land at depth+1, unfetched). Resolves with
+//  { apiCalls, newEdges, newNodes, failed, skipped, planRequired, stopped,
+//    allDone }; allDone = every selected type's cursor is done. Fetch errors
+//  are logged per type and leave that cursor untouched (never marked done).
+//  runScan records the first-load cursor (replace, not merge) per expanded node.
 // =============================================================================
 
 import { TX_TYPE_GROUPS } from "./config.js";
 import { isValidAddress, lc, isFailedTx } from "./format.js";
+import { nextRequest, advance } from "./history.js";
 
 /**
  * @typedef {object} ScanProgress
@@ -73,6 +84,59 @@ function readCounts(store) {
     return { nodes: s.nodes ?? 0, edges: s.edges ?? 0 };
   }
   return { nodes: 0, edges: 0 };
+}
+
+/**
+ * Draw one fetched page into the store: drop failed txs, validate endpoints,
+ * add both nodes (`cur` keeps `depth`, counterparties get depth+1) and the edge.
+ * @returns {{ failed:number, skipped:number, others:string[] }} others = counterparties
+ */
+function ingestRows(store, cur, depth, typeInfo, txs) {
+  let failed = 0;
+  let skipped = 0;
+  const others = [];
+  for (const tx of txs) {
+    // Drop failed/reverted txs before they ever become edges.
+    if (isFailedTx(tx)) {
+      failed++;
+      continue;
+    }
+    const from = lc(tx.from);
+    const to = lc(tx.to || tx.contractAddress); // contract-creation fallback
+    if (!isValidAddress(from) || !isValidAddress(to)) {
+      skipped++;
+      continue;
+    }
+    store.addNode(from, { depth: from === cur ? depth : depth + 1 });
+    store.addNode(to, { depth: to === cur ? depth : depth + 1 });
+    store.addEdge({
+      action: typeInfo.action,
+      group: typeInfo.group,
+      color: typeInfo.color,
+      from,
+      to,
+      tx,
+    });
+    others.push(from === cur ? to : from);
+  }
+  return { failed, skipped, others };
+}
+
+/**
+ * Log a per-request fetch failure. Returns true when it is plan_required
+ * (every request on this chain will fail identically — caller must stop).
+ */
+function reportFetchError(e, address, action, onLog) {
+  const message = (e && e.message) || String(e);
+  const planRequired = !!(e && e.kind === "plan_required");
+  if (typeof onLog === "function") {
+    onLog(
+      planRequired
+        ? { level: "error", key: "error.planRequired" }
+        : { level: "error", key: "error.fetch", params: { address, action, message } }
+    );
+  }
+  return planRequired;
 }
 
 /**
@@ -193,56 +257,28 @@ export async function runScan(opts) {
         );
       } catch (e) {
         // Per-request failure: logged + counted, NEVER aborts the whole scan.
-        const message = (e && e.message) || String(e);
-        errors.push(message);
-        if (e && e.kind === "plan_required") {
-          // Every request on this chain will fail identically — stop the scan.
+        errors.push((e && e.message) || String(e));
+        if (reportFetchError(e, cur, typeInfo.action, onLog)) {
           planRequired = true;
-          if (typeof onLog === "function") onLog({ level: "error", key: "error.planRequired" });
           break scan;
-        }
-        if (typeof onLog === "function") {
-          onLog({
-            level: "error",
-            key: "error.fetch",
-            params: { address: cur, action: typeInfo.action, message },
-          });
         }
         continue;
       }
 
       if (!Array.isArray(txs)) continue;
 
-      for (const tx of txs) {
-        // Drop failed/reverted txs before they ever become edges.
-        if (isFailedTx(tx)) {
-          failed++;
-          continue;
-        }
+      // First-load cursor from ALL returned rows (replaces any prior entry).
+      store.setHistory(
+        cur,
+        typeInfo.action,
+        advance(undefined, txs, maxTxPerAddress, { page: 1, offset: maxTxPerAddress })
+      );
 
-        const from = lc(tx.from);
-        const to = lc(tx.to || tx.contractAddress); // contract-creation fallback
-
-        if (!isValidAddress(from) || !isValidAddress(to)) {
-          skipped++;
-          continue;
-        }
-
-        store.addNode(from, { depth: from === cur ? depth : depth + 1 });
-        store.addNode(to, { depth: to === cur ? depth : depth + 1 });
-        store.addEdge({
-          action: typeInfo.action,
-          group: typeInfo.group,
-          color: typeInfo.color,
-          from,
-          to,
-          tx,
-        });
-
-        // Expand the OTHER endpoint (enqueue dedup + cap enforced inside).
-        const other = from === cur ? to : from;
-        enqueue(other, depth + 1);
-      }
+      const r = ingestRows(store, cur, depth, typeInfo, txs);
+      failed += r.failed;
+      skipped += r.skipped;
+      // Expand the OTHER endpoint (enqueue dedup + cap enforced inside).
+      for (const other of r.others) enqueue(other, depth + 1);
     }
   }
 
@@ -277,4 +313,61 @@ export function selectedTypes(selection) {
   if (sel.internal) out.push(...TX_TYPE_GROUPS.internal);
   if (sel.token) out.push(...TX_TYPE_GROUPS.token);
   return out;
+}
+
+/**
+ * Fetch one older page per selected type for a single node. See header.
+ * @param {object} opts
+ * @returns {Promise<{apiCalls:number,newEdges:number,newNodes:number,failed:number,skipped:number,planRequired:boolean,stopped:boolean,allDone:boolean}>}
+ */
+export async function loadOlder(opts) {
+  const { client, store, limiter, types, maxTxPerAddress, signal, onLog } = opts;
+  const address = lc(opts.address);
+  const res = {
+    apiCalls: 0, newEdges: 0, newNodes: 0, failed: 0, skipped: 0,
+    planRequired: false, stopped: false, allDone: false,
+  };
+  if (!store.hasNode(address)) return res;
+
+  const depth = store.getNode(address).depth;
+  const before = readCounts(store);
+
+  for (const typeInfo of types) {
+    if (signal && signal.aborted) {
+      res.stopped = true;
+      break;
+    }
+    if (!store.hasNode(address)) break; // pruned mid-load
+    const { action } = typeInfo;
+    const entry = (store.getNode(address).history || {})[action];
+    const req = nextRequest(entry, maxTxPerAddress);
+    if (!req) continue; // done
+
+    res.apiCalls++;
+    let txs;
+    try {
+      txs = await limiter.run(() =>
+        client.fetchAction(address, action, { ...req, sort: "desc", signal })
+      );
+    } catch (e) {
+      if (reportFetchError(e, address, action, onLog)) {
+        res.planRequired = true;
+        break;
+      }
+      continue; // cursor unchanged
+    }
+    if (!Array.isArray(txs) || !store.hasNode(address)) continue;
+
+    const r = ingestRows(store, address, depth, typeInfo, txs);
+    res.failed += r.failed;
+    res.skipped += r.skipped;
+    store.setHistory(address, action, advance(entry, txs, maxTxPerAddress, req));
+  }
+
+  const after = readCounts(store);
+  res.newNodes = after.nodes - before.nodes;
+  res.newEdges = after.edges - before.edges;
+  const node = store.hasNode(address) ? store.getNode(address) : null;
+  res.allDone = !!node && types.every((t) => node.history?.[t.action]?.done);
+  return res;
 }
