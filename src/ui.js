@@ -88,9 +88,15 @@ function explorerLink(href, text) {
  * @param {HTMLElement} container  #detailsContent
  * @param {import('./graphStore.js').NodeRecord} node
  * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(addr:string)=>void,
- *           getKnownSource?:(addr:string)=>(string|null) }} deps
+ *           getKnownSource?:(addr:string)=>(string|null),
+ *           history?:Array<{action:string,state:'unloaded'|'more'|'complete',count:number}>,
+ *           pageSize?:number, onLoadOlder?:(addr:string)=>void, busy?:boolean,
+ *           loadBlocked?:({key:string,params?:object}|null) }} deps
  *   getKnownSource is optional (graceful when absent, e.g. known-address data not yet
  *   loaded) — provenance string for a known-address entry, rendered only when truthy.
+ *   history/pageSize/onLoadOlder/busy/loadBlocked are optional: `history` (from
+ *   `historyState`) adds the History row; with `onLoadOlder` a Load older button is shown
+ *   (+`pageSize`), disabled while `busy` or when `loadBlocked` (a localized refusal) is set.
  */
 export function renderNodeDetails(container, node, deps) {
   const { i18n, explorer, onRename } = deps;
