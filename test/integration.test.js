@@ -19,8 +19,14 @@ const CANNED = {
   ],
 };
 
+// Every Etherscan (non-`data/`) URL main.js requests, in order.
+const apiUrls = [];
+// When set, API fetches wait on it (abortable via the request signal) so a test
+// can hold a scan/load in flight deterministically.
+let apiGate = null;
+
 function stubFetch() {
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
     const u = String(url);
     // Local bundled datasets (known-addresses / spam-tokens / demo-workspace): serve the real files.
     if (u.includes("data/")) {
@@ -31,6 +37,15 @@ function stubFetch() {
       } catch {
         return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) };
       }
+    }
+    apiUrls.push(u);
+    if (apiGate) {
+      await new Promise((resolve, reject) => {
+        apiGate.then(resolve);
+        if (init && init.signal) {
+          init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+        }
+      });
     }
     const action = new URL(u).searchParams.get("action");
     const result = CANNED[action] || [];
@@ -62,7 +77,7 @@ function stubVis() {
     get length() { return this.get().length; }
   }
   class FakeNetwork {
-    constructor(container, data) { this.nodes = data.nodes; this.edges = data.edges; this._sel = []; this._on = {}; }
+    constructor(container, data) { FakeNetwork.first = FakeNetwork.first || this; FakeNetwork.last = this; this.nodes = data.nodes; this.edges = data.edges; this._sel = []; this._on = {}; }
     on(ev, fn) { (this._on[ev] = this._on[ev] || []).push(fn); }
     off(ev, fn) { this._on[ev] = (this._on[ev] || []).filter((f) => f !== fn); }
     getSelectedNodes() { return this._sel; }
@@ -73,6 +88,7 @@ function stubVis() {
     getPositions(ids) { const o = {}; for (const id of ids || this.nodes.getIds()) o[id] = { x: 0, y: 0 }; return o; }
     moveNode() {} fit() {} destroy() {} DOMtoCanvas(p) { return p; }
   }
+  FakeNetwork.first = null;
   return { DataSet: FakeDataSet, DataView: FakeDataView, Network: FakeNetwork };
 }
 
@@ -554,4 +570,398 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   const uni = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
   expect(demo.edges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
   expect(demo.edges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+});
+
+test("scan marks nodes with more history using a dashed border", async () => {
+  $("resetBtn").click();
+  $("apiKey").value = "TESTKEY";
+  $("address").value = ROOT;
+  $("maxTxPerAddress").value = "2"; // canned txlist returns 2 rows = N -> full batch
+  $("depth").value = "1";
+  $("startBtn").click();
+  for (let i = 0; i < 60; i++) {
+    if (/Done/.test($("status").textContent || "")) break;
+    await sleep(50);
+  }
+  // first = the network main.js created (other tests build throwaway views)
+  const nodes = window.vis.Network.first.nodes.get();
+  expect(nodes.find((n) => n.id === ROOT).shapeProperties.borderDashes).toEqual([4, 3]);
+  expect(nodes.find((n) => n.id === N2).shapeProperties.borderDashes).toBe(false);
+  const rc = nodes.find((n) => n.id === ROOT).color;
+  expect(rc.border).toBe("#e8eef7");
+  expect(typeof rc.background).toBe("string");
+  expect(nodes.find((n) => n.id === N2).color?.border).not.toBe("#e8eef7");
+  $("maxTxPerAddress").value = "20";
+});
+
+async function historyEnv() {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const render = (history, extra = {}) => {
+    const c = document.createElement("div");
+    ui.renderNodeDetails(c, { address: ROOT, depth: 0, isRoot: true, alias: null }, {
+      i18n, explorer: "etherscan.io", onRename: () => {}, history, pageSize: 20, onLoadOlder: () => {}, ...extra,
+    });
+    return c;
+  };
+  return { render };
+}
+const H = (state, count, action = "txlist", labelKey = "tx.type.normal") => ({ action, labelKey, state, count });
+
+test("node details list per-type history states", async () => {
+  const { render } = await historyEnv();
+  const c = render([H("more", 40), H("unloaded", 0, "tokentx", "tx.type.erc20")]);
+  expect(c.textContent).toContain("Normal: 40 rows fetched · older available");
+  expect(c.textContent).toContain("ERC-20: not loaded");
+});
+
+test("load button: older / first / complete states", async () => {
+  const { render } = await historyEnv();
+  let calls = 0;
+  const more = render([H("more", 40), H("unloaded", 0, "tokentx", "tx.type.erc20")], { onLoadOlder: () => calls++ });
+  const b = more.querySelectorAll("button")[1];
+  expect(b.textContent).toBe("Load older (+20)");
+  expect(b.disabled).toBe(false);
+  b.click();
+  expect(calls).toBe(1);
+  expect(b.disabled).toBe(true);
+
+  const first = render([H("unloaded", 0), H("unloaded", 0, "tokentx", "tx.type.erc20")]);
+  expect(first.querySelectorAll("button")[1].textContent).toBe("Load transactions (+20)");
+
+  const done = render([H("complete", 5), H("complete", 3, "tokentx", "tx.type.erc20")]);
+  const d = done.querySelectorAll("button")[1];
+  expect(d.textContent).toBe("Complete for selected types");
+  expect(d.disabled).toBe(true);
+});
+
+test("blocked load shows the reason and disables the button", async () => {
+  const { render } = await historyEnv();
+  const blocked = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  expect(blocked.querySelectorAll("button")[1].disabled).toBe(true);
+  expect(blocked.textContent).toContain("This graph was built on Ethereum.");
+  const busy = render([H("more", 40)], { busy: true });
+  expect(busy.querySelectorAll("button")[1].disabled).toBe(true);
+  expect(busy.textContent).not.toContain("This graph was built");
+});
+
+// --- Load older wiring (main.js): chain guard, busy guard, workspace chain ---
+const until = async (pred) => {
+  for (let i = 0; i < 60 && !pred(); i++) await sleep(50);
+};
+const setChain = (id) => {
+  $("chainSelect").value = id;
+  $("chainSelect").dispatchEvent(new window.Event("change"));
+};
+const restoreForm = () => {
+  $("maxTxPerAddress").value = "20";
+  setChain("1");
+};
+async function freshScan(maxTx) {
+  $("resetBtn").click();
+  $("apiKey").value = "TESTKEY";
+  $("address").value = ROOT;
+  $("depth").value = "1";
+  $("maxTxPerAddress").value = maxTx;
+  $("startBtn").click();
+  await until(() => /Done/.test($("status").textContent || ""));
+  expect($("status").textContent).toContain("Done");
+}
+const openRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ROOT], edges: [] });
+const loadBtn = () => $("detailsContent").querySelectorAll("button")[1];
+const txlistUrls = () => apiUrls.filter((u) => new URL(u).searchParams.get("action") === "txlist");
+const lastTxlist = () => new URL(txlistUrls().at(-1)).searchParams;
+const waitLoaded = () => until(() => /Loaded/.test($("status").textContent || ""));
+
+test("scan on another chain into a non-empty graph is refused", async () => {
+  try {
+    await freshScan("20");
+    const n = apiUrls.length;
+    setChain("137");
+    $("startBtn").click();
+    await sleep(50);
+    expect(apiUrls.length).toBe(n); // no request at all, so none with chainid=137
+    expect($("logContent").textContent).toContain("This graph was built on Ethereum");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("load older goes through details with an inclusive endblock, then pages inside the block", async () => {
+  try {
+    await freshScan("2"); // txlist returns 2 rows = N -> root has older history
+    openRoot();
+    expect(loadBtn().textContent).toBe("Load older (+2)");
+    loadBtn().click();
+    expect($("status").textContent).toContain("Loading older history");
+    await waitLoaded();
+    let q = lastTxlist();
+    expect(q.get("endblock")).toBe("100"); // inclusive: re-reads the cut-off boundary block
+    expect(q.get("startblock")).toBe("0");
+    expect(q.get("page")).toBe("1");
+    expect($("logContent").textContent).toContain("Load older " + ROOT);
+
+    // Both canned rows sit at/above block 100 -> no progress -> page inside block 100.
+    loadBtn().click();
+    await waitLoaded();
+    q = lastTxlist();
+    expect(q.get("startblock")).toBe("100");
+    expect(q.get("endblock")).toBe("100");
+    expect(q.get("page")).toBe("2");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("double click starts one load", async () => {
+  try {
+    await freshScan("2");
+    openRoot();
+    const n = txlistUrls().length;
+    const b = loadBtn();
+    b.click();
+    // A plain Event bypasses happy-dom's disabled-button block, so main.js's own
+    // busy guard (not just the button's disabled state) must stop the 2nd load.
+    b.dispatchEvent(new window.Event("click"));
+    await waitLoaded();
+    await sleep(50);
+    expect(txlistUrls().length).toBe(n + 1);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("load refused after switching the chain selector", async () => {
+  try {
+    await freshScan("2");
+    openRoot();
+    expect(loadBtn().disabled).toBe(false);
+    setChain("137");
+    openRoot();
+    const b = loadBtn();
+    expect(b.disabled).toBe(true);
+    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
+    const n = apiUrls.length;
+    b.dispatchEvent(new window.Event("click")); // even if the handler fires, main.js refuses
+    await sleep(50);
+    expect(apiUrls.length).toBe(n);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("saved workspace records the graph's chain, not the selector's", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  try {
+    await freshScan("20");
+    setChain("137");
+    $("saveBtn").click();
+    expect(captured).not.toBeNull();
+    expect(JSON.parse(await captured.text()).chainId).toBe("1");
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    restoreForm();
+  }
+});
+
+test("node details without history, or with an empty one, render only Rename and no History row", async () => {
+  const { render } = await historyEnv();
+  for (const c of [render(undefined), render([])]) {
+    const buttons = c.querySelectorAll("button");
+    expect(buttons.length).toBe(1);
+    expect(buttons[0].textContent).toBe("Rename (alias)");
+    expect(c.textContent).not.toContain("History");
+  }
+});
+
+test("blocked note is linked to the load button via aria-describedby", async () => {
+  const { render } = await historyEnv();
+  const c = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  const id = c.querySelectorAll("button")[1].getAttribute("aria-describedby");
+  expect(id).toBeTruthy();
+  expect(c.querySelector("#" + id).textContent).toContain("This graph was built on Ethereum.");
+  expect(render([H("more", 40)]).querySelectorAll("button")[1].hasAttribute("aria-describedby")).toBe(false);
+});
+
+// --- Load older fix round 1: busy-guarded workspace apply, stopped load, live details ---
+const gate = () => {
+  let release;
+  apiGate = new Promise((r) => (release = r));
+  return () => {
+    apiGate = null;
+    release();
+  };
+};
+const nodeIds = () => window.vis.Network.first.nodes.getIds().sort();
+const DEMO_ROOT = "0x098b716b8aaf21512996dc57eb0615e2383e2f96";
+
+test("workspace/demo apply is refused while a load is running (store unchanged, counts not mis-credited)", async () => {
+  let release = () => {};
+  try {
+    await freshScan("2");
+    const before = nodeIds();
+    openRoot();
+    release = gate();
+    loadBtn().click(); // load now holds its txlist fetch
+    $("demoBtn").click();
+    await until(() => /Busy/.test($("logContent").textContent || ""));
+    expect($("logContent").textContent).toContain("Busy — wait for the current scan or load to finish");
+    release();
+    await waitLoaded();
+    expect($("status").textContent).toContain("Loaded 0 new transfers"); // not the demo's edges
+    expect(nodeIds()).toEqual(before);
+    expect($("logContent").textContent).not.toContain("Demo workspace loaded");
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("a load stopped mid-fetch reports Stopped, not Loaded", async () => {
+  let release = () => {};
+  try {
+    await freshScan("2");
+    openRoot();
+    release = gate();
+    loadBtn().click();
+    $("stopBtn").click();
+    await until(() => /Stopped|Loaded/.test($("status").textContent || ""));
+    expect($("status").textContent).toContain("Stopped — loaded 0 new transfers");
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("details re-render live when the type selection or page size changes", async () => {
+  try {
+    $("typeInternal").checked = false; // scan without internal -> it stays unloaded
+    await freshScan("20"); // N=20 > canned rows -> scanned types complete
+    openRoot();
+    expect(loadBtn().textContent).toBe("Complete for selected types");
+    expect(loadBtn().disabled).toBe(true);
+    $("typeInternal").checked = true;
+    $("typeInternal").dispatchEvent(new window.Event("change"));
+    expect(loadBtn().disabled).toBe(false);
+    expect(loadBtn().textContent).toBe("Load older (+20)");
+    $("maxTxPerAddress").value = "5";
+    $("maxTxPerAddress").dispatchEvent(new window.Event("input")); // live, not on blur
+    expect(loadBtn().textContent).toBe("Load older (+5)");
+  } finally {
+    $("typeInternal").checked = true;
+    restoreForm();
+  }
+});
+
+test("details explorer link stays on the graph's chain after switching the selector", async () => {
+  try {
+    await freshScan("20");
+    setChain("137");
+    openRoot();
+    expect($("detailsContent").querySelector("a").href).toContain("etherscan.io/address/");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("demo sets the graph chain: switching the selector blocks its load button", async () => {
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    expect(loadBtn().disabled).toBe(false); // "Load transactions" — demo has no cursors
+    setChain("137");
+    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    expect(loadBtn().disabled).toBe(true);
+    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("risk, labels and CSV category stay on the graph's chain after switching the selector", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  const openDemoRoot = () => window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+  const csv = async () => {
+    captured = null;
+    $("exportCsvBtn").click();
+    await until(() => captured);
+    return captured.text();
+  };
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    openDemoRoot();
+    const risk = $("detailsContent").textContent;
+    expect(risk).toContain("sanctioned"); // DEMO_ROOT is an OFAC-listed chain-1 address
+    const before = await csv();
+    expect(before).toContain("flag.sanctioned"); // edge to a chain-1 OFAC-listed recipient
+    const demoLabel = () => {
+      const n = window.vis.Network.first.nodes.get().find((x) => x.id === DEMO_ROOT);
+      return `${n.label}|${n.title}`;
+    };
+    const label = demoLabel();
+    expect(label).toContain("Ronin Exploiter"); // chain-1 known label
+    expect(label).toContain("⛔"); // chain-1 category icon (sanctioned)
+    setChain("137"); // no chain-137 entry for DEMO_ROOT
+    openDemoRoot();
+    expect($("detailsContent").textContent.replace(/This graph was built[^]*$/, "")).toBe(risk.replace(/This graph was built[^]*$/, ""));
+    expect(await csv()).toBe(before);
+    expect(demoLabel()).toBe(label);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    restoreForm();
+  }
+});
+
+test("load on a demo graph shows the sampling banner and reports failed requests", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    expect($("samplingBanner").hidden).toBe(true);
+    $("apiKey").value = "TESTKEY";
+    globalThis.fetch = async (url, init) =>
+      String(url).includes("data/")
+        ? realFetch(url, init)
+        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    loadBtn().click();
+    await waitLoaded();
+    expect($("status").textContent).toContain("Loaded 0 new transfers");
+    expect($("status").textContent).toMatch(/— [1-9]\d* request\(s\) failed \(see log\)/);
+    expect($("samplingBanner").hidden).toBe(false);
+  } finally {
+    globalThis.fetch = realFetch;
+    restoreForm();
+  }
+});
+
+test("a second scan on the same chain into a non-empty graph still runs", async () => {
+  try {
+    await freshScan("20");
+    const n = apiUrls.length;
+    $("address").value = N2;
+    $("startBtn").click();
+    await until(() => !$("startBtn").disabled);
+    const added = apiUrls.slice(n);
+    expect(added.length).toBeGreaterThan(0);
+    expect(added.every((u) => new URL(u).searchParams.get("chainid") === "1")).toBe(true);
+  } finally {
+    restoreForm();
+  }
 });

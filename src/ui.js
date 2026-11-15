@@ -88,9 +88,16 @@ function explorerLink(href, text) {
  * @param {HTMLElement} container  #detailsContent
  * @param {import('./graphStore.js').NodeRecord} node
  * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(addr:string)=>void,
- *           getKnownSource?:(addr:string)=>(string|null) }} deps
+ *           getKnownSource?:(addr:string)=>(string|null),
+ *           history?:Array<{action:string,labelKey:string,state:'unloaded'|'more'|'complete',count:number}>,
+ *           pageSize?:number, onLoadOlder?:()=>void, busy?:boolean,
+ *           loadBlocked?:({key:string,params?:object}|null) }} deps
  *   getKnownSource is optional (graceful when absent, e.g. known-address data not yet
  *   loaded) — provenance string for a known-address entry, rendered only when truthy.
+ *   history/pageSize/onLoadOlder/busy/loadBlocked are optional: a non-empty `history`
+ *   (from `historyState`, plus each type's `labelKey`) adds the History row and a Load
+ *   button (+`pageSize`) whose click calls `onLoadOlder`; the button is disabled when every
+ *   type is complete, while `busy`, or when `loadBlocked` (a localized refusal) is set.
  */
 export function renderNodeDetails(container, node, deps) {
   const { i18n, explorer, onRename } = deps;
@@ -121,6 +128,19 @@ export function renderNodeDetails(container, node, deps) {
     const txt = reasons ? `${i18n.t("risk." + deps.risk.level)} — ${reasons}` : i18n.t("risk." + deps.risk.level);
     table.appendChild(detailRow(i18n.t("details.risk"), txt));
   }
+  // An empty list (no tx type selected) renders neither the row nor the button.
+  if (deps.history && deps.history.length) {
+    const lines = deps.history.map(
+      (h) => `${i18n.t(h.labelKey)}: ${i18n.t("history." + h.state, { count: h.count })}`
+    );
+    const box = document.createElement("div");
+    lines.forEach((l) => {
+      const d = document.createElement("div");
+      d.textContent = l;
+      box.appendChild(d);
+    });
+    table.appendChild(detailRow(i18n.t("details.history"), box));
+  }
   table.appendChild(
     detailRow(
       i18n.t("details.link"),
@@ -135,6 +155,33 @@ export function renderNodeDetails(container, node, deps) {
   renameBtn.textContent = i18n.t("details.rename");
   renameBtn.addEventListener("click", () => onRename(node.address));
   container.appendChild(renameBtn);
+
+  if (deps.history && deps.history.length) {
+    const hs = deps.history;
+    const n = deps.pageSize;
+    const allComplete = hs.every((h) => h.state === "complete");
+    const allUnloaded = hs.every((h) => h.state === "unloaded");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.style.marginTop = "8px";
+    btn.textContent = allComplete
+      ? i18n.t("details.historyComplete")
+      : i18n.t(allUnloaded ? "details.loadFirst" : "details.loadOlder", { n });
+    btn.disabled = allComplete || !!deps.busy || !!deps.loadBlocked;
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      deps.onLoadOlder();
+    });
+    container.appendChild(btn);
+    if (deps.loadBlocked) {
+      const note = document.createElement("small");
+      note.id = "loadBlockedNote";
+      btn.setAttribute("aria-describedby", note.id);
+      note.style.marginLeft = "8px";
+      note.textContent = i18n.t(deps.loadBlocked.key, deps.loadBlocked.params);
+      container.appendChild(note);
+    }
+  }
 }
 
 /**

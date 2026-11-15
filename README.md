@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **355 unit/integration tests** on the DOM-free core.
+- **413 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -49,7 +49,8 @@ explore every feature immediately.
 
 **Live scans:** get a free key at <https://etherscan.io> → *API Keys*, paste it in the UI,
 pick a chain, paste an address, **Start**. One key works across all supported chains
-(Etherscan v2 is a unified multichain endpoint).
+(Etherscan v2 is a unified multichain endpoint; some chains need a paid plan — see
+[Supported chains](#supported-chains)).
 
 ---
 
@@ -57,6 +58,11 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
 
 - **BFS expansion** — recurse from a root address to any depth, with a per-address sample
   size, a hard safety cap, and a **Stop** that truly aborts in-flight requests.
+- **Load older** — a node whose last fetch returned a full batch gets a **dashed border**
+  (more history available). Select it and use **Load older (+N)** in the details panel to
+  page further back by block number; new counterparties are added but not explored
+  automatically. The cursor is saved in the workspace. A graph is single-chain: scanning
+  another chain into a non-empty graph is refused (clear it first).
 - **Three tx families** — normal, internal, and ERC-20/721/1155 token transfers, each a
   colored edge.
 - **Calldata decoding** — 4-byte selectors → human method names + **named** decoded args and
@@ -146,7 +152,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 355 unit + integration tests
+bun test        # 413 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:
@@ -164,7 +170,7 @@ suite and a vendor-integrity check (SRI + SHA-256) on every push.
 
 ## Supported chains
 
-All 64 Etherscan v2 chains (Ethereum, L2s like Base/Arbitrum/Optimism/Linea/Blast, sidechains like BNB/Polygon/Gnosis/Avalanche, Sonic, and ~30 testnets). One API key works across all — Etherscan v2 is a unified multichain endpoint. Each chain carries its **native currency symbol** (so native txs show BNB/POL/AVAX/S/… not "ETH" everywhere). Add one = a single entry in `src/config.js` (`{id, name, explorer, native}`, validated against Etherscan v2's chainlist).
+All 64 Etherscan v2 chains (Ethereum, L2s like Base/Arbitrum/Optimism/Linea/Blast, sidechains like BNB/Polygon/Gnosis/Avalanche, Sonic, and ~30 testnets). One API key is used for every chain — Etherscan v2 is a unified multichain endpoint (but see the paid-plan note below). Each chain carries its **native currency symbol** (so native txs show BNB/POL/AVAX/S/… not "ETH" everywhere). Add one = a single entry in `src/config.js` (`{id, name, explorer, native}`, validated against Etherscan v2's chainlist).
 
 Base, BNB Chain, OP Mainnet, Avalanche (and Gnosis) now require a **paid Etherscan API plan** (an Etherscan policy change, not a chainmap limit); with a free key the app tells you that's the cause instead of a generic error.
 

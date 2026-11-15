@@ -410,3 +410,47 @@ describe("GraphStore.checkInvariants", () => {
     expect(inv.errors.some((e) => e.toLowerCase().includes("parity") || e.includes(key))).toBe(true);
   });
 });
+
+describe("GraphStore.setHistory", () => {
+  const entry = { oldestBlock: "800", blockPage: 0, pageSize: 0, done: false, count: 3 };
+
+  test("sets the entry and emits node:update", () => {
+    const store = new GraphStore();
+    store.addNode(A);
+    const { events } = recorder(store);
+    store.setHistory(A, "txlist", entry);
+    expect(store.getNode(A).history.txlist).toEqual(entry);
+    const last = events[events.length - 1];
+    expect(last.type).toBe("node:update");
+    expect(last.node.address).toBe(a);
+  });
+
+  test("keeps other actions", () => {
+    const store = new GraphStore();
+    store.addNode(A);
+    store.setHistory(A, "txlist", entry);
+    store.setHistory(A, "tokentx", { ...entry, count: 5 });
+    expect(Object.keys(store.getNode(A).history).sort()).toEqual(["tokentx", "txlist"]);
+  });
+
+  test("absent node is a silent no-op", () => {
+    const store = new GraphStore();
+    const { events } = recorder(store);
+    expect(() => store.setHistory(A, "txlist", entry)).not.toThrow();
+    expect(events).toEqual([]);
+  });
+});
+
+test("loadSnapshot keeps valid history and drops malformed entries", () => {
+  const valid = { oldestBlock: "800", blockPage: 0, pageSize: 0, done: false, count: 3 };
+  const store = new GraphStore();
+  store.loadSnapshot(
+    [
+      { address: a, depth: 0, isRoot: true, history: { txlist: valid, tokentx: { ...valid, oldestBlock: "x" } } },
+      { address: b, depth: 1, history: "junk" },
+    ],
+    [],
+  );
+  expect(store.getNode(a).history).toEqual({ txlist: valid });
+  expect(store.getNode(b).history).toBeUndefined();
+});

@@ -86,12 +86,13 @@ Exports: `API_BASE`, `CHAINS: Chain[]`, `TX_TYPE_GROUPS`, `ROOT_COLOR`,
 `class GraphStore` — the ONLY mutation path; keeps sub-structures in sync; emits events.
 
 Data shapes:
-- `NodeRecord = { address, depth, isRoot, alias:string|null }`
+- `NodeRecord = { address, depth, isRoot, alias:string|null, history?:Record<action,HistoryEntry> }` — `history` is the per-action "Load older" cursor (see history.js); absent until a node has been fetched.
 - `EdgeRecord = { key, action, group, color, from, to, hash, symbol, tokenContract, tokenId, value, tokenDecimal, amountText, amountIndeterminate, hasData, methodId, methodArgs, rawInput, timeStamp, blockNumber }`
 - `EdgeInput = { action, group, color, from, to, tx }` (store computes key + amount)
 
 Mutations: `addNode(address, {depth?,isRoot?}) → NodeRecord` (merge = min depth, sticky root);
 `addEdge(EdgeInput) → EdgeRecord|null` (null on dup); `setAlias(address, alias|null)`;
+`setHistory(address, action, entry:HistoryEntry)` (replaces that action's cursor; emits `node:update`; no-op if node absent);
 `removeNodes(addresses[]) → {removedNodes,removedEdges}`; `reset()`.
 
 Reads: `getNode`, `hasNode`, `getAlias`, `hasEdgeKey`, `listNodes`, `listEdges`, `stats() → {nodes,edges}`.
@@ -109,7 +110,23 @@ Events (via `subscribe(handler) → unsubscribe`):
   - `ScanSummary = { root, processed, apiCalls, nodes, edges, skipped, failed, capped, stopped, sampled:true, perAddressLimit, maxDepth, errors[] }`
   - Contract: enqueue-dedup + safetyCap **at enqueue**; drop failed txs; depth ≥ maxDepth added-not-expanded; real cancel via `signal`; explicit sampling.
 - `selectedTypes({normal,internal,token}): TxTypeInfo[]`
+- `loadOlder(LoadOlderOptions): Promise<LoadOlderResult>` — one older page per selected type for one node, by block cursor.
+  - `LoadOlderOptions = { client, store, limiter, address, types:TxTypeInfo[], maxTxPerAddress, signal?, onLog? }`
+  - `LoadOlderResult = { apiCalls, newEdges, newNodes, failed, skipped, errors, planRequired, stopped, allDone }`; `errors` = per-type fetch errors (aborts excluded); `allDone` = every selected type's cursor is done.
+  - Contract: same ingest path as `runScan` (failed-tx drop, endpoint validation); new counterparties land at depth+1 and are **not** expanded; a fetch error leaves that type's cursor untouched (never marked done); `runScan` records the first-load cursor (replace, not merge) per expanded node.
 - Log entries flow as `{ level:'info'|'error', key, params? }` — localized by `ui.createLogger` via i18n.
+
+## history.js — DOM-free, pure (per-node "Load older")
+
+Block-cursor math. One `HistoryEntry` per Etherscan action; the cursor is the oldest block seen, re-read inclusively on the next page (edge dedup drops repeats); a block holding >= N rows is paged in place (`startblock = endblock = cursor`).
+
+- `HistoryEntry = { oldestBlock:string, blockPage:number, pageSize:number, done:boolean, count:number }`
+- `HistoryRequest = { page, offset, startblock?, endblock? }`
+- `nextRequest(entry|undefined, n) → HistoryRequest|null` (null when `done`)
+- `advance(entry|undefined, rows, n, req) → HistoryEntry`
+- `hasMoreHistory(node) → boolean` (any action with `done === false`)
+- `historyState(node, actions[]) → Array<{action, state:'unloaded'|'more'|'complete', count}>`
+- `sanitizeHistory(raw) → Record<action,HistoryEntry>|undefined` — validates untrusted (workspace) input; drops unknown actions, `__proto__`-style keys and malformed entries. `graphStore.loadSnapshot` applies it.
 
 ## i18n.js — implemented (Stage A)
 
@@ -155,7 +172,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 
 ## ui.js — DOM view helpers (stub → Stage B)
 
-- `renderNodeDetails(container, node, { i18n, explorer, onRename })`
+- `renderNodeDetails(container, node, { i18n, explorer, onRename, risk?, getKnownSource?, history?, pageSize?, onLoadOlder?, busy?, loadBlocked? })` — `history` (`historyState` items + `labelKey`) adds the History row and a Load button that calls `onLoadOlder()`; the button is disabled while `busy`, when `loadBlocked` (`{key, params?}`, shown as a note) is set, or when every selected type is complete.
 - `renderEdgeDetails(container, edge, { i18n, explorer, getAlias })`
 - `createLogger(container, i18n): { log(entry), clear() }`
 - `createStatus(element): { set(text), clear() }`

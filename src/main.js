@@ -30,7 +30,8 @@ import { methodName } from "./selectors.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
-import { runScan, selectedTypes } from "./scanner.js";
+import { runScan, loadOlder, selectedTypes } from "./scanner.js";
+import { historyState } from "./history.js";
 import { createGraphView } from "./render/network.js";
 import { createPalette } from "./render/palette.js";
 import { attachInteractions, rotateGraph, selectHighDegree } from "./render/interaction.js";
@@ -58,6 +59,14 @@ const nativeSymbolFor = (chainId) => {
   const c = CHAINS.find((x) => String(x.id) === String(chainId));
   return c ? c.native : "ETH";
 };
+const chainName = (id) => (CHAINS.find((c) => String(c.id) === String(id)) || {}).name || String(id);
+// Tx types ticked in the scan form (what a scan or a load fetches).
+const formTypes = () =>
+  selectedTypes({
+    normal: $("typeNormal").checked,
+    internal: $("typeInternal").checked,
+    token: $("typeToken").checked,
+  });
 
 // --- i18n bootstrap ---------------------------------------------------------
 const dictionaries = { en, fr };
@@ -120,7 +129,7 @@ function computeRisk(address) {
     if (e.from === address) { outC.add(e.to); if (e.hasData) hasCall = true; outEdges.push(e); }
   }
   const cyc = findCycleNodes(store.listNodes(), store.listEdges());
-  const chainId = $("chainSelect").value;
+  const chainId = dataChain();
   const categoryFor = (a) => knownCategory(a, chainId, knownData);
   // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
   const flags = outEdges.flatMap((e) => flagsForEdge(e, { category: categoryFor }));
@@ -148,8 +157,10 @@ function applyDisplayOptions() {
 }
 
 // --- scan lifecycle state ---------------------------------------------------
-let scanning = false;
-let abortController = null;
+let scanning = false; // a scan OR a load is running (see withBusy) — never both
+// Chain the current graph was built on (scan on an empty graph / workspace / demo);
+// null after reset. Etherscan data from two chains must never mix in one graph.
+let graphChainId = null;
 /** Remember the current details selection so it can be re-rendered on locale change. */
 let currentDetail = null; // { kind:'node'|'edge', id }
 
@@ -168,6 +179,7 @@ function populateChains() {
   sel.addEventListener("change", () => {
     localStorage.setItem(STORAGE_KEYS.chainId, sel.value);
     if (view) view.refreshLabels(); // known-address labels are chain-scoped
+    rerenderDetails(); // load button reflects the chain guard
   });
 }
 
@@ -254,12 +266,16 @@ function renderAddressDetect() {
   }
 }
 
-function refreshDynamicI18n() {
-  // Sampling banner carries a {n} param, so applyTo (param-less) can't own it.
+// Sampling banner carries a {n} param, so applyTo (param-less) can't own it.
+function showSamplingBanner(n) {
   const banner = $("samplingBanner");
-  if (!banner.hidden) {
-    const n = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
-    banner.textContent = t("sampling.banner", { n });
+  banner.hidden = false;
+  banner.textContent = t("sampling.banner", { n });
+}
+
+function refreshDynamicI18n() {
+  if (!$("samplingBanner").hidden) {
+    showSamplingBanner(clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress));
   }
   if (indicator) indicator.setActive(scanning);
   renderAddressDetect();
@@ -308,20 +324,36 @@ function wirePanels() {
 // ---------------------------------------------------------------------------
 // Details panel
 // ---------------------------------------------------------------------------
+// Chain the details/workspace describe: the graph's, falling back to the selector.
+const dataChain = () => graphChainId || $("chainSelect").value;
+
+// Refusal for using `chainId` against the current graph, or null when allowed.
+function chainRefusal(chainId) {
+  return graphChainId && chainId !== graphChainId
+    ? { key: "error.chainMismatch", params: { chain: chainName(graphChainId) } }
+    : null;
+}
+
 function showNodeDetails(address) {
   const node = store.getNode(address);
   if (!node) return;
   currentDetail = { kind: "node", id: address };
+  const types = formTypes();
   renderNodeDetails($("detailsContent"), node, {
     i18n,
-    explorer: explorerFor($("chainSelect").value),
+    explorer: explorerFor(dataChain()),
     onRename: promptAlias,
     risk: computeRisk(address),
     getKnownSource: (a) => {
-      const chain = knownData[String($("chainSelect").value)];
+      const chain = knownData[String(dataChain())];
       const entry = chain && chain[String(a).toLowerCase()];
       return entry && entry.source ? entry.source : null;
     },
+    history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
+    pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
+    onLoadOlder: () => loadOlderFor(address),
+    busy: scanning || detecting,
+    loadBlocked: chainRefusal($("chainSelect").value),
   });
 }
 
@@ -329,7 +361,7 @@ function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
   currentDetail = { kind: "edge", id: edgeKey };
-  const chainId = $("chainSelect").value;
+  const chainId = dataChain();
   const deps = {
     i18n,
     explorer: explorerFor(chainId),
@@ -370,7 +402,7 @@ function promptAlias(address) {
 // palette.js) so it always reflects the CURRENT store + chain-scoped labels —
 // no separate index to keep in sync.
 function buildSearchRecords() {
-  const chainId = $("chainSelect").value;
+  const chainId = dataChain();
   const records = [];
   for (const node of store.listNodes()) {
     const alias = store.getAlias(node.address);
@@ -460,6 +492,54 @@ function revealAndFocus(record) {
 // ---------------------------------------------------------------------------
 // Scan
 // ---------------------------------------------------------------------------
+// Run `fn` as THE one network operation (scan or load): sets `scanning`, locks
+// Start/address/detect, enables Stop, shows the request indicator. Stop aborts
+// in-flight fetches AND drops the limiter queue. Callers check `scanning` first;
+// that check plus this synchronous set is what keeps scans/loads from
+// overlapping (loadOlder's counts are store-wide deltas, overlap would mis-credit).
+async function withBusy(fn) {
+  scanning = true;
+  const abortController = new AbortController();
+  const limiter = new RateLimiter(clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps));
+  const onStop = () => {
+    abortController.abort();
+    limiter.clear();
+    logger.log({ level: "info", key: "log.stopRequested" });
+  };
+  $("startBtn").disabled = true;
+  $("stopBtn").disabled = false;
+  $("address").disabled = true;
+  $("detectChainBtn").disabled = true;
+  indicator.setActive(true);
+  $("stopBtn").addEventListener("click", onStop, { once: true });
+  rerenderDetails(); // load button -> disabled while busy
+  try {
+    return await fn({ signal: abortController.signal, limiter });
+  } finally {
+    scanning = false;
+    indicator.setActive(false);
+    $("startBtn").disabled = false;
+    $("stopBtn").disabled = true;
+    $("stopBtn").removeEventListener("click", onStop);
+    $("address").disabled = false;
+    $("detectChainBtn").disabled = false;
+    rerenderDetails();
+  }
+}
+
+// Post-processing once the graph has grown (end of a scan or a load).
+function afterGraphChange() {
+  view.refreshProjection(); // normalize edge widths + rebuild bundles now the graph is complete
+  recomputeHubs();
+  if (hubOn) view.refreshHubs();
+  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
+
+  const inv = store.checkInvariants();
+  // Dev signal only — never dump inv.errors (they embed addresses / tx hashes)
+  // into the console where an extension or shoulder-surfer could read them.
+  if (!inv.ok) console.warn(`graphStore invariant violation: ${inv.errors.length} issue(s)`);
+}
+
 async function startScan() {
   if (scanning) return;
 
@@ -469,37 +549,25 @@ async function startScan() {
   const maxDepth = clampInt($("depth").value, LIMITS.depth, DEFAULTS.depth);
   const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
   const safetyCap = clampInt($("safetyCap").value, LIMITS.safetyCap, DEFAULTS.safetyCap);
-  const rps = clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps);
-  const types = selectedTypes({
-    normal: $("typeNormal").checked,
-    internal: $("typeInternal").checked,
-    token: $("typeToken").checked,
-  });
+  const types = formTypes();
 
   if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
   if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
   if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
+  // Roots on the same chain accumulate; another chain needs an empty graph.
+  const refusal = store.stats().nodes > 0 && chainRefusal(chainId);
+  if (refusal) return logger.log({ level: "error", ...refusal });
+  graphChainId = chainId;
 
   // Native-value txs (no tokenSymbol) must show THIS chain's ticker, not a
   // hardcoded "ETH" — set before any edges are added so the whole scan is
   // consistent (a graph is single-chain per scan).
   store.setNativeSymbol(nativeSymbolFor(chainId));
-
-  scanning = true;
-  abortController = new AbortController();
-  const limiter = new RateLimiter(rps);
   const client = createEtherscanClient({ apiKey, chainId });
 
-  $("startBtn").disabled = true;
-  $("stopBtn").disabled = false;
-  $("address").disabled = true;
-  $("detectChainBtn").disabled = true;
   collapseControls(); // give the map the full surface once a scan begins
 
-  const banner = $("samplingBanner");
-  banner.hidden = false;
-  banner.textContent = t("sampling.banner", { n: maxTxPerAddress });
-  indicator.setActive(true);
+  showSamplingBanner(maxTxPerAddress);
 
   logger.log({
     level: "info",
@@ -507,17 +575,8 @@ async function startScan() {
     params: { root: address.toLowerCase(), depth: maxDepth, types: types.map((x) => t(x.labelKey)).join(", ") },
   });
 
-  // Stop aborts in-flight fetches AND drops the limiter queue.
-  const onStop = () => {
-    abortController.abort();
-    limiter.clear();
-    logger.log({ level: "info", key: "log.stopRequested" });
-  };
-  $("stopBtn").addEventListener("click", onStop, { once: true });
-
-  let summary;
-  try {
-    summary = await runScan({
+  const summary = await withBusy(({ signal, limiter }) =>
+    runScan({
       client,
       store,
       limiter,
@@ -526,7 +585,7 @@ async function startScan() {
       maxTxPerAddress,
       safetyCap,
       types,
-      signal: abortController.signal,
+      signal,
       onProgress: (p) =>
         status.set(
           t("status.analyzing", {
@@ -539,19 +598,10 @@ async function startScan() {
           })
         ),
       onLog: (e) => logger.log(e),
-    });
-  } finally {
-    scanning = false;
-    indicator.setActive(false);
-    $("startBtn").disabled = false;
-    $("stopBtn").disabled = true;
-    $("stopBtn").removeEventListener("click", onStop);
-    $("address").disabled = false;
-    $("detectChainBtn").disabled = false;
-  }
+    })
+  );
 
   if (!summary) return; // runScan only rejects on programmer error; guard the post-scan path anyway
-  const planChain = (CHAINS.find((c) => String(c.id) === $("chainSelect").value) || {}).name || $("chainSelect").value;
   if (summary.capped) logger.log({ level: "error", key: "log.safetyCap", params: { cap: safetyCap } });
   logger.log({
     level: "info",
@@ -560,23 +610,63 @@ async function startScan() {
   });
   status.set(
     summary.planRequired
-      ? t("status.planRequired", { chain: planChain })
+      ? t("status.planRequired", { chain: chainName(chainId) })
       : t("status.done", { nodes: summary.nodes, edges: summary.edges })
   );
 
-  view.refreshProjection(); // normalize edge widths + rebuild bundles now the graph is complete
-  recomputeHubs();
-  if (hubOn) view.refreshHubs();
-  if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
+  afterGraphChange();
+}
 
-  const inv = store.checkInvariants();
-  // Dev signal only — never dump inv.errors (they embed addresses / tx hashes)
-  // into the console where an extension or shoulder-surfer could read them.
-  if (!inv.ok) console.warn(`graphStore invariant violation: ${inv.errors.length} issue(s)`);
+// Details-panel "Load older": fetch the next older page per selected type for
+// one node, on the graph's chain. Counterparties are added, never expanded.
+async function loadOlderFor(address) {
+  // Busy (or probing chains): ignore, but re-render so the clicked button isn't left disabled.
+  if (scanning || detecting) return rerenderDetails();
+  const apiKey = $("apiKey").value.trim();
+  const types = formTypes();
+  const refusal = !apiKey
+    ? { key: "error.apiKeyRequired" }
+    : !types.length
+      ? { key: "error.noTypeSelected" }
+      : chainRefusal($("chainSelect").value);
+  if (refusal) {
+    logger.log({ level: "error", ...refusal });
+    return rerenderDetails();
+  }
+
+  const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
+  store.setNativeSymbol(nativeSymbolFor(graphChainId));
+  showSamplingBanner(maxTxPerAddress); // loaded rows are a sample too (demo/workspace graphs hide it)
+  status.set(t("status.loadingOlder", { addr: shortAddress(address) }));
+
+  const res = await withBusy(({ signal, limiter }) =>
+    loadOlder({
+      client: createEtherscanClient({ apiKey, chainId: graphChainId }),
+      store,
+      limiter,
+      address,
+      types,
+      maxTxPerAddress,
+      signal,
+      onLog: (e) => logger.log(e),
+    })
+  );
+
+  afterGraphChange();
+  rerenderDetails();
+  logger.log({
+    level: "info",
+    key: "log.loadOlderDone",
+    params: { addr: address, edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
+  });
+  const done = { edges: res.newEdges, addr: shortAddress(address), errors: res.errors };
+  const key = res.stopped ? "status.loadOlderStopped" : res.errors ? "status.loadOlderErrors" : "status.loadOlderDone";
+  status.set(res.planRequired ? t("status.planRequired", { chain: chainName(graphChainId) }) : t(key, done));
 }
 
 function resetGraph() {
   if (scanning) return;
+  graphChainId = null;
   store.reset(); // view clears via 'reset' event
   logger.clear();
   status.clear();
@@ -653,11 +743,10 @@ async function startDetectChain() {
   // No-API shortcut: a known labeled address already tells us its chain(s) locally.
   const localHits = chainsForKnownAddress(address, knownData);
   if (localHits.length) {
-    const nameOf = (id) => (CHAINS.find((c) => String(c.id) === String(id)) || {}).name || String(id);
     const hit = localHits[0]; // first-listed chain wins
     $("chainSelect").value = String(hit.chainId);
     $("chainSelect").dispatchEvent(new Event("change"));
-    const chains = localHits.map((h) => nameOf(h.chainId)).join(", ");
+    const chains = localHits.map((h) => chainName(h.chainId)).join(", ");
     logger.log({ level: "info", key: "detect.localHit", params: { label: hit.label, chains } });
     if (el) {
       el.className = "detect ok";
@@ -681,6 +770,7 @@ async function startDetectChain() {
   const limiter = new RateLimiter(rps);
   detectAbortController = new AbortController();
   detecting = true;
+  rerenderDetails(); // load button -> disabled while probing
 
   const btn = $("detectChainBtn");
   btn.textContent = t("btn.cancelDetect");
@@ -748,6 +838,7 @@ async function startDetectChain() {
     // needs; only turns fully idle when nothing else is running.
     indicator.setActive(scanning);
     resetDetectChainBtn();
+    rerenderDetails();
   }
 }
 
@@ -768,7 +859,7 @@ function currentFilters() {
 function saveWorkspace() {
   if (!store.stats().nodes) return logger.log({ level: "error", key: "log.exportEmpty" });
   const ws = serializeWorkspace({
-    chainId: $("chainSelect").value,
+    chainId: dataChain(), // the graph's chain, not whatever the selector shows now
     root: $("address").value.trim().toLowerCase() || null,
     nodes: store.listNodes(),
     edges: store.listEdges(),
@@ -782,8 +873,16 @@ function saveWorkspace() {
   logger.log({ level: "info", key: "log.workspaceSaved" });
 }
 
+// Returns false (and logs) when refused: a scan/load in flight would keep writing
+// into the replaced graph — mixed chains, mis-credited counts. Checked here, at
+// apply time, because demo/file loads resolve asynchronously after the click.
 function applyWorkspace(ws) {
+  if (scanning) {
+    logger.log({ level: "error", key: "error.busy" });
+    return false;
+  }
   if (ws.chainId) $("chainSelect").value = String(ws.chainId);
+  graphChainId = String(ws.chainId || $("chainSelect").value);
   store.loadSnapshot(ws.nodes, ws.edges);
   const f = ws.filters || {};
   $("minAmount").value = f.minAmount || 0;
@@ -804,12 +903,13 @@ function applyWorkspace(ws) {
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
   clearDetails();
+  return true;
 }
 
 function loadWorkspaceFromText(text) {
   const res = parseWorkspace(text);
   if (!res.ok) return logger.log({ level: "error", key: "log.workspaceError", params: { error: res.error } });
-  applyWorkspace(res.data);
+  if (!applyWorkspace(res.data)) return;
   const s = store.stats();
   logger.log({ level: "info", key: "log.workspaceLoaded", params: { nodes: s.nodes, edges: s.edges } });
 }
@@ -820,8 +920,7 @@ async function loadDemo() {
     if (!resp.ok) throw new Error(String(resp.status));
     const res = parseWorkspace(await resp.json());
     if (!res.ok) throw new Error(res.error);
-    applyWorkspace(res.data);
-    logger.log({ level: "info", key: "log.demoLoaded" });
+    if (applyWorkspace(res.data)) logger.log({ level: "info", key: "log.demoLoaded" });
   } catch (e) {
     logger.log({ level: "error", key: "log.workspaceError", params: { error: String(e.message || e) } });
   }
@@ -833,11 +932,7 @@ async function runEstimate() {
   const chainId = $("chainSelect").value;
   if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
   if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
-  const types = selectedTypes({
-    normal: $("typeNormal").checked,
-    internal: $("typeInternal").checked,
-    token: $("typeToken").checked,
-  });
+  const types = formTypes();
   if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
 
   const maxDepth = clampInt($("depth").value, LIMITS.depth, DEFAULTS.depth);
@@ -911,7 +1006,7 @@ function wireControls() {
     })
   );
   $("exportCsvBtn").addEventListener("click", () =>
-    exportCsv(store, { onLog, category: (a) => knownCategory(a, $("chainSelect").value, knownData) })
+    exportCsv(store, { onLog, category: (a) => knownCategory(a, dataChain(), knownData) })
   );
 
   // Noise-reduction filters (live display projection; store is untouched).
@@ -920,6 +1015,10 @@ function wireControls() {
   $("hideSpamToggle").addEventListener("change", applyDisplayOptions);
   $("bundleToggle").addEventListener("change", () => view.setBundling($("bundleToggle").checked));
   $("address").addEventListener("input", renderAddressDetect);
+  // History row + load button follow the selected types and page size.
+  // `input` (not `change`) for the page size: a blur-time rebuild would swallow the next Load click.
+  for (const id of ["typeNormal", "typeInternal", "typeToken"]) $(id).addEventListener("change", rerenderDetails);
+  $("maxTxPerAddress").addEventListener("input", rerenderDetails);
 
   // Layer 2 — date range, layout, hubs, annotations, workspace, estimate.
   $("dateFrom").addEventListener("change", applyDisplayOptions);
@@ -987,7 +1086,7 @@ function init() {
   view = createGraphView($("graph"), store, {
     i18n,
     getAddressFormat: () => $("addressFormat").value,
-    getKnownLabel: (address) => knownLabel(address, $("chainSelect").value, knownData),
+    getKnownLabel: (address) => knownLabel(address, dataChain(), knownData),
     // Returns the hub classification whenever ANY hub-driven feature is engaged
     // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
     // so "Hide faucets"/"Hide sinks" work independently of the dim toggle. The
@@ -1000,8 +1099,8 @@ function init() {
     // checking "Hide faucets" (hubToggle OFF) hides faucets without dimming
     // sinks (or anything else).
     getHubDimOn: () => hubOn,
-    getCategory: (address) => knownCategory(address, $("chainSelect").value, knownData),
-    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, $("chainSelect").value, knownData) }),
+    getCategory: (address) => knownCategory(address, dataChain(), knownData),
+    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, dataChain(), knownData) }),
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

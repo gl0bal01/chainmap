@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **355 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **413 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -51,7 +51,8 @@ pour explorer immédiatement toutes les fonctionnalités.
 **Scans en direct :** obtenez une clé gratuite sur <https://etherscan.io> → *API Keys*,
 collez-la dans l'interface, choisissez une chaîne, collez une adresse, **Lancer le scan**. Une seule
 clé fonctionne sur toutes les chaînes prises en charge (Etherscan v2 est un point d'accès
-multichaîne unifié).
+multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
+[Chaînes prises en charge](#chaînes-prises-en-charge)).
 
 ---
 
@@ -60,6 +61,12 @@ multichaîne unifié).
 - **Expansion BFS** — parcours récursif depuis une adresse racine jusqu'à la profondeur
   voulue, avec un échantillon par adresse, un plafond de sécurité strict et un bouton
   **Arrêter** qui interrompt réellement les requêtes en cours.
+- **Charger les plus anciennes** — un nœud dont la dernière récupération a renvoyé un lot complet
+  reçoit une **bordure en pointillés** (historique supplémentaire disponible). Sélectionnez-le
+  et utilisez **Charger les plus anciennes (+N)** dans le panneau de détails pour remonter dans le
+  temps par numéro de bloc ; les nouvelles contreparties sont ajoutées mais pas explorées
+  automatiquement. Le curseur est sauvegardé dans l'espace de travail. Un graphe n'a qu'une
+  seule chaîne : scanner une autre chaîne dans un graphe non vide est refusé (videz-le d'abord).
 - **Trois familles de tx** — normales, internes et transferts de jetons ERC-20/721/1155,
   chacune une arête colorée.
 - **Décodage du calldata** — sélecteurs 4 octets → noms de méthode lisibles + arguments de
@@ -158,7 +165,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 355 tests unitaires + d'intégration
+bun test        # 413 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :
@@ -177,7 +184,7 @@ bibliothèques vendorisées (SRI + SHA-256) à chaque push.
 
 ## Chaînes prises en charge
 
-Toutes les 64 chaînes Etherscan v2 (Ethereum, L2s comme Base/Arbitrum/Optimism/Linea/Blast, chaînes latérales comme BNB/Polygon/Gnosis/Avalanche, Sonic, et ~30 testnets). Une clé API fonctionne partout — Etherscan v2 est un point d'accès multichaîne unifié. Chaque chaîne porte son **symbole de monnaie native** (les tx natives affichent donc BNB/POL/AVAX/S/… au lieu de « ETH » partout). En ajouter une = une seule entrée dans `src/config.js` (`{id, name, explorer, native}`, validée contre la liste de chaînes Etherscan v2).
+Toutes les 64 chaînes Etherscan v2 (Ethereum, L2s comme Base/Arbitrum/Optimism/Linea/Blast, chaînes latérales comme BNB/Polygon/Gnosis/Avalanche, Sonic, et ~30 testnets). La même clé API sert pour toutes les chaînes — Etherscan v2 est un point d'accès multichaîne unifié (mais voir la note sur le forfait payant ci-dessous). Chaque chaîne porte son **symbole de monnaie native** (les tx natives affichent donc BNB/POL/AVAX/S/… au lieu de « ETH » partout). En ajouter une = une seule entrée dans `src/config.js` (`{id, name, explorer, native}`, validée contre la liste de chaînes Etherscan v2).
 
 Base, BNB Chain, OP Mainnet, Avalanche (et Gnosis) exigent désormais un **forfait API Etherscan payant** (changement de politique d'Etherscan, pas une limite de chainmap) ; avec une clé gratuite, l'app l'indique comme cause au lieu d'une erreur générique.
 

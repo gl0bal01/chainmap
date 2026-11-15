@@ -114,7 +114,9 @@ La mise en garde forensique. chainmap récupère les **N dernières** transactio
 par type — **pas** l'historique complet. Cela garde les scans rapides et bon marché, mais le
 graphe est donc un **échantillon**.
 
-> **Dans chainmap :** une bannière persistante et l'export CSV le signalent tous deux.
+> **Dans chainmap :** **Charger les plus anciennes** étend l'échantillon d'un nœud page par page, mais
+> l'historique n'est complet que lorsque Etherscan renvoie un lot incomplet pour ce nœud. Une bannière
+> persistante et l'export CSV le signalent tous deux.
 > **Règle :** ne présentez jamais un graphe échantillonné comme complet ou forensique.
 > Augmentez la limite par adresse si nécessaire, et mentionnez toujours l'échantillonnage dans
 > vos conclusions.
