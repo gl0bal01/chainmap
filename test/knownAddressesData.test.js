@@ -44,14 +44,14 @@ describe("data/known-addresses.json validity", () => {
     }
   });
 
-  test("token entries carry an uppercase symbol and integer decimals when present", () => {
+  test("token entries carry an uppercase symbol and integer decimals", () => {
     for (const chain of Object.values(knownData)) {
       for (const entry of Object.values(chain)) {
         if (entry.category !== "token") continue;
         expect(typeof entry.symbol).toBe("string");
         expect(entry.symbol.length).toBeGreaterThan(0);
         expect(entry.symbol).toBe(entry.symbol.toUpperCase());
-        if ("decimals" in entry) expect(Number.isInteger(entry.decimals)).toBe(true);
+        expect(Number.isInteger(entry.decimals)).toBe(true);
       }
     }
   });
