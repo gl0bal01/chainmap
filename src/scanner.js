@@ -350,6 +350,10 @@ export async function loadOlder(opts) {
         client.fetchAction(address, action, { ...req, sort: "desc", signal })
       );
     } catch (e) {
+      if (signal && signal.aborted) {
+        res.stopped = true; // Stop landed mid-fetch: not an error, cursor unchanged
+        break;
+      }
       if (reportFetchError(e, address, action, onLog)) {
         res.planRequired = true;
         break;
@@ -365,9 +369,9 @@ export async function loadOlder(opts) {
   }
 
   const after = readCounts(store);
-  res.newNodes = after.nodes - before.nodes;
-  res.newEdges = after.edges - before.edges;
+  res.newNodes = Math.max(0, after.nodes - before.nodes);
+  res.newEdges = Math.max(0, after.edges - before.edges);
   const node = store.hasNode(address) ? store.getNode(address) : null;
-  res.allDone = !!node && types.every((t) => node.history?.[t.action]?.done);
+  res.allDone = !!node && types.length > 0 && types.every((t) => node.history?.[t.action]?.done);
   return res;
 }

@@ -454,9 +454,34 @@ describe("loadOlder", () => {
       store.removeNode(R);
       return [tx(R, A, 5)];
     };
-    await lo({ client, store, types: selectedTypes({ normal: true, internal: true }) });
+    const r = await lo({ client, store, types: selectedTypes({ normal: true, internal: true }) });
     expect(client.calls.length).toBe(1);
     expect(store.hasNode(R)).toBe(false);
+    expect(r.newEdges).toBeGreaterThanOrEqual(0);
+    expect(r.newNodes).toBeGreaterThanOrEqual(0);
+  });
+
+  test("abort mid-fetch reports stopped, no error.fetch, cursor unchanged", async () => {
+    const client = makeClient();
+    const store = seeded();
+    const c = new AbortController();
+    client.fetchAction = async () => {
+      client.calls.push({});
+      c.abort();
+      throw Object.assign(new Error("aborted"), { kind: "aborted" });
+    };
+    const logs = [];
+    const r = await lo({ client, store, signal: c.signal, onLog: (e) => logs.push(e) });
+    expect(r.stopped).toBe(true);
+    expect(logs).toEqual([]);
+    expect(store.getNode(R).history).toBeUndefined();
+  });
+
+  test("empty types never reads as allDone", async () => {
+    const client = makeClient();
+    const r = await lo({ client, store: seeded(), types: [] });
+    expect(r.allDone).toBe(false);
+    expect(client.calls.length).toBe(0);
   });
 
   test("unknown address: no fetch, zeroed", async () => {
