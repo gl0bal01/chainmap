@@ -115,6 +115,7 @@ export default {
   "legend.title": "Legend",
   "legend.root": "Searched address",
   "legend.discovered": "Discovered address",
+  "legend.moreHistory": "More history available (load older)",
   "legend.normal": "Normal tx",
   "legend.internal": "Internal tx",
   "legend.token": "Token transfer",

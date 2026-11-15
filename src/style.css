@@ -221,6 +221,7 @@ details.card:not([open]) > summary.card-title { margin-bottom: 0; }
 .line { width: 18px; height: 3px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
 .dot-root { background: #e63946; }
 .dot-discovered { background: #457b9d; }
+.dot-more { background: transparent; border: 2px dashed #457b9d; }
 .line-normal { background: #4f8ef7; }
 .line-internal { background: #f7a24f; }
 .line-token { background: #4fd67a; }

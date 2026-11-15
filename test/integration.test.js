@@ -62,7 +62,7 @@ function stubVis() {
     get length() { return this.get().length; }
   }
   class FakeNetwork {
-    constructor(container, data) { this.nodes = data.nodes; this.edges = data.edges; this._sel = []; this._on = {}; }
+    constructor(container, data) { FakeNetwork.first = FakeNetwork.first || this; FakeNetwork.last = this; this.nodes = data.nodes; this.edges = data.edges; this._sel = []; this._on = {}; }
     on(ev, fn) { (this._on[ev] = this._on[ev] || []).push(fn); }
     off(ev, fn) { this._on[ev] = (this._on[ev] || []).filter((f) => f !== fn); }
     getSelectedNodes() { return this._sel; }
@@ -73,6 +73,7 @@ function stubVis() {
     getPositions(ids) { const o = {}; for (const id of ids || this.nodes.getIds()) o[id] = { x: 0, y: 0 }; return o; }
     moveNode() {} fit() {} destroy() {} DOMtoCanvas(p) { return p; }
   }
+  FakeNetwork.first = null;
   return { DataSet: FakeDataSet, DataView: FakeDataView, Network: FakeNetwork };
 }
 
@@ -554,4 +555,22 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   const uni = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
   expect(demo.edges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
   expect(demo.edges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+});
+
+test("scan marks nodes with more history using a dashed border", async () => {
+  $("resetBtn").click();
+  $("apiKey").value = "TESTKEY";
+  $("address").value = ROOT;
+  $("maxTxPerAddress").value = "2"; // canned txlist returns 2 rows = N -> full batch
+  $("depth").value = "1";
+  $("startBtn").click();
+  for (let i = 0; i < 60; i++) {
+    if (/Done/.test($("status").textContent || "")) break;
+    await sleep(50);
+  }
+  // first = the network main.js created (other tests build throwaway views)
+  const nodes = window.vis.Network.first.nodes.get();
+  expect(nodes.find((n) => n.id === ROOT).shapeProperties.borderDashes).toEqual([4, 3]);
+  expect(nodes.find((n) => n.id === N2).shapeProperties.borderDashes).toBe(false);
+  $("maxTxPerAddress").value = "20";
 });

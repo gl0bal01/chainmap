@@ -21,6 +21,7 @@ import { edgeSeverity } from "../riskFlags.js";
 import { methodName } from "../selectors.js";
 import { decodeInputText } from "../abiDecode.js";
 import { escapeHtml } from "../format.js";
+import { hasMoreHistory } from "../history.js";
 
 /**
  * @typedef {object} DisplayOptions
@@ -169,12 +170,14 @@ export function createGraphView(container, store, deps) {
     const cat = catFor(node.address);
     const icon = CAT_ICON[cat] || "";
     const baseTitle = hub ? `${visual.title} · ${i18n.t("risk." + hub)}` : visual.title;
+    const more = hasMoreHistory(node);
     const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
       id: node.address,
       label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel }),
       color: ringColor ? { background: bg, border: ringColor } : bg,
-      borderWidth: ringColor ? 3 : 1,
+      borderWidth: ringColor ? 3 : more ? 2 : 1,
+      shapeProperties: { borderDashes: more ? [4, 3] : false },
       title: icon ? `${icon} ${baseTitle}` : baseTitle,
     });
   }
