@@ -218,6 +218,29 @@ describe("fetchAction throttling & retries", () => {
     expect(retries[0]).toMatchObject({ attempt: 1, waitMs: 3, reason: "throttled" });
   });
 
+  test("paid-only chain message → 'plan_required', never retried", async () => {
+    const fetchImpl = queuedFetch([
+      NOTOK("Free API access is not supported for this chain. Please upgrade your api plan for full chain coverage."),
+    ]);
+    const client = makeClient(fetchImpl, { backoffBaseMs: 1, maxRetries: 3 });
+    const err = await catchError(client.fetchAction("0xabc", "txlist", { offset: 10 }));
+    expect(err).toBeInstanceOf(EtherscanError);
+    expect(err.kind).toBe("plan_required");
+    expect(fetchImpl.calls.length).toBe(1);
+  });
+
+  test("'unusually high network activity' body is a retried rate_limit", async () => {
+    const result = [{ hash: "0xok" }];
+    const fetchImpl = queuedFetch([
+      // Upgrade hint must not flip a transient throttle into a fatal plan_required.
+      NOTOK("Free API access is temporarily unavailable due to unusually high network activity. Please upgrade your api plan for priority."),
+      OK(result),
+    ]);
+    const client = makeClient(fetchImpl, { backoffBaseMs: 1, maxRetries: 3 });
+    expect(await client.fetchAction("0xabc", "txlist", { offset: 10 })).toEqual(result);
+    expect(fetchImpl.calls.length).toBe(2);
+  });
+
   test("maxRetries exhausted → kind 'rate_limit'", async () => {
     const fetchImpl = queuedFetch([NOTOK("Max rate limit reached")]);
     const retries = [];

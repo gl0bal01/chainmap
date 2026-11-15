@@ -234,6 +234,9 @@ export default {
   "error.rateLimit": "Limite de débit atteinte. Réduisez les requêtes/seconde et réessayez.",
   "error.timeout": "Délai dépassé ({action}).",
   "error.retriesExhausted": "Échec après plusieurs tentatives ({action}).",
+  "error.planRequired": "Cette chaîne nécessite un forfait API Etherscan payant (les clés gratuites ne sont pas prises en charge) — scan arrêté",
+  "status.planRequired": "Arrêté — {chain} nécessite un forfait API Etherscan payant",
+  "detect.planRequired": "Ignorées (forfait Etherscan payant requis) : {chains}",
   "error.fetch": "Échec de récupération pour {address} ({action}) : {message}",
 
   // --- prompts --------------------------------------------------------------

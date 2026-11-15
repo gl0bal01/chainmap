@@ -235,6 +235,9 @@ export default {
   "error.rateLimit": "Rate limit reached. Lower requests/second and retry.",
   "error.timeout": "Request timed out ({action}).",
   "error.retriesExhausted": "Failed after several attempts ({action}).",
+  "error.planRequired": "This chain needs a paid Etherscan API plan (free keys are not supported) — scan stopped",
+  "status.planRequired": "Stopped — {chain} needs a paid Etherscan API plan",
+  "detect.planRequired": "Skipped (paid Etherscan plan needed): {chains}",
   "error.fetch": "Fetch failed for {address} ({action}): {message}",
 
   // --- prompts --------------------------------------------------------------

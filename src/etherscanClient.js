@@ -18,7 +18,7 @@ import { API_BASE, FETCH } from "./config.js";
 export class EtherscanError extends Error {
   /**
    * @param {string} message developer/log message (already-known text)
-   * @param {'network'|'timeout'|'aborted'|'rate_limit'|'invalid_key'|'api'} kind
+   * @param {'network'|'timeout'|'aborted'|'rate_limit'|'invalid_key'|'plan_required'|'api'} kind
    * @param {object} [meta] extra context (action, status, httpStatus, retryAfter)
    */
   constructor(message, kind, meta) {
@@ -73,7 +73,12 @@ export class EtherscanError extends Error {
  *  "too many requests", "throttled/throttling". Deliberately wider than the
  *  reference's literal `/rate limit/i`. */
 function isThrottleMessage(msg) {
-  return /rate limit|too many requests|throttl/i.test(msg);
+  return /rate limit|too many requests|throttl|unusually high network activity/i.test(msg);
+}
+
+/** Chain not available on the free tier (Etherscan policy change). Not retryable. */
+function isPlanRequiredMessage(msg) {
+  return /not supported for this chain|upgrade your api plan/i.test(msg);
 }
 
 /** Invalid-key detection (no retry — the key won't fix itself). */
@@ -305,6 +310,17 @@ export function createEtherscanClient(options) {
           `throttled after ${attempt} attempts (${action}): ${combined}`,
           "rate_limit",
           { action, message: combined }
+        );
+      }
+
+      // Free key on a paid-only chain: every request will fail the same way.
+      // Checked AFTER throttle: a transient "high activity" notice that also
+      // suggests upgrading must stay retryable, not abort the scan.
+      if (isPlanRequiredMessage(combined)) {
+        throw new EtherscanError(
+          `paid API plan required (${action})`,
+          "plan_required",
+          { action, status: data && data.status, message: combined }
         );
       }
 

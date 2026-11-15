@@ -265,6 +265,21 @@ describe("runScan — BFS", () => {
     expect(store.stats().nodes).toBe(1);
   });
 
+  test("plan_required stops the scan, logs error.planRequired, sets summary.planRequired", async () => {
+    const client = makeClient();
+    client.fetchAction = async () => {
+      client.calls.push({});
+      throw Object.assign(new Error("paid"), { kind: "plan_required" });
+    };
+    const logs = [];
+    const summary = await runScan(
+      baseOpts({ client, store: makeStore(), types: selectedTypes({ normal: true, internal: true }), onLog: (e) => logs.push(e) })
+    );
+    expect(client.calls.length).toBe(1);
+    expect(summary.planRequired).toBe(true);
+    expect(logs.map((l) => l.key)).toEqual(["error.planRequired"]);
+  });
+
   test("per-request fetch error is logged + counted, scan continues", async () => {
     const client = makeClient(
       { [`${R}|txlistinternal`]: [{ from: R, to: A, hash: "0xh1" }] },
