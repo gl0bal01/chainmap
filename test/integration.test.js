@@ -3,6 +3,7 @@
 // NO browser and NO API key. Also asserts the real ui.js renderers are XSS-inert.
 import { test, expect, beforeAll } from "bun:test";
 import { Window } from "happy-dom";
+import KNOWN from "../data/known-addresses.json";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40); // 40-hex address helper
 const ROOT = A(1), N2 = A(2), N3 = A(3), N4 = A(4), TOKEN = A(9);
@@ -21,6 +22,8 @@ const CANNED = {
 
 // Every Etherscan (non-`data/`) URL main.js requests, in order.
 const apiUrls = [];
+// How many times main.js has received data/known-addresses.json (see knownLoaded()).
+let knownLoads = 0;
 // When set, API fetches wait on it (abortable via the request signal) so a test
 // can hold a scan/load in flight deterministically.
 let apiGate = null;
@@ -33,7 +36,12 @@ function stubFetch() {
       const path = u.replace(/^\.?\//, "");
       try {
         const text = await Bun.file(path).text();
-        return { ok: true, status: 200, headers: { get: () => null }, json: async () => JSON.parse(text) };
+        const json = async () => {
+          const data = JSON.parse(text);
+          if (path.includes("known-addresses")) knownLoads++;
+          return data;
+        };
+        return { ok: true, status: 200, headers: { get: () => null }, json };
       } catch {
         return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) };
       }
@@ -543,9 +551,9 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   expect(store.checkInvariants().ok).toBe(true);
   expect(store.listEdges().length).toBe(demo.edges.length); // no edge silently dropped
 
-  // All 6 known categories appear as labeled nodes.
+  // All 6 known categories appear as labeled nodes (the demo's USDC is a canonical `token`).
   const cats = new Set(demo.nodes.map((n) => cat(n.address)).filter(Boolean));
-  for (const c of ["sanctioned", "mixer", "bridge", "exchange", "router", "contract"]) {
+  for (const c of ["sanctioned", "mixer", "bridge", "exchange", "router", "token"]) {
     expect(cats.has(c)).toBe(true);
   }
 
@@ -652,6 +660,13 @@ test("blocked load shows the reason and disables the button", async () => {
 // --- Load older wiring (main.js): chain guard, busy guard, workspace chain ---
 const until = async (pred) => {
   for (let i = 0; i < 60 && !pred(); i++) await sleep(50);
+};
+// main.js loads the bundled known-address data async at init: wait until it was
+// delivered, then one macrotask so main.js's await continuation has assigned it.
+const knownLoaded = async () => {
+  await until(() => knownLoads > 0);
+  await sleep(0);
+  expect(knownLoads).toBeGreaterThan(0);
 };
 const setChain = (id) => {
   $("chainSelect").value = id;
@@ -981,7 +996,79 @@ test("long annotations wrap to a fixed width instead of one ultra-wide line (dem
 });
 
 test("detect chain: a curated chain-1 address selects Ethereum with no API call", async () => {
-  await sleep(100); // bundled known-address data loads async at init
+  await knownLoaded();
+  try {
+    $("resetBtn").click();
+    setChain("137");
+    $("apiKey").value = "TESTKEY"; // a key is present, so only the local shortcut can avoid the probe
+    $("address").value = DEMO_ROOT;
+    const n = apiUrls.length;
+    $("detectChainBtn").click();
+    await until(() => $("chainSelect").value === "1");
+    expect($("chainSelect").value).toBe("1");
+    expect($("addressDetect").textContent).toContain("Ethereum");
+    expect(apiUrls.slice(n).filter((u) => u.includes("api.etherscan.io"))).toEqual([]);
+  } finally {
+    $("apiKey").value = "";
+    $("address").value = "";
+    restoreForm();
+  }
+});
+
+async function loadAsDemo(ws) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init) => (String(u).includes("demo-workspace")
+    ? { ok: true, status: 200, headers: { get: () => null }, json: async () => ws }
+    : realFetch(u, init));
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+async function captureCsv() {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  try {
+    $("exportCsvBtn").click();
+    await until(() => captured);
+    return await captured.text();
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+  }
+}
+const wsEdge = (over) => ({
+  key: `${over.action || "txlist"}|${over.hash}|${ROOT}|${over.to || N2}|${over.tokenContract || ""}|`, action: "txlist", group: "normal", color: "#4f8ef7",
+  from: ROOT, to: N2, symbol: "ETH", tokenContract: "", tokenId: "", value: "1000000", tokenDecimal: "6",
+  amountText: "1", amountIndeterminate: false, hasData: false, methodId: "", methodArgs: [], timeStamp: "1700000000", blockNumber: "1",
+  ...over,
+});
+const STAR_ONLY = Object.keys(KNOWN["*"] || {}).find((a) => !Object.keys(KNOWN).some((c) => c !== "*" && KNOWN[c][a]));
+
+test("detect chain: an address known only on '*' keeps the selector and falls through to the API probe", async () => {
+  await knownLoaded(); // else an unloaded dataset would fall through too (false pass)
+  try {
+    $("resetBtn").click();
+    setChain("137");
+    $("apiKey").value = "";
+    $("address").value = STAR_ONLY;
+    $("detectChainBtn").click();
+    await until(() => /Etherscan API key/.test($("logContent").textContent || ""));
+    expect($("chainSelect").value).toBe("137");
+    expect($("logContent").textContent).toContain("Please enter your Etherscan API key.");
+  } finally {
+    $("address").value = "";
+    restoreForm();
+  }
+});
+
+test("detect chain: a chain-1 + '*' address names Ethereum and all EVM chains", async () => {
+  await knownLoaded();
   try {
     $("resetBtn").click();
     setChain("137");
@@ -989,10 +1076,28 @@ test("detect chain: a curated chain-1 address selects Ethereum with no API call"
     $("address").value = DEMO_ROOT;
     $("detectChainBtn").click();
     await until(() => $("chainSelect").value === "1");
-    expect($("chainSelect").value).toBe("1");
-    expect($("addressDetect").textContent).toContain("Ethereum");
+    expect($("addressDetect").textContent).toContain("Ethereum, all EVM chains");
   } finally {
     $("address").value = "";
+    restoreForm();
+  }
+});
+
+test("a '*'-only OFAC address is labeled, badged, sourced and risk-scored on a non-Ethereum graph", async () => {
+  try {
+    await loadAsDemo({
+      version: 2, chainId: "137", root: ROOT,
+      nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: STAR_ONLY, depth: 1, isRoot: false, alias: null }],
+      edges: [wsEdge({ hash: "0xs1", to: STAR_ONLY, symbol: "POL" })],
+    });
+    const node = window.vis.Network.first.nodes.get().find((n) => n.id === STAR_ONLY);
+    expect(`${node.label}|${node.title}`).toContain("(OFAC SDN)");
+    expect(`${node.label}|${node.title}`).toContain("⛔");
+    window.vis.Network.first._on.click[0]({ nodes: [STAR_ONLY], edges: [] });
+    expect($("detailsContent").textContent).toContain("OFAC SDN list, published");
+    expect($("detailsContent").textContent).toContain("sanctioned entity");
+  } finally {
+    $("resetBtn").click();
     restoreForm();
   }
 });

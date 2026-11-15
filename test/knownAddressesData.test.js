@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import knownData from "../data/known-addresses.json";
+import curated from "../data/sources/curated.json";
 import { KNOWN_CATEGORIES, CHAINS } from "../src/config.js";
 import { isValidAddress, lc } from "../src/format.js";
 
@@ -74,4 +75,34 @@ describe("data/known-addresses.json validity", () => {
       expect(actual).toBe(exp);
     }
   });
+});
+
+const BLOCKED_HOSTS = [...CHAINS.map((c) => c.explorer), "arkhamintelligence.com", "arkm.com", "nansen.ai"];
+
+test("curated seed never asserts 'sanctioned' (sanctions come only from the OFAC import)", () => {
+  expect(Array.isArray(curated)).toBe(true);
+  expect(curated.filter((r) => r.category === "sanctioned")).toEqual([]);
+});
+
+test("OFAC import is present under '*', and every 'sanctioned' entry traces to it", () => {
+  const star = knownData["*"] || {};
+  expect(Object.values(star).filter((e) => e.category === "sanctioned").length).toBeGreaterThan(0);
+  for (const [chainId, chain] of Object.entries(knownData)) {
+    for (const [addr, e] of Object.entries(chain)) {
+      if (e.category !== "sanctioned") continue;
+      if (chainId === "*" && e.source.startsWith("OFAC SDN list, published ")) continue;
+      expect(e.label.endsWith(" (OFAC SDN)")).toBe(true);
+      expect(star[addr] && star[addr].category).toBe("sanctioned");
+    }
+  }
+});
+
+test("no source URL points at an explorer label cloud / Arkham / Nansen", () => {
+  for (const chain of Object.values(knownData)) {
+    for (const e of Object.values(chain)) {
+      if (!/^https?:\/\//i.test(e.source)) continue;
+      const host = new URL(e.source).hostname;
+      expect(BLOCKED_HOSTS.some((b) => host === b || host.endsWith("." + b))).toBe(false);
+    }
+  }
 });

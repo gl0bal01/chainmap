@@ -172,3 +172,21 @@ describe("verifyEntry", () => {
     expect(await verifyEntry({ address: A, source: "https://x" }, async () => { throw new Error("HTTP 403"); })).toBe("fetch-failed");
   });
 });
+
+describe("build-known-addresses CLI (network-free paths)", () => {
+  const script = new URL("../scripts/build-known-addresses.mjs", import.meta.url).pathname;
+  const out = new URL("../data/known-addresses.json", import.meta.url);
+  const run = (...args) => Bun.spawnSync([process.execPath, script, ...args], { stdout: "pipe", stderr: "pipe" });
+  test("unknown argument -> usage on stderr, exit 2", () => {
+    const r = run("--bogus");
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr.toString()).toContain("usage: bun run data:build");
+  });
+  test("a non-SDN --ofac file aborts with exit 1 before any network call and writes nothing", () => {
+    const before = readFileSync(out, "utf8");
+    const r = run("--ofac", new URL("./fixtures/superchain-chainList.json", import.meta.url).pathname);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr.toString()).toContain("Publish_Date missing");
+    expect(readFileSync(out, "utf8")).toBe(before);
+  });
+});
