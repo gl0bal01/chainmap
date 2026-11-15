@@ -112,8 +112,9 @@ Events (via `subscribe(handler) → unsubscribe`):
 - `selectedTypes({normal,internal,token}): TxTypeInfo[]`
 - `loadOlder(LoadOlderOptions): Promise<LoadOlderResult>` — one older page per selected type for one node, by block cursor.
   - `LoadOlderOptions = { client, store, limiter, address, types:TxTypeInfo[], maxTxPerAddress, signal?, onLog? }`
-  - `LoadOlderResult = { apiCalls, newEdges, newNodes, failed, skipped, planRequired, stopped, allDone }`; `allDone` = every selected type's cursor is done.
+  - `LoadOlderResult = { apiCalls, newEdges, newNodes, failed, skipped, errors, planRequired, stopped, allDone }`; `errors` = per-type fetch errors (aborts excluded); `allDone` = every selected type's cursor is done.
   - Contract: same ingest path as `runScan` (failed-tx drop, endpoint validation); new counterparties land at depth+1 and are **not** expanded; a fetch error leaves that type's cursor untouched (never marked done); `runScan` records the first-load cursor (replace, not merge) per expanded node.
+- Log entries flow as `{ level:'info'|'error', key, params? }` — localized by `ui.createLogger` via i18n.
 
 ## history.js — DOM-free, pure (per-node "Load older")
 
@@ -126,7 +127,6 @@ Block-cursor math. One `HistoryEntry` per Etherscan action; the cursor is the ol
 - `hasMoreHistory(node) → boolean` (any action with `done === false`)
 - `historyState(node, actions[]) → Array<{action, state:'unloaded'|'more'|'complete', count}>`
 - `sanitizeHistory(raw) → Record<action,HistoryEntry>|undefined` — validates untrusted (workspace) input; drops unknown actions, `__proto__`-style keys and malformed entries. `graphStore.loadSnapshot` applies it.
-- Log entries flow as `{ level:'info'|'error', key, params? }` — localized by `ui.createLogger` via i18n.
 
 ## i18n.js — implemented (Stage A)
 
@@ -172,7 +172,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 
 ## ui.js — DOM view helpers (stub → Stage B)
 
-- `renderNodeDetails(container, node, { i18n, explorer, onRename })`
+- `renderNodeDetails(container, node, { i18n, explorer, onRename, risk?, getKnownSource?, history?, pageSize?, onLoadOlder?, busy?, loadBlocked? })` — `history` (`historyState` items + `labelKey`) adds the History row and a Load button that calls `onLoadOlder()`; the button is disabled while `busy`, when `loadBlocked` (`{key, params?}`, shown as a note) is set, or when every selected type is complete.
 - `renderEdgeDetails(container, edge, { i18n, explorer, getAlias })`
 - `createLogger(container, i18n): { log(entry), clear() }`
 - `createStatus(element): { set(text), clear() }`
