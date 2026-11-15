@@ -247,6 +247,8 @@ export default {
   "status.planRequired": "Arrêté — {chain} nécessite un forfait API Etherscan payant",
   "status.loadingOlder": "Chargement de l'historique plus ancien de {addr}…",
   "status.loadOlderDone": "{edges} nouveaux transferts chargés pour {addr}",
+  "status.loadOlderStopped": "Arrêté — {edges} nouveaux transferts chargés pour {addr} avant l'arrêt",
+  "error.busy": "Occupé — attendez la fin du scan ou du chargement en cours (ou appuyez sur Arrêter).",
   "log.loadOlderDone": "Chargement ancien {addr} : {edges} nouveaux transferts, {nodes} nouvelles adresses, {calls} appels API",
   "detect.planRequired": "Ignorées (forfait Etherscan payant requis) : {chains}",
   "error.fetch": "Échec de récupération pour {address} ({action}) : {message}",

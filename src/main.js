@@ -320,6 +320,9 @@ function wirePanels() {
 // ---------------------------------------------------------------------------
 // Details panel
 // ---------------------------------------------------------------------------
+// Chain the details/workspace describe: the graph's, falling back to the selector.
+const dataChain = () => graphChainId || $("chainSelect").value;
+
 // Refusal for using `chainId` against the current graph, or null when allowed.
 function chainRefusal(chainId) {
   return graphChainId && chainId !== graphChainId
@@ -334,18 +337,18 @@ function showNodeDetails(address) {
   const types = formTypes();
   renderNodeDetails($("detailsContent"), node, {
     i18n,
-    explorer: explorerFor($("chainSelect").value),
+    explorer: explorerFor(dataChain()),
     onRename: promptAlias,
     risk: computeRisk(address),
     getKnownSource: (a) => {
-      const chain = knownData[String($("chainSelect").value)];
+      const chain = knownData[String(dataChain())];
       const entry = chain && chain[String(a).toLowerCase()];
       return entry && entry.source ? entry.source : null;
     },
     history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
     pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
     onLoadOlder: () => loadOlderFor(address),
-    busy: scanning,
+    busy: scanning || detecting,
     loadBlocked: chainRefusal($("chainSelect").value),
   });
 }
@@ -354,7 +357,7 @@ function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
   currentDetail = { kind: "edge", id: edgeKey };
-  const chainId = $("chainSelect").value;
+  const chainId = dataChain();
   const deps = {
     i18n,
     explorer: explorerFor(chainId),
@@ -653,10 +656,11 @@ async function loadOlderFor(address) {
     key: "log.loadOlderDone",
     params: { addr: address, edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
   });
+  const done = { edges: res.newEdges, addr: shortAddress(address) };
   status.set(
     res.planRequired
       ? t("status.planRequired", { chain: chainName(graphChainId) })
-      : t("status.loadOlderDone", { edges: res.newEdges, addr: shortAddress(address) })
+      : t(res.stopped ? "status.loadOlderStopped" : "status.loadOlderDone", done)
   );
 }
 
@@ -766,6 +770,7 @@ async function startDetectChain() {
   const limiter = new RateLimiter(rps);
   detectAbortController = new AbortController();
   detecting = true;
+  rerenderDetails(); // load button -> disabled while probing
 
   const btn = $("detectChainBtn");
   btn.textContent = t("btn.cancelDetect");
@@ -833,6 +838,7 @@ async function startDetectChain() {
     // needs; only turns fully idle when nothing else is running.
     indicator.setActive(scanning);
     resetDetectChainBtn();
+    rerenderDetails();
   }
 }
 
@@ -853,7 +859,7 @@ function currentFilters() {
 function saveWorkspace() {
   if (!store.stats().nodes) return logger.log({ level: "error", key: "log.exportEmpty" });
   const ws = serializeWorkspace({
-    chainId: graphChainId || $("chainSelect").value, // the graph's chain, not whatever the selector shows now
+    chainId: dataChain(), // the graph's chain, not whatever the selector shows now
     root: $("address").value.trim().toLowerCase() || null,
     nodes: store.listNodes(),
     edges: store.listEdges(),
@@ -867,7 +873,14 @@ function saveWorkspace() {
   logger.log({ level: "info", key: "log.workspaceSaved" });
 }
 
+// Returns false (and logs) when refused: a scan/load in flight would keep writing
+// into the replaced graph — mixed chains, mis-credited counts. Checked here, at
+// apply time, because demo/file loads resolve asynchronously after the click.
 function applyWorkspace(ws) {
+  if (scanning) {
+    logger.log({ level: "error", key: "error.busy" });
+    return false;
+  }
   if (ws.chainId) $("chainSelect").value = String(ws.chainId);
   graphChainId = String(ws.chainId || $("chainSelect").value);
   store.loadSnapshot(ws.nodes, ws.edges);
@@ -890,12 +903,13 @@ function applyWorkspace(ws) {
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
   clearDetails();
+  return true;
 }
 
 function loadWorkspaceFromText(text) {
   const res = parseWorkspace(text);
   if (!res.ok) return logger.log({ level: "error", key: "log.workspaceError", params: { error: res.error } });
-  applyWorkspace(res.data);
+  if (!applyWorkspace(res.data)) return;
   const s = store.stats();
   logger.log({ level: "info", key: "log.workspaceLoaded", params: { nodes: s.nodes, edges: s.edges } });
 }
@@ -906,8 +920,7 @@ async function loadDemo() {
     if (!resp.ok) throw new Error(String(resp.status));
     const res = parseWorkspace(await resp.json());
     if (!res.ok) throw new Error(res.error);
-    applyWorkspace(res.data);
-    logger.log({ level: "info", key: "log.demoLoaded" });
+    if (applyWorkspace(res.data)) logger.log({ level: "info", key: "log.demoLoaded" });
   } catch (e) {
     logger.log({ level: "error", key: "log.workspaceError", params: { error: String(e.message || e) } });
   }
@@ -1002,6 +1015,10 @@ function wireControls() {
   $("hideSpamToggle").addEventListener("change", applyDisplayOptions);
   $("bundleToggle").addEventListener("change", () => view.setBundling($("bundleToggle").checked));
   $("address").addEventListener("input", renderAddressDetect);
+  // History row + load button follow the selected types and page size.
+  for (const id of ["typeNormal", "typeInternal", "typeToken", "maxTxPerAddress"]) {
+    $(id).addEventListener("change", rerenderDetails);
+  }
 
   // Layer 2 — date range, layout, hubs, annotations, workspace, estimate.
   $("dateFrom").addEventListener("change", applyDisplayOptions);

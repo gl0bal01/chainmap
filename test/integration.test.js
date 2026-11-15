@@ -21,9 +21,12 @@ const CANNED = {
 
 // Every Etherscan (non-`data/`) URL main.js requests, in order.
 const apiUrls = [];
+// When set, API fetches wait on it (abortable via the request signal) so a test
+// can hold a scan/load in flight deterministically.
+let apiGate = null;
 
 function stubFetch() {
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
     const u = String(url);
     // Local bundled datasets (known-addresses / spam-tokens / demo-workspace): serve the real files.
     if (u.includes("data/")) {
@@ -36,6 +39,14 @@ function stubFetch() {
       }
     }
     apiUrls.push(u);
+    if (apiGate) {
+      await new Promise((resolve, reject) => {
+        apiGate.then(resolve);
+        if (init && init.signal) {
+          init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+        }
+      });
+    }
     const action = new URL(u).searchParams.get("action");
     const result = CANNED[action] || [];
     return {
@@ -773,4 +784,116 @@ test("blocked note is linked to the load button via aria-describedby", async () 
   expect(id).toBeTruthy();
   expect(c.querySelector("#" + id).textContent).toContain("This graph was built on Ethereum.");
   expect(render([H("more", 40)]).querySelectorAll("button")[1].hasAttribute("aria-describedby")).toBe(false);
+});
+
+// --- Load older fix round 1: busy-guarded workspace apply, stopped load, live details ---
+const gate = () => {
+  let release;
+  apiGate = new Promise((r) => (release = r));
+  return () => {
+    apiGate = null;
+    release();
+  };
+};
+const nodeIds = () => window.vis.Network.first.nodes.getIds().sort();
+const DEMO_ROOT = "0x098b716b8aaf21512996dc57eb0615e2383e2f96";
+
+test("workspace/demo apply is refused while a load is running (store unchanged, counts not mis-credited)", async () => {
+  let release = () => {};
+  try {
+    await freshScan("2");
+    const before = nodeIds();
+    openRoot();
+    release = gate();
+    loadBtn().click(); // load now holds its txlist fetch
+    $("demoBtn").click();
+    await until(() => /Busy/.test($("logContent").textContent || ""));
+    expect($("logContent").textContent).toContain("Busy — wait for the current scan or load to finish");
+    release();
+    await waitLoaded();
+    expect($("status").textContent).toContain("Loaded 0 new transfers"); // not the demo's edges
+    expect(nodeIds()).toEqual(before);
+    expect($("logContent").textContent).not.toContain("Demo workspace loaded");
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("a load stopped mid-fetch reports Stopped, not Loaded", async () => {
+  let release = () => {};
+  try {
+    await freshScan("2");
+    openRoot();
+    release = gate();
+    loadBtn().click();
+    $("stopBtn").click();
+    await until(() => /Stopped|Loaded/.test($("status").textContent || ""));
+    expect($("status").textContent).toContain("Stopped — loaded 0 new transfers");
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("details re-render live when the type selection or page size changes", async () => {
+  try {
+    $("typeInternal").checked = false; // scan without internal -> it stays unloaded
+    await freshScan("20"); // N=20 > canned rows -> scanned types complete
+    openRoot();
+    expect(loadBtn().textContent).toBe("History complete");
+    expect(loadBtn().disabled).toBe(true);
+    $("typeInternal").checked = true;
+    $("typeInternal").dispatchEvent(new window.Event("change"));
+    expect(loadBtn().disabled).toBe(false);
+    expect(loadBtn().textContent).toBe("Load older (+20)");
+    $("maxTxPerAddress").value = "5";
+    $("maxTxPerAddress").dispatchEvent(new window.Event("change"));
+    expect(loadBtn().textContent).toBe("Load older (+5)");
+  } finally {
+    $("typeInternal").checked = true;
+    restoreForm();
+  }
+});
+
+test("details explorer link stays on the graph's chain after switching the selector", async () => {
+  try {
+    await freshScan("20");
+    setChain("137");
+    openRoot();
+    expect($("detailsContent").querySelector("a").href).toContain("etherscan.io/address/");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("demo sets the graph chain: switching the selector blocks its load button", async () => {
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    expect(loadBtn().disabled).toBe(false); // "Load transactions" — demo has no cursors
+    setChain("137");
+    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    expect(loadBtn().disabled).toBe(true);
+    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("a second scan on the same chain into a non-empty graph still runs", async () => {
+  try {
+    await freshScan("20");
+    const n = apiUrls.length;
+    $("address").value = N2;
+    $("startBtn").click();
+    await until(() => !$("startBtn").disabled);
+    const added = apiUrls.slice(n);
+    expect(added.length).toBeGreaterThan(0);
+    expect(added.every((u) => new URL(u).searchParams.get("chainid") === "1")).toBe(true);
+  } finally {
+    restoreForm();
+  }
 });

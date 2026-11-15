@@ -248,6 +248,8 @@ export default {
   "status.planRequired": "Stopped — {chain} needs a paid Etherscan API plan",
   "status.loadingOlder": "Loading older history for {addr}…",
   "status.loadOlderDone": "Loaded {edges} new transfers for {addr}",
+  "status.loadOlderStopped": "Stopped — loaded {edges} new transfers for {addr} before stopping",
+  "error.busy": "Busy — wait for the current scan or load to finish (or press Stop).",
   "log.loadOlderDone": "Load older {addr}: {edges} new transfers, {nodes} new addresses, {calls} API calls",
   "detect.planRequired": "Skipped (paid Etherscan plan needed): {chains}",
   "error.fetch": "Fetch failed for {address} ({action}): {message}",
