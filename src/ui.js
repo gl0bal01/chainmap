@@ -121,6 +121,18 @@ export function renderNodeDetails(container, node, deps) {
     const txt = reasons ? `${i18n.t("risk." + deps.risk.level)} — ${reasons}` : i18n.t("risk." + deps.risk.level);
     table.appendChild(detailRow(i18n.t("details.risk"), txt));
   }
+  if (deps.history) {
+    const lines = deps.history.map(
+      (h) => `${i18n.t(h.labelKey)}: ${i18n.t("history." + h.state, { count: h.count })}`
+    );
+    const box = document.createElement("div");
+    lines.forEach((l) => {
+      const d = document.createElement("div");
+      d.textContent = l;
+      box.appendChild(d);
+    });
+    table.appendChild(detailRow(i18n.t("details.history"), box));
+  }
   table.appendChild(
     detailRow(
       i18n.t("details.link"),
@@ -135,6 +147,31 @@ export function renderNodeDetails(container, node, deps) {
   renameBtn.textContent = i18n.t("details.rename");
   renameBtn.addEventListener("click", () => onRename(node.address));
   container.appendChild(renameBtn);
+
+  if (deps.history) {
+    const hs = deps.history;
+    const n = deps.pageSize;
+    const allComplete = hs.length > 0 && hs.every((h) => h.state === "complete");
+    const allUnloaded = hs.every((h) => h.state === "unloaded");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.style.marginTop = "8px";
+    btn.textContent = allComplete
+      ? i18n.t("details.historyComplete")
+      : i18n.t(allUnloaded ? "details.loadFirst" : "details.loadOlder", { n });
+    btn.disabled = allComplete || !!deps.busy || !!deps.loadBlocked;
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      deps.onLoadOlder();
+    });
+    container.appendChild(btn);
+    if (deps.loadBlocked) {
+      const note = document.createElement("small");
+      note.style.marginLeft = "8px";
+      note.textContent = i18n.t(deps.loadBlocked.key, deps.loadBlocked.params);
+      container.appendChild(note);
+    }
+  }
 }
 
 /**

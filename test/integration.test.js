@@ -574,3 +574,57 @@ test("scan marks nodes with more history using a dashed border", async () => {
   expect(nodes.find((n) => n.id === N2).shapeProperties.borderDashes).toBe(false);
   $("maxTxPerAddress").value = "20";
 });
+
+async function historyEnv() {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const render = (history, extra = {}) => {
+    const c = document.createElement("div");
+    ui.renderNodeDetails(c, { address: ROOT, depth: 0, isRoot: true, alias: null }, {
+      i18n, explorer: "etherscan.io", onRename: () => {}, history, pageSize: 20, onLoadOlder: () => {}, ...extra,
+    });
+    return c;
+  };
+  return { render };
+}
+const H = (state, count, action = "txlist", labelKey = "tx.type.normal") => ({ action, labelKey, state, count });
+
+test("node details list per-type history states", async () => {
+  const { render } = await historyEnv();
+  const c = render([H("more", 40), H("unloaded", 0, "tokentx", "tx.type.erc20")]);
+  expect(c.textContent).toContain("Normal: 40 fetched · older available");
+  expect(c.textContent).toContain("ERC-20: not loaded");
+});
+
+test("load button: older / first / complete states", async () => {
+  const { render } = await historyEnv();
+  let calls = 0;
+  const more = render([H("more", 40), H("unloaded", 0, "tokentx", "tx.type.erc20")], { onLoadOlder: () => calls++ });
+  const b = more.querySelectorAll("button")[1];
+  expect(b.textContent).toBe("Load older (+20)");
+  expect(b.disabled).toBe(false);
+  b.click();
+  expect(calls).toBe(1);
+  expect(b.disabled).toBe(true);
+
+  const first = render([H("unloaded", 0), H("unloaded", 0, "tokentx", "tx.type.erc20")]);
+  expect(first.querySelectorAll("button")[1].textContent).toBe("Load transactions (+20)");
+
+  const done = render([H("complete", 5), H("complete", 3, "tokentx", "tx.type.erc20")]);
+  const d = done.querySelectorAll("button")[1];
+  expect(d.textContent).toBe("History complete");
+  expect(d.disabled).toBe(true);
+});
+
+test("blocked load shows the reason and disables the button", async () => {
+  const { render } = await historyEnv();
+  const blocked = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  expect(blocked.querySelectorAll("button")[1].disabled).toBe(true);
+  expect(blocked.textContent).toContain("This graph was built on Ethereum.");
+  const busy = render([H("more", 40)], { busy: true });
+  expect(busy.querySelectorAll("button")[1].disabled).toBe(true);
+  expect(busy.textContent).not.toContain("This graph was built");
+});
