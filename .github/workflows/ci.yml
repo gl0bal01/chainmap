@@ -1,3 +1,4 @@
+# Mirrored locally by scripts/ci-local.sh — add a CI step there too.
 name: CI
 
 on:
@@ -17,7 +18,7 @@ jobs:
     name: bun test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun test
@@ -26,5 +27,5 @@ jobs:
     name: vendor integrity (SRI + SHA-256)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: ./scripts/verify-vendor.sh

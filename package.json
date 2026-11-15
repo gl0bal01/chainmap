@@ -35,10 +35,11 @@
   "author": "gl0bal01 <gl0bal01@proton.me> (https://github.com/gl0bal01)",
   "license": "MIT",
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "ci": "bash scripts/ci-local.sh"
   },
   "devDependencies": {
-    "happy-dom": "^20.10.6",
-    "playwright-core": "^1.61.1"
+    "happy-dom": "^21.0.4",
+    "playwright-core": "^1.65.1"
   }
 }
