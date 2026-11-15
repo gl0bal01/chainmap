@@ -965,3 +965,16 @@ test("a second scan on the same chain into a non-empty graph still runs", async 
     restoreForm();
   }
 });
+
+test("long annotations wrap to a fixed width instead of one ultra-wide line (demo note)", async () => {
+  $("resetBtn").click();
+  $("demoBtn").click();
+  let note;
+  for (let i = 0; i < 80 && !note; i++) {
+    await sleep(25);
+    note = window.vis.Network.first.nodes.get().find((n) => String(n.id).startsWith("note:"));
+  }
+  expect(note).toBeTruthy();
+  expect(note.label.length).toBeGreaterThan(300); // the demo's long disclaimer is kept in full
+  expect(note.widthConstraint).toEqual({ maximum: 300 }); // ...but wrapped, so fit() doesn't shrink the graph
+});
