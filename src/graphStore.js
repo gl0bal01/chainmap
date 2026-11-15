@@ -12,6 +12,7 @@
 
 import { lc, formatUnits, trimZero, edgeDedupKey } from "./format.js";
 import { decodeCall } from "./abiDecode.js";
+import { sanitizeHistory } from "./history.js";
 
 /**
  * @typedef {object} NodeRecord
@@ -19,6 +20,7 @@ import { decodeCall } from "./abiDecode.js";
  * @property {number}  depth    minimum BFS depth seen
  * @property {boolean} isRoot    sticky once true
  * @property {string|null} alias user label (null = none)
+ * @property {Object<string, import('./history.js').HistoryEntry>} [history] per-action "load older" cursor
  */
 
 /**
@@ -217,6 +219,19 @@ export class GraphStore {
   }
 
   /**
+   * Record a per-action "load older" cursor on a node. Emits 'node:update'. No-op if node absent.
+   * @param {string} address
+   * @param {string} action
+   * @param {import('./history.js').HistoryEntry} entry
+   */
+  setHistory(address, action, entry) {
+    const node = this._nodes.get(lc(address));
+    if (!node) return;
+    node.history = { ...node.history, [action]: entry };
+    this._emit({ type: "node:update", node });
+  }
+
+  /**
    * Remove nodes and every connected edge; drop their aliases + edge keys.
    * Emits 'edge:remove' per edge then 'node:remove' per node.
    * @param {string[]} addresses
@@ -274,6 +289,8 @@ export class GraphStore {
         isRoot: n.isRoot === true,
         alias: n.alias != null && n.alias !== "" ? String(n.alias) : null,
       };
+      const history = sanitizeHistory(n.history);
+      if (history !== undefined) node.history = history;
       this._nodes.set(addr, node);
       this._emit({ type: "node:add", node });
     }

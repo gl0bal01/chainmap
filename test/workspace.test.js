@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { GraphStore } from "../src/graphStore.js";
 import { WORKSPACE_VERSION, parseWorkspace, serializeWorkspace } from "../src/workspace.js";
 
 const A = "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -252,5 +253,21 @@ describe("parseWorkspace sanitization", () => {
     // legitimate fields still round-trip
     expect(n0.address).toBe(a);
     expect(e0.key).toBe("k1");
+  });
+});
+
+describe("history persistence", () => {
+  test("history survives serialize -> parse -> loadSnapshot", () => {
+    const entry = { oldestBlock: "800", blockPage: 0, pageSize: 0, done: false, count: 3 };
+    const s = new GraphStore();
+    s.addNode(a, { depth: 0, isRoot: true });
+    s.addNode(b, { depth: 1 });
+    s.setHistory(b, "txlist", entry);
+    const ws = serializeWorkspace({ chainId: "1", root: a, nodes: s.listNodes(), edges: s.listEdges() });
+    const res = parseWorkspace(JSON.stringify(ws));
+    expect(res.ok).toBe(true);
+    const r = new GraphStore();
+    r.loadSnapshot(res.data.nodes, res.data.edges);
+    expect(r.getNode(b).history.txlist).toEqual(entry);
   });
 });
