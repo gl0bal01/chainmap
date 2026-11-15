@@ -298,15 +298,6 @@ export function createEtherscanClient(options) {
         );
       }
 
-      // Free key on a paid-only chain: every request will fail the same way.
-      if (isPlanRequiredMessage(combined)) {
-        throw new EtherscanError(
-          `paid API plan required (${action})`,
-          "plan_required",
-          { action, status: data && data.status, message: combined }
-        );
-      }
-
       // Body-level throttling (Etherscan returns HTTP 200 + status "0" here).
       if (isThrottleMessage(combined)) {
         const waitMs = backoffBaseMs * attempt;
@@ -319,6 +310,17 @@ export function createEtherscanClient(options) {
           `throttled after ${attempt} attempts (${action}): ${combined}`,
           "rate_limit",
           { action, message: combined }
+        );
+      }
+
+      // Free key on a paid-only chain: every request will fail the same way.
+      // Checked AFTER throttle: a transient "high activity" notice that also
+      // suggests upgrading must stay retryable, not abort the scan.
+      if (isPlanRequiredMessage(combined)) {
+        throw new EtherscanError(
+          `paid API plan required (${action})`,
+          "plan_required",
+          { action, status: data && data.status, message: combined }
         );
       }
 

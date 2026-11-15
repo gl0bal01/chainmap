@@ -232,7 +232,8 @@ describe("fetchAction throttling & retries", () => {
   test("'unusually high network activity' body is a retried rate_limit", async () => {
     const result = [{ hash: "0xok" }];
     const fetchImpl = queuedFetch([
-      NOTOK("Free API access is temporarily unavailable due to unusually high network activity"),
+      // Upgrade hint must not flip a transient throttle into a fatal plan_required.
+      NOTOK("Free API access is temporarily unavailable due to unusually high network activity. Please upgrade your api plan for priority."),
       OK(result),
     ]);
     const client = makeClient(fetchImpl, { backoffBaseMs: 1, maxRetries: 3 });
