@@ -189,4 +189,12 @@ describe("build-known-addresses CLI (network-free paths)", () => {
     expect(r.stderr.toString()).toContain("Publish_Date missing");
     expect(readFileSync(out, "utf8")).toBe(before);
   });
+  test("a registry with 0 bridge rows aborts with exit 1 and writes nothing (fetch stubbed, no network)", () => {
+    const before = readFileSync(out, "utf8");
+    const stub = new URL("./fixtures/fetch-stub-empty-registry.js", import.meta.url).pathname;
+    const r = Bun.spawnSync([process.execPath, "--preload", stub, script, "--ofac", new URL("./fixtures/sdn-mini.xml", import.meta.url).pathname], { stdout: "pipe", stderr: "pipe" });
+    expect(r.stderr.toString()).toContain("superchain-registry: 0 bridge rows (format drift?)");
+    expect(r.exitCode).toBe(1);
+    expect(readFileSync(out, "utf8")).toBe(before);
+  });
 });

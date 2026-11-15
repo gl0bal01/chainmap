@@ -1084,6 +1084,7 @@ test("detect chain: a chain-1 + '*' address names Ethereum and all EVM chains", 
 });
 
 test("a '*'-only OFAC address is labeled, badged, sourced and risk-scored on a non-Ethereum graph", async () => {
+  await knownLoaded();
   try {
     await loadAsDemo({
       version: 2, chainId: "137", root: ROOT,

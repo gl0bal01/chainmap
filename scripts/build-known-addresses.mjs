@@ -43,7 +43,9 @@ async function loadRegistry() {
   const ref = { sha: commit.sha, date: commit.commit.committer.date.slice(0, 10) };
   const raw = (path) => get(`https://raw.githubusercontent.com/${REGISTRY}/${ref.sha}/${path}`).then((r) => r.json());
   const [addresses, chainList] = await Promise.all([raw("superchain/extra/addresses/addresses.json"), raw("chainList.json")]);
-  return { ref, ...parseSuperchain(addresses, chainList, ref) };
+  const parsed = parseSuperchain(addresses, chainList, ref);
+  if (!parsed.rows.length) throw new Error("superchain-registry: 0 bridge rows (format drift?)"); // fail closed, like OFAC
+  return { ref, ...parsed };
 }
 
 /** Keep `verified`; keep `unsourced` only for legacy rows marked "needs official source". */

@@ -23,7 +23,8 @@ Written by `bun run data:build` from the sources below. Edit
   every chain; OFAC designations follow the owner). At lookup the chain-specific
   entry wins, then `"*"`.
 - `category` is one of `KNOWN_CATEGORIES` (`src/config.js`). `token` entries
-  always carry an uppercase `symbol` (and usually `decimals`).
+  always carry an uppercase `symbol` and integer `decimals` (the build rejects
+  token rows without them).
 - `source` and `added` are required on every entry; `note` is optional.
 - Output is deterministic: `"*"` first, then chain ids ascending, addresses
   sorted, one entry per line.
