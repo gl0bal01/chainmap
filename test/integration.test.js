@@ -1048,7 +1048,7 @@ const wsEdge = (over) => ({
   amountText: "1", amountIndeterminate: false, hasData: false, methodId: "", methodArgs: [], timeStamp: "1700000000", blockNumber: "1",
   ...over,
 });
-const STAR_ONLY = Object.keys(KNOWN["*"] || {}).find((a) => !Object.keys(KNOWN).some((c) => c !== "*" && KNOWN[c][a]));
+const STAR_ONLY = Object.keys(KNOWN["*"] || {}).find((a) => KNOWN["*"][a].category === "sanctioned" && !Object.keys(KNOWN).some((c) => c !== "*" && KNOWN[c][a]));
 
 test("detect chain: an address known only on '*' keeps the selector and falls through to the API probe", async () => {
   await knownLoaded(); // else an unloaded dataset would fall through too (false pass)
