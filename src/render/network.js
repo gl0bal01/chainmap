@@ -132,6 +132,7 @@ export function createGraphView(container, store, deps) {
 
   // Annotations (sticky notes): non-graph overlay nodes with id "note:N".
   const annotations = []; // { id, text, x, y }
+  const ANNOTATION_MAX_WIDTH = 300; // px; notes wrap to this width
   let annCounter = 0;
 
   const edgesView = new vis.DataView(edgesDS, { filter: (e) => passesFilters(e.data, display) });
@@ -433,7 +434,11 @@ export function createGraphView(container, store, deps) {
       x: ann.x,
       y: ann.y,
       color: { background: "#2a2410", border: "#6b5a1a" },
-      font: { color: "#e8d68a" },
+      font: { color: "#e8d68a", size: 12 },
+      // Wrap long notes instead of one ultra-wide line — a 400-char note was
+      // ~2700px wide and fit() zoomed the whole graph out to make room for it.
+      widthConstraint: { maximum: ANNOTATION_MAX_WIDTH },
+      margin: 8,
     });
     return ann;
   }

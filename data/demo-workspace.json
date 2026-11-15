@@ -5,7 +5,7 @@
   "layout": "force",
   "filters": { "minAmount": 0, "hideZero": false, "hideSpam": false, "bundle": false, "minTime": 0, "maxTime": 0 },
   "annotations": [
-    { "text": "Ronin Bridge hack (Mar 2022) — illustrative teaching reconstruction, extended to showcase every investigator overlay. LABELED node addresses are REAL (Ronin Exploiter/Bridge, Tornado pools, Uniswap, Binance, USDC — click to open on Etherscan). The drainer / peel-hop / hidden-recipient addresses (0xbad…, 0xf00d…) are ILLUSTRATIVE PLACEHOLDERS, as are all amounts and tx hashes. Teaching aid, not forensic data.", "x": 0, "y": -320 }
+    { "text": "Ronin Bridge hack (Mar 2022) — illustrative teaching reconstruction, extended to showcase every investigator overlay. LABELED node addresses are REAL (Ronin Exploiter/Bridge, Tornado pools, Uniswap, Binance, USDC — click to open on Etherscan). The drainer / peel-hop / hidden-recipient addresses (0xbad…, 0xf00d…) are ILLUSTRATIVE PLACEHOLDERS, as are all amounts and tx hashes. Teaching aid, not forensic data.", "x": 0, "y": -600 }
   ],
   "nodes": [
     { "address": "0x098b716b8aaf21512996dc57eb0615e2383e2f96", "depth": 0, "isRoot": true, "alias": null },
