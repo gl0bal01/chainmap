@@ -129,7 +129,7 @@ function computeRisk(address) {
     if (e.from === address) { outC.add(e.to); if (e.hasData) hasCall = true; outEdges.push(e); }
   }
   const cyc = findCycleNodes(store.listNodes(), store.listEdges());
-  const chainId = $("chainSelect").value;
+  const chainId = dataChain();
   const categoryFor = (a) => knownCategory(a, chainId, knownData);
   // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
   const flags = outEdges.flatMap((e) => flagsForEdge(e, { category: categoryFor }));
@@ -266,12 +266,16 @@ function renderAddressDetect() {
   }
 }
 
-function refreshDynamicI18n() {
-  // Sampling banner carries a {n} param, so applyTo (param-less) can't own it.
+// Sampling banner carries a {n} param, so applyTo (param-less) can't own it.
+function showSamplingBanner(n) {
   const banner = $("samplingBanner");
-  if (!banner.hidden) {
-    const n = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
-    banner.textContent = t("sampling.banner", { n });
+  banner.hidden = false;
+  banner.textContent = t("sampling.banner", { n });
+}
+
+function refreshDynamicI18n() {
+  if (!$("samplingBanner").hidden) {
+    showSamplingBanner(clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress));
   }
   if (indicator) indicator.setActive(scanning);
   renderAddressDetect();
@@ -398,7 +402,7 @@ function promptAlias(address) {
 // palette.js) so it always reflects the CURRENT store + chain-scoped labels —
 // no separate index to keep in sync.
 function buildSearchRecords() {
-  const chainId = $("chainSelect").value;
+  const chainId = dataChain();
   const records = [];
   for (const node of store.listNodes()) {
     const alias = store.getAlias(node.address);
@@ -563,9 +567,7 @@ async function startScan() {
 
   collapseControls(); // give the map the full surface once a scan begins
 
-  const banner = $("samplingBanner");
-  banner.hidden = false;
-  banner.textContent = t("sampling.banner", { n: maxTxPerAddress });
+  showSamplingBanner(maxTxPerAddress);
 
   logger.log({
     level: "info",
@@ -634,6 +636,7 @@ async function loadOlderFor(address) {
 
   const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
   store.setNativeSymbol(nativeSymbolFor(graphChainId));
+  showSamplingBanner(maxTxPerAddress); // loaded rows are a sample too (demo/workspace graphs hide it)
   status.set(t("status.loadingOlder", { addr: shortAddress(address) }));
 
   const res = await withBusy(({ signal, limiter }) =>
@@ -656,12 +659,9 @@ async function loadOlderFor(address) {
     key: "log.loadOlderDone",
     params: { addr: address, edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
   });
-  const done = { edges: res.newEdges, addr: shortAddress(address) };
-  status.set(
-    res.planRequired
-      ? t("status.planRequired", { chain: chainName(graphChainId) })
-      : t(res.stopped ? "status.loadOlderStopped" : "status.loadOlderDone", done)
-  );
+  const done = { edges: res.newEdges, addr: shortAddress(address), errors: res.errors };
+  const key = res.stopped ? "status.loadOlderStopped" : res.errors ? "status.loadOlderErrors" : "status.loadOlderDone";
+  status.set(res.planRequired ? t("status.planRequired", { chain: chainName(graphChainId) }) : t(key, done));
 }
 
 function resetGraph() {
@@ -1006,7 +1006,7 @@ function wireControls() {
     })
   );
   $("exportCsvBtn").addEventListener("click", () =>
-    exportCsv(store, { onLog, category: (a) => knownCategory(a, $("chainSelect").value, knownData) })
+    exportCsv(store, { onLog, category: (a) => knownCategory(a, dataChain(), knownData) })
   );
 
   // Noise-reduction filters (live display projection; store is untouched).
@@ -1016,9 +1016,9 @@ function wireControls() {
   $("bundleToggle").addEventListener("change", () => view.setBundling($("bundleToggle").checked));
   $("address").addEventListener("input", renderAddressDetect);
   // History row + load button follow the selected types and page size.
-  for (const id of ["typeNormal", "typeInternal", "typeToken", "maxTxPerAddress"]) {
-    $(id).addEventListener("change", rerenderDetails);
-  }
+  // `input` (not `change`) for the page size: a blur-time rebuild would swallow the next Load click.
+  for (const id of ["typeNormal", "typeInternal", "typeToken"]) $(id).addEventListener("change", rerenderDetails);
+  $("maxTxPerAddress").addEventListener("input", rerenderDetails);
 
   // Layer 2 — date range, layout, hubs, annotations, workspace, estimate.
   $("dateFrom").addEventListener("change", applyDisplayOptions);
@@ -1086,7 +1086,7 @@ function init() {
   view = createGraphView($("graph"), store, {
     i18n,
     getAddressFormat: () => $("addressFormat").value,
-    getKnownLabel: (address) => knownLabel(address, $("chainSelect").value, knownData),
+    getKnownLabel: (address) => knownLabel(address, dataChain(), knownData),
     // Returns the hub classification whenever ANY hub-driven feature is engaged
     // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
     // so "Hide faucets"/"Hide sinks" work independently of the dim toggle. The
@@ -1099,8 +1099,8 @@ function init() {
     // checking "Hide faucets" (hubToggle OFF) hides faucets without dimming
     // sinks (or anything else).
     getHubDimOn: () => hubOn,
-    getCategory: (address) => knownCategory(address, $("chainSelect").value, knownData),
-    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, $("chainSelect").value, knownData) }),
+    getCategory: (address) => knownCategory(address, dataChain(), knownData),
+    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, dataChain(), knownData) }),
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

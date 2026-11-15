@@ -47,7 +47,8 @@ export function advance(entry, rows, n, req) {
   const count = (entry ? entry.count : 0) + rows.length;
   const prev = entry ? Number(entry.oldestBlock) : undefined;
   const inBlock = req.startblock !== undefined;
-  const blocks = rows.map((r) => Number(r.blockNumber)).filter(Number.isFinite);
+  // Digits only: Number("")/Number(null) are 0 and would drop the cursor to block 0.
+  const blocks = rows.filter((r) => /^\d+$/.test(String(r.blockNumber))).map((r) => Number(r.blockNumber));
   const min = blocks.length ? Math.min(...blocks) : undefined;
   const mk = (oldest, blockPage, pageSize, done) => ({
     oldestBlock: String(oldest), blockPage, pageSize, done, count,

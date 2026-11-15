@@ -34,6 +34,8 @@ describe("advance", () => {
     expect(advance(E({ blockPage: 4, pageSize: 3 }), rows(800, 800, 800, 800, 800), 5, { startblock: 800, endblock: 800, page: 1, offset: 5 })).toMatchObject({ blockPage: 2, pageSize: 5 }));
   test("in-block short -> block exhausted, resume below it", () =>
     expect(advance(E({ blockPage: 3, pageSize: 3 }), rows(800), 3, { startblock: 800, endblock: 800, page: 3, offset: 3 })).toMatchObject({ oldestBlock: "799", blockPage: 0, done: false }));
+  test("blank/null blockNumber is ignored, never drops the cursor to 0", () =>
+    expect(advance(undefined, [...rows(900, 850), { blockNumber: "" }, { blockNumber: null }], 4, { page: 1, offset: 4 })).toMatchObject({ oldestBlock: "850", done: false }));
   test("in-block short at block 0 -> done", () =>
     expect(advance(E({ oldestBlock: "0", blockPage: 2, pageSize: 3 }), [], 3, { startblock: 0, endblock: 0, page: 2, offset: 3 })).toMatchObject({ done: true }));
 });

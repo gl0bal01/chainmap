@@ -16,9 +16,10 @@
 //  page per selected type for `address`, ingests rows through the same path as
 //  runScan (failed-tx drop, endpoint validation) but never expands new
 //  counterparties (they land at depth+1, unfetched). Resolves with
-//  { apiCalls, newEdges, newNodes, failed, skipped, planRequired, stopped,
-//    allDone }; allDone = every selected type's cursor is done. Fetch errors
-//  are logged per type and leave that cursor untouched (never marked done).
+//  { apiCalls, newEdges, newNodes, failed, skipped, errors, planRequired,
+//    stopped, allDone }; allDone = every selected type's cursor is done. Fetch
+//  errors (not aborts) are logged per type, counted in `errors`, and leave that
+//  cursor untouched (never marked done).
 //  runScan records the first-load cursor (replace, not merge) per expanded node.
 // =============================================================================
 
@@ -318,13 +319,13 @@ export function selectedTypes(selection) {
 /**
  * Fetch one older page per selected type for a single node. See header.
  * @param {object} opts
- * @returns {Promise<{apiCalls:number,newEdges:number,newNodes:number,failed:number,skipped:number,planRequired:boolean,stopped:boolean,allDone:boolean}>}
+ * @returns {Promise<{apiCalls:number,newEdges:number,newNodes:number,failed:number,skipped:number,errors:number,planRequired:boolean,stopped:boolean,allDone:boolean}>}
  */
 export async function loadOlder(opts) {
   const { client, store, limiter, types, maxTxPerAddress, signal, onLog } = opts;
   const address = lc(opts.address);
   const res = {
-    apiCalls: 0, newEdges: 0, newNodes: 0, failed: 0, skipped: 0,
+    apiCalls: 0, newEdges: 0, newNodes: 0, failed: 0, skipped: 0, errors: 0,
     planRequired: false, stopped: false, allDone: false,
   };
   if (!store.hasNode(address)) return res;
@@ -354,6 +355,7 @@ export async function loadOlder(opts) {
         res.stopped = true; // Stop landed mid-fetch: not an error, cursor unchanged
         break;
       }
+      res.errors++;
       if (reportFetchError(e, address, action, onLog)) {
         res.planRequired = true;
         break;

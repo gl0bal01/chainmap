@@ -89,14 +89,15 @@ function explorerLink(href, text) {
  * @param {import('./graphStore.js').NodeRecord} node
  * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(addr:string)=>void,
  *           getKnownSource?:(addr:string)=>(string|null),
- *           history?:Array<{action:string,state:'unloaded'|'more'|'complete',count:number}>,
- *           pageSize?:number, onLoadOlder?:(addr:string)=>void, busy?:boolean,
+ *           history?:Array<{action:string,labelKey:string,state:'unloaded'|'more'|'complete',count:number}>,
+ *           pageSize?:number, onLoadOlder?:()=>void, busy?:boolean,
  *           loadBlocked?:({key:string,params?:object}|null) }} deps
  *   getKnownSource is optional (graceful when absent, e.g. known-address data not yet
  *   loaded) — provenance string for a known-address entry, rendered only when truthy.
- *   history/pageSize/onLoadOlder/busy/loadBlocked are optional: `history` (from
- *   `historyState`) adds the History row; with `onLoadOlder` a Load older button is shown
- *   (+`pageSize`), disabled while `busy` or when `loadBlocked` (a localized refusal) is set.
+ *   history/pageSize/onLoadOlder/busy/loadBlocked are optional: a non-empty `history`
+ *   (from `historyState`, plus each type's `labelKey`) adds the History row and a Load
+ *   button (+`pageSize`) whose click calls `onLoadOlder`; the button is disabled when every
+ *   type is complete, while `busy`, or when `loadBlocked` (a localized refusal) is set.
  */
 export function renderNodeDetails(container, node, deps) {
   const { i18n, explorer, onRename } = deps;

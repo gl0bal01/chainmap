@@ -416,7 +416,8 @@ describe("loadOlder", () => {
     const client = makeClient({ [`${R}|tokentx`]: [tx(R, A, 3)] }, new Set([`${R}|txlist`]));
     const store = seeded({ txlist: entry });
     const logs = [];
-    await lo({ client, store, types: selectedTypes({ normal: true }).concat(TX_TYPE_GROUPS.token.slice(0, 1)), onLog: (e) => logs.push(e) });
+    const r = await lo({ client, store, types: selectedTypes({ normal: true }).concat(TX_TYPE_GROUPS.token.slice(0, 1)), onLog: (e) => logs.push(e) });
+    expect(r.errors).toBe(1);
     expect(store.getNode(R).history.txlist).toEqual(entry);
     expect(store.getNode(R).history.tokentx.oldestBlock).toBe("3");
     expect(logs.map((l) => l.key)).toEqual(["error.fetch"]);
@@ -473,6 +474,7 @@ describe("loadOlder", () => {
     const logs = [];
     const r = await lo({ client, store, signal: c.signal, onLog: (e) => logs.push(e) });
     expect(r.stopped).toBe(true);
+    expect(r.errors).toBe(0); // an abort is not a failed request
     expect(logs).toEqual([]);
     expect(store.getNode(R).history).toBeUndefined();
   });

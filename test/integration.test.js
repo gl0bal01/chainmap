@@ -614,7 +614,7 @@ const H = (state, count, action = "txlist", labelKey = "tx.type.normal") => ({ a
 test("node details list per-type history states", async () => {
   const { render } = await historyEnv();
   const c = render([H("more", 40), H("unloaded", 0, "tokentx", "tx.type.erc20")]);
-  expect(c.textContent).toContain("Normal: 40 fetched · older available");
+  expect(c.textContent).toContain("Normal: 40 rows fetched · older available");
   expect(c.textContent).toContain("ERC-20: not loaded");
 });
 
@@ -634,7 +634,7 @@ test("load button: older / first / complete states", async () => {
 
   const done = render([H("complete", 5), H("complete", 3, "tokentx", "tx.type.erc20")]);
   const d = done.querySelectorAll("button")[1];
-  expect(d.textContent).toBe("History complete");
+  expect(d.textContent).toBe("Complete for selected types");
   expect(d.disabled).toBe(true);
 });
 
@@ -845,14 +845,14 @@ test("details re-render live when the type selection or page size changes", asyn
     $("typeInternal").checked = false; // scan without internal -> it stays unloaded
     await freshScan("20"); // N=20 > canned rows -> scanned types complete
     openRoot();
-    expect(loadBtn().textContent).toBe("History complete");
+    expect(loadBtn().textContent).toBe("Complete for selected types");
     expect(loadBtn().disabled).toBe(true);
     $("typeInternal").checked = true;
     $("typeInternal").dispatchEvent(new window.Event("change"));
     expect(loadBtn().disabled).toBe(false);
     expect(loadBtn().textContent).toBe("Load older (+20)");
     $("maxTxPerAddress").value = "5";
-    $("maxTxPerAddress").dispatchEvent(new window.Event("change"));
+    $("maxTxPerAddress").dispatchEvent(new window.Event("input")); // live, not on blur
     expect(loadBtn().textContent).toBe("Load older (+5)");
   } finally {
     $("typeInternal").checked = true;
@@ -883,6 +883,70 @@ test("demo sets the graph chain: switching the selector blocks its load button",
     expect(loadBtn().disabled).toBe(true);
     expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
   } finally {
+    restoreForm();
+  }
+});
+
+test("risk, labels and CSV category stay on the graph's chain after switching the selector", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  const openDemoRoot = () => window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+  const csv = async () => {
+    captured = null;
+    $("exportCsvBtn").click();
+    await until(() => captured);
+    return captured.text();
+  };
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    openDemoRoot();
+    const risk = $("detailsContent").textContent;
+    expect(risk).toContain("sanctioned"); // DEMO_ROOT is an OFAC-listed chain-1 address
+    const before = await csv();
+    expect(before).toContain("flag.sanctioned"); // edge to a chain-1 OFAC-listed recipient
+    const demoLabel = () => {
+      const n = window.vis.Network.first.nodes.get().find((x) => x.id === DEMO_ROOT);
+      return `${n.label}|${n.title}`;
+    };
+    const label = demoLabel();
+    expect(label).toContain("Ronin Exploiter"); // chain-1 known label
+    expect(label).toContain("⛔"); // chain-1 category icon (sanctioned)
+    setChain("137"); // no chain-137 entry for DEMO_ROOT
+    openDemoRoot();
+    expect($("detailsContent").textContent.replace(/This graph was built[^]*$/, "")).toBe(risk.replace(/This graph was built[^]*$/, ""));
+    expect(await csv()).toBe(before);
+    expect(demoLabel()).toBe(label);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    restoreForm();
+  }
+});
+
+test("load on a demo graph shows the sampling banner and reports failed requests", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    expect($("samplingBanner").hidden).toBe(true);
+    $("apiKey").value = "TESTKEY";
+    globalThis.fetch = async (url, init) =>
+      String(url).includes("data/")
+        ? realFetch(url, init)
+        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    loadBtn().click();
+    await waitLoaded();
+    expect($("status").textContent).toContain("Loaded 0 new transfers");
+    expect($("status").textContent).toMatch(/— [1-9]\d* request\(s\) failed \(see log\)/);
+    expect($("samplingBanner").hidden).toBe(false);
+  } finally {
+    globalThis.fetch = realFetch;
     restoreForm();
   }
 });
