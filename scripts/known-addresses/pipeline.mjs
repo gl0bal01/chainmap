@@ -17,17 +17,23 @@ const tag = (s, name) => {
 export function parseOfacXml(xml) {
   const d = /<Publish_Date>\s*(\d{2})\/(\d{2})\/(\d{4})\s*<\/Publish_Date>/.exec(xml);
   if (!d) throw new Error("OFAC SDN: Publish_Date missing (not an SDN XML?)");
+  if (!/<\/(?:\w+:)?sdnList>\s*$/.test(xml)) throw new Error("OFAC SDN: truncated download (no closing </sdnList>)");
   const publishDate = `${d[3]}-${d[1]}-${d[2]}`;
   const entries = [];
+  const skippedIds = []; // 0x-shaped crypto ids we did not take, or malformed ids under allowlisted tags (format drift)
   const seen = new Set();
   for (const chunk of xml.split("<sdnEntry>").slice(1)) {
     const head = chunk.split("<sdnType>")[0]; // aka blocks (after sdnType) also carry lastName
     const last = tag(head, "lastName"), first = tag(head, "firstName");
     const name = first ? `${last}, ${first}` : last;
     for (const m of chunk.matchAll(/<id>([\s\S]*?)<\/id>/g)) {
-      if (!/^Digital Currency Address - (ETH|USDT|USDC|ARB|BSC|ETC)$/.test(tag(m[1], "idType"))) continue;
+      const idType = tag(m[1], "idType");
+      if (!idType.startsWith("Digital Currency Address - ")) continue;
       const addr = tag(m[1], "idNumber");
-      if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) continue;
+      const allowed = /^Digital Currency Address - (ETH|USDT|USDC|ARB|BSC|ETC)$/.test(idType);
+      const valid = /^0x[0-9a-fA-F]{40}$/.test(addr);
+      if (allowed ? !valid : /^0x/i.test(addr)) skippedIds.push({ tag: idType, idNumber: addr });
+      if (!allowed || !valid) continue;
       const address = addr.toLowerCase();
       if (seen.has(address)) continue;
       seen.add(address);
@@ -35,7 +41,7 @@ export function parseOfacXml(xml) {
     }
   }
   if (!entries.length) throw new Error("OFAC SDN: no EVM addresses found (format drift?)");
-  return { publishDate, entries };
+  return { publishDate, entries, skippedIds };
 }
 
 const BRIDGE_KEYS = ["L1StandardBridgeProxy", "OptimismPortalProxy", "L1CrossDomainMessengerProxy", "L1ERC721BridgeProxy"];
@@ -63,11 +69,12 @@ function validate(row, curated) {
   if (!isValidAddress(row.address)) return "invalid address";
   const cid = String(row.chainId);
   if (cid !== "*" && !CHAIN_IDS.has(cid)) return "invalid chainId";
-  if (curated && row.category === "sanctioned") return "curated sanctioned";
+  if (curated && (row.category === "sanctioned" || /\bOFAC\b|\bSDN\b|sanction/i.test(row.label ?? ""))) return "curated sanctioned";
   if (row.category === "token" &&
       !(typeof row.symbol === "string" && row.symbol && row.symbol === row.symbol.toUpperCase() && Number.isInteger(row.decimals))) return "bad token fields";
   if (!KNOWN_CATEGORIES.includes(row.category)) return "unknown category";
   if (!row.label || !row.source || !DATE.test(row.added ?? "")) return "missing field";
+  if (row.ofacDesignated !== undefined && !DATE.test(row.ofacDesignated)) return "bad ofacDesignated";
   return null;
 }
 
@@ -135,7 +142,10 @@ export function serializeKnownData(data) {
 
 /** @returns {Promise<'verified'|'unsourced'|'absent'|'fetch-failed'>} */
 export async function verifyEntry(entry, fetchText) {
+  if (!isValidAddress(entry.address)) return "absent";
   if (!/^https?:\/\//i.test(entry.source)) return "unsourced";
+  // a URL embedding the address would be echoed back by 404/SPA pages: not independent evidence
+  if (entry.source.toLowerCase().includes(entry.address.toLowerCase())) return "unsourced";
   let body;
   try { body = await fetchText(entry.source); } catch { return "fetch-failed"; }
   return new RegExp(entry.address + "(?![0-9a-f])", "i").test(body) ? "verified" : "absent";

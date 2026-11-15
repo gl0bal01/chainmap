@@ -15,7 +15,25 @@ describe("parseOfacXml", () => {
         { address: CC, name: "SEMENOV, Roman" },
         { address: DD, name: "A & B TRADING" },
       ],
+      skippedIds: [],
     });
+  });
+  test("throws on truncated XML (cut inside an entry)", () => {
+    const x = fx("sdn-mini.xml");
+    expect(() => parseOfacXml(x.slice(0, x.indexOf("SEMENOV") + 5))).toThrow(/truncated/);
+  });
+  test("skippedIds: 0x ids under non-allowlisted tags and malformed ids under allowlisted ones", () => {
+    const x = fx("sdn-mini.xml").replace("</sdnList>",
+      `<sdnEntry><lastName>Z</lastName><sdnType>Entity</sdnType><idList>
+      <id><idType>Digital Currency Address - POL</idType><idNumber>0x${"e".repeat(40)}</idNumber></id>
+      <id><idType>Digital Currency Address - ETH</idType><idNumber>0xshort</idNumber></id>
+      </idList></sdnEntry></sdnList>`);
+    const r = parseOfacXml(x);
+    expect(r.entries.length).toBe(4);
+    expect(r.skippedIds).toEqual([
+      { tag: "Digital Currency Address - POL", idNumber: "0x" + "e".repeat(40) },
+      { tag: "Digital Currency Address - ETH", idNumber: "0xshort" },
+    ]);
   });
   test("throws without Publish_Date (error page) or without any EVM address (format drift)", () => {
     expect(() => parseOfacXml("<html>Service Unavailable</html>")).toThrow();
@@ -88,6 +106,14 @@ describe("mergeSources", () => {
     ]);
     expect(Object.keys(data["1"])).toEqual([CC]);
   });
+  test("curated labels asserting sanctions, and bad ofacDesignated, are rejected", () => {
+    const { report } = merge([
+      row({ address: BB, label: "Roman Semenov (OFAC)" }),
+      row({ address: BB, label: "X on the SDN list" }),
+      row({ address: BB, ofacDesignated: "April 2022" }),
+    ]);
+    expect(report.rejected.map((r) => r.reason)).toEqual(["curated sanctioned", "curated sanctioned", "bad ofacDesignated"]);
+  });
   test("needs-official-source rows are kept and listed; counts reported", () => {
     const { data, report } = merge([row({ address: BB, label: "Binance 14", category: "exchange", source: "Etherscan public label", note: "needs official source" })]);
     expect(data["1"][BB].note).toBe("needs official source");
@@ -134,6 +160,13 @@ describe("verifyEntry", () => {
     let called = false;
     expect(await verifyEntry({ address: A, source: "Etherscan public label" }, async () => { called = true; return A; })).toBe("unsourced");
     expect(called).toBe(false);
+  });
+  test("unsourced when the cited URL embeds the address (page would just echo it)", async () => {
+    const url = `https://etherscan.io/address/${A}`;
+    expect(await verifyEntry({ address: A.toLowerCase(), source: url }, page(`Not found: ${url}`))).toBe("unsourced");
+  });
+  test("absent for an invalid address", async () => {
+    expect(await verifyEntry({ address: "", source: "https://x" }, page("anything"))).toBe("absent");
   });
   test("fetch-failed when the injected fetch throws", async () => {
     expect(await verifyEntry({ address: A, source: "https://x" }, async () => { throw new Error("HTTP 403"); })).toBe("fetch-failed");
