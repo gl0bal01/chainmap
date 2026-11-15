@@ -70,7 +70,7 @@ Exports: `API_BASE`, `CHAINS: Chain[]`, `TX_TYPE_GROUPS`, `ROOT_COLOR`,
 
 ## etherscanClient.js — DOM-free (stub → Stage B)
 
-- `class EtherscanError extends Error { kind:'network'|'timeout'|'aborted'|'rate_limit'|'invalid_key'|'api'; meta }`
+- `class EtherscanError extends Error { kind:'network'|'timeout'|'aborted'|'rate_limit'|'invalid_key'|'plan_required'|'api'; meta }`
 - `buildUrl(p): string` — pure URL builder (unit-tested directly).
 - `createEtherscanClient(options): EtherscanClient`
   - `EtherscanClientOptions = { apiKey, chainId, apiBase?, timeoutMs?, maxRetries?, backoffBaseMs?, fetchImpl? }`
@@ -78,7 +78,8 @@ Exports: `API_BASE`, `CHAINS: Chain[]`, `TX_TYPE_GROUPS`, `ROOT_COLOR`,
   - `FetchActionOptions = { offset, page?, sort?, startblock?, endblock?, signal?, onRetry? }`
   - `RawTx = Record<string,string|undefined>` (loose Etherscan record)
   - Contract: timeout+AbortController; 429/5xx + Retry-After; broad throttle
-    detection; `no transactions found` → `[]`; other status `0` → `EtherscanError`.
+    detection; `no transactions found` → `[]`; paid-only chain ("not supported for this chain") →
+    non-retried `plan_required`; other status `0` → `EtherscanError`.
 
 ## graphStore.js — DOM-free, single source of truth (stub → Stage B)
 

@@ -551,13 +551,18 @@ async function startScan() {
   }
 
   if (!summary) return; // runScan only rejects on programmer error; guard the post-scan path anyway
+  const planChain = (CHAINS.find((c) => String(c.id) === $("chainSelect").value) || {}).name || $("chainSelect").value;
   if (summary.capped) logger.log({ level: "error", key: "log.safetyCap", params: { cap: safetyCap } });
   logger.log({
     level: "info",
     key: "log.scanDone",
     params: { nodes: summary.nodes, edges: summary.edges, calls: summary.apiCalls },
   });
-  status.set(t("status.done", { nodes: summary.nodes, edges: summary.edges }));
+  status.set(
+    summary.planRequired
+      ? t("status.planRequired", { chain: planChain })
+      : t("status.done", { nodes: summary.nodes, edges: summary.edges })
+  );
 
   view.refreshProjection(); // normalize edge widths + rebuild bundles now the graph is complete
   recomputeHubs();
@@ -726,6 +731,13 @@ async function startDetectChain() {
         el.className = "detect warn";
         el.textContent = t("detect.none", params);
       }
+    }
+    // Chains skipped because the free key isn't allowed on them (not "inactive").
+    const planNames = ranked.filter((r) => r.planRequired).map((r) => r.name);
+    if (planNames.length) {
+      const params = { chains: planNames.join(", ") };
+      logger.log({ level: "info", key: "detect.planRequired", params });
+      if (el) el.textContent += ` — ${t("detect.planRequired", params)}`;
     }
   } finally {
     detecting = false;

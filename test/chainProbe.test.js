@@ -98,6 +98,16 @@ describe("probeChains", () => {
     expect(results[2].error).toBeFalsy();
   });
 
+  test("plan_required failure sets planRequired (and error) on that chain only", async () => {
+    const probeOne = async (chainId) => {
+      if (chainId === 8453) throw Object.assign(new Error("paid"), { kind: "plan_required" });
+      throw new Error("boom");
+    };
+    const results = await probeChains("0xabc", [{ chainId: 8453, name: "Base" }, { chainId: 1, name: "Ethereum" }], { probeOne, limiter: fakeLimiter });
+    expect(results[0]).toMatchObject({ error: true, planRequired: true });
+    expect(results[1].planRequired).toBeUndefined();
+  });
+
   test("a genuinely-empty (inactive) chain never sets error", async () => {
     const candidates = [{ chainId: 1, name: "Ethereum" }];
     const probeOne = async () => ({ hasNativeTx: false, hasTokenTx: false });

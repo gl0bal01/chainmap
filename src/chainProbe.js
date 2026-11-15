@@ -10,7 +10,7 @@
 // =============================================================================
 
 /**
- * @typedef {{ chainId:number, name:string, hasNativeTx:boolean, hasTokenTx:boolean, error?:boolean }} ProbeResult
+ * @typedef {{ chainId:number, name:string, hasNativeTx:boolean, hasTokenTx:boolean, error?:boolean, planRequired?:boolean }} ProbeResult
  */
 
 /**
@@ -63,11 +63,11 @@ export async function probeChains(address, candidates, deps) {
     try {
       const { hasNativeTx, hasTokenTx } = await limiter.run(() => probeOne(chainId, address, signal));
       out.push({ chainId, name, hasNativeTx: !!hasNativeTx, hasTokenTx: !!hasTokenTx });
-    } catch {
+    } catch (e) {
       // A single chain's failure (network/timeout/rate-limit/etc.) is
       // isolated here and marked, never thrown — it must not abort probing
       // the remaining candidates.
-      out.push({ chainId, name, hasNativeTx: false, hasTokenTx: false, error: true });
+      out.push({ chainId, name, hasNativeTx: false, hasTokenTx: false, error: true, ...(e && e.kind === "plan_required" && { planRequired: true }) });
     }
 
     if (typeof onProgress === "function") onProgress(out.length, total);

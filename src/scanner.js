@@ -43,6 +43,7 @@ import { isValidAddress, lc, isFailedTx } from "./format.js";
  * @property {boolean} sampled    always true — data is "latest N", not full history
  * @property {number}  perAddressLimit  the offset used (maxTxPerAddress)
  * @property {number}  maxDepth
+ * @property {boolean} planRequired scan aborted: chain needs a paid Etherscan plan
  * @property {string[]} errors    human-log keys/messages surfaced during the scan
  */
 
@@ -111,6 +112,7 @@ export async function runScan(opts) {
   let failed = 0;
   let capped = false;
   let stopped = false;
+  let planRequired = false;
   /** @type {string[]} */
   const errors = [];
 
@@ -155,7 +157,7 @@ export async function runScan(opts) {
   store.addNode(rootLc, { depth: 0, isRoot: true });
   enqueue(rootLc, 0);
 
-  while (queue.length) {
+  scan: while (queue.length) {
     // Real + cooperative cancel: honor an abort before touching more work.
     if (signal && signal.aborted) {
       stopped = true;
@@ -193,6 +195,12 @@ export async function runScan(opts) {
         // Per-request failure: logged + counted, NEVER aborts the whole scan.
         const message = (e && e.message) || String(e);
         errors.push(message);
+        if (e && e.kind === "plan_required") {
+          // Every request on this chain will fail identically — stop the scan.
+          planRequired = true;
+          if (typeof onLog === "function") onLog({ level: "error", key: "error.planRequired" });
+          break scan;
+        }
         if (typeof onLog === "function") {
           onLog({
             level: "error",
@@ -249,6 +257,7 @@ export async function runScan(opts) {
     failed,
     capped,
     stopped,
+    planRequired,
     sampled: true,
     perAddressLimit: maxTxPerAddress,
     maxDepth,
