@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **351 unit/integration tests** on the DOM-free core.
+- **355 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -146,7 +146,13 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 351 unit + integration tests
+bun test        # 355 unit + integration tests
+```
+
+`bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:
+
+```bash
+git config core.hooksPath .githooks
 ```
 
 `bun test` covers the DOM-free modules (amount math, dedup keys, BFS guards, failed-tx
@@ -159,6 +165,8 @@ suite and a vendor-integrity check (SRI + SHA-256) on every push.
 ## Supported chains
 
 All 64 Etherscan v2 chains (Ethereum, L2s like Base/Arbitrum/Optimism/Linea/Blast, sidechains like BNB/Polygon/Gnosis/Avalanche, Sonic, and ~30 testnets). One API key works across all — Etherscan v2 is a unified multichain endpoint. Each chain carries its **native currency symbol** (so native txs show BNB/POL/AVAX/S/… not "ETH" everywhere). Add one = a single entry in `src/config.js` (`{id, name, explorer, native}`, validated against Etherscan v2's chainlist).
+
+Base, BNB Chain, OP Mainnet, Avalanche (and Gnosis) now require a **paid Etherscan API plan** (an Etherscan policy change, not a chainmap limit); with a free key the app tells you that's the cause instead of a generic error.
 
 ## Credits
 

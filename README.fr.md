@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **351 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **355 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -158,7 +158,13 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 351 tests unitaires + d'intégration
+bun test        # 355 tests unitaires + d'intégration
+```
+
+`bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :
+
+```bash
+git config core.hooksPath .githooks
 ```
 
 `bun test` couvre les modules sans DOM (arithmétique des montants, clés de déduplication,
@@ -172,6 +178,8 @@ bibliothèques vendorisées (SRI + SHA-256) à chaque push.
 ## Chaînes prises en charge
 
 Toutes les 64 chaînes Etherscan v2 (Ethereum, L2s comme Base/Arbitrum/Optimism/Linea/Blast, chaînes latérales comme BNB/Polygon/Gnosis/Avalanche, Sonic, et ~30 testnets). Une clé API fonctionne partout — Etherscan v2 est un point d'accès multichaîne unifié. Chaque chaîne porte son **symbole de monnaie native** (les tx natives affichent donc BNB/POL/AVAX/S/… au lieu de « ETH » partout). En ajouter une = une seule entrée dans `src/config.js` (`{id, name, explorer, native}`, validée contre la liste de chaînes Etherscan v2).
+
+Base, BNB Chain, OP Mainnet, Avalanche (et Gnosis) exigent désormais un **forfait API Etherscan payant** (changement de politique d'Etherscan, pas une limite de chainmap) ; avec une clé gratuite, l'app l'indique comme cause au lieu d'une erreur générique.
 
 ## Crédits
 
