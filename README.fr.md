@@ -51,7 +51,8 @@ pour explorer immédiatement toutes les fonctionnalités.
 **Scans en direct :** obtenez une clé gratuite sur <https://etherscan.io> → *API Keys*,
 collez-la dans l'interface, choisissez une chaîne, collez une adresse, **Lancer le scan**. Une seule
 clé fonctionne sur toutes les chaînes prises en charge (Etherscan v2 est un point d'accès
-multichaîne unifié).
+multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
+[Chaînes prises en charge](#chaînes-prises-en-charge)).
 
 ---
 

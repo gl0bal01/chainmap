@@ -49,7 +49,8 @@ explore every feature immediately.
 
 **Live scans:** get a free key at <https://etherscan.io> → *API Keys*, paste it in the UI,
 pick a chain, paste an address, **Start**. One key works across all supported chains
-(Etherscan v2 is a unified multichain endpoint).
+(Etherscan v2 is a unified multichain endpoint; some chains need a paid plan — see
+[Supported chains](#supported-chains)).
 
 ---
 

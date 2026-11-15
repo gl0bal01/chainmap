@@ -105,9 +105,9 @@ The forensic caveat. chainmap fetches the **latest N** transactions per address 
 **sample**.
 
 > **In chainmap:** **Load older** extends a node's sample one page at a time, but the graph is never
-> complete until Etherscan returns a short batch for that node. A persistent banner and the CSV export both state this. **Rule:** never
-> present a sampled graph as complete or forensic. Increase the per-address limit if you
-> need more, and always note the sampling in findings.
+> complete until Etherscan returns a short batch for that node. A persistent banner and the CSV
+> export both state this. **Rule:** never present a sampled graph as complete or forensic.
+> Increase the per-address limit if you need more, and always note the sampling in findings.
 
 ## 8. Failed & reverted transactions
 
