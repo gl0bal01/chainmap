@@ -27,7 +27,7 @@ describe("advance", () => {
   test("full batch stuck on boundary block -> in-block paging page 2", () =>
     expect(advance(E(), rows(800, 800, 800), 3, { endblock: 800, page: 1, offset: 3 })).toEqual(E({ blockPage: 2, pageSize: 3, count: 6 })));
   test("rows above cursor (API anomaly) -> treated as boundary, no backwards jump", () =>
-    expect(advance(E(), rows(900, 900, 900), 3, { endblock: 800, page: 1, offset: 3 })).toMatchObject({ oldestBlock: "800", blockPage: 2 }));
+    expect(advance(E(), rows(900, 900, 900), 3, { endblock: 800, page: 1, offset: 3 })).toMatchObject({ oldestBlock: "800", blockPage: 1, pageSize: 3 }));
   test("in-block full -> next page", () =>
     expect(advance(E({ blockPage: 2, pageSize: 3 }), rows(800, 800, 800), 3, { startblock: 800, endblock: 800, page: 2, offset: 3 })).toMatchObject({ blockPage: 3, pageSize: 3 }));
   test("in-block restart after N change records new pageSize", () =>
@@ -36,6 +36,31 @@ describe("advance", () => {
     expect(advance(E({ blockPage: 3, pageSize: 3 }), rows(800), 3, { startblock: 800, endblock: 800, page: 3, offset: 3 })).toMatchObject({ oldestBlock: "799", blockPage: 0, done: false }));
   test("in-block short at block 0 -> done", () =>
     expect(advance(E({ oldestBlock: "0", blockPage: 2, pageSize: 3 }), [], 3, { startblock: 0, endblock: 0, page: 2, offset: 3 })).toMatchObject({ done: true }));
+});
+
+describe("walk", () => {
+  test("cursor walk: first load -> older -> stuck block -> in-block pages -> exhausted -> older -> done", () => {
+    const n = 3;
+    let e;
+    let req = nextRequest(e, n);
+    expect(req).toEqual({ page: 1, offset: 3 });
+    e = advance(e, rows(900, 850, 800), n, req);
+    req = nextRequest(e, n);
+    expect(req).toEqual({ endblock: 800, page: 1, offset: 3 });
+    e = advance(e, rows(800, 800, 800), n, req);
+    req = nextRequest(e, n);
+    expect(req).toEqual({ startblock: 800, endblock: 800, page: 2, offset: 3 });
+    e = advance(e, rows(800, 800, 800), n, req);
+    req = nextRequest(e, n);
+    expect(req).toEqual({ startblock: 800, endblock: 800, page: 3, offset: 3 });
+    e = advance(e, rows(800), n, req);
+    expect(e).toMatchObject({ oldestBlock: "799", blockPage: 0, done: false });
+    req = nextRequest(e, n);
+    expect(req).toEqual({ endblock: 799, page: 1, offset: 3 });
+    e = advance(e, rows(700), n, req);
+    expect(e).toMatchObject({ done: true, count: 11 });
+    expect(nextRequest(e, n)).toBeNull();
+  });
 });
 
 describe("queries + sanitize", () => {
@@ -50,6 +75,7 @@ describe("queries + sanitize", () => {
   test("sanitizeHistory keeps valid, drops malformed/unknown/prototype keys", () => {
     const raw = JSON.parse('{"txlist":{"oldestBlock":"800","blockPage":0,"pageSize":0,"done":false,"count":3},"tokentx":{"oldestBlock":"abc","blockPage":0,"pageSize":0,"done":false,"count":1},"bogus":{"oldestBlock":"1","blockPage":0,"pageSize":0,"done":true,"count":0},"__proto__":{"x":1},"txlistinternal":{"oldestBlock":"5","blockPage":-1,"pageSize":0,"done":false,"count":0}}');
     expect(sanitizeHistory(raw)).toEqual({ txlist: E() });
+    expect(sanitizeHistory({ txlist: { ...E(), oldestBlock: "99999999999999999999" } })).toBeUndefined();
     expect(sanitizeHistory(null)).toBeUndefined();
     expect(sanitizeHistory({ bogus: {} })).toBeUndefined();
   });

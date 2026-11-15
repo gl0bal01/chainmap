@@ -64,8 +64,9 @@ export function advance(entry, rows, n, req) {
   if (inBlock) return mk(prev, req.page + 1, n, false);
   if (min === undefined) return mk(prev ?? 0, 0, 0, true);
   if (prev === undefined || min < prev) return mk(min, 0, 0, false);
-  // No progress (busy boundary block, or API anomaly): page inside prev block.
-  return mk(prev, 2, n, false);
+  // No progress. min === prev: busy boundary block, page 1 was just read.
+  // min > prev: API ignored endblock, page 1 of the cursor block is unread.
+  return min === prev ? mk(prev, 2, n, false) : mk(prev, 1, n, false);
 }
 
 /** @param {{history?:object}} node */
@@ -103,6 +104,7 @@ export function sanitizeHistory(raw) {
     if (
       e && typeof e === "object" &&
       typeof e.oldestBlock === "string" && /^\d+$/.test(e.oldestBlock) &&
+      Number.isSafeInteger(Number(e.oldestBlock)) &&
       isUint(e.blockPage) && isUint(e.pageSize) && isUint(e.count) &&
       typeof e.done === "boolean"
     ) {
