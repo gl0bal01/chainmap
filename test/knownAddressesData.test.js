@@ -1,14 +1,15 @@
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import knownData from "../data/known-addresses.json";
-import { KNOWN_CATEGORIES } from "../src/config.js";
+import { KNOWN_CATEGORIES, CHAINS } from "../src/config.js";
 import { isValidAddress, lc } from "../src/format.js";
 
 describe("data/known-addresses.json validity", () => {
-  test("top level is an object keyed by numeric chain-id strings", () => {
-    expect(knownData && typeof knownData).toBe("object");
+  const CHAIN_KEYS = new Set(["*", ...CHAINS.map((c) => String(c.id))]);
+
+  test("top level keys are '*' or a supported chain id", () => {
     for (const chainId of Object.keys(knownData)) {
-      expect(String(Number(chainId))).toBe(chainId); // "1" ok, "0x1"/"eth" not
+      expect(CHAIN_KEYS.has(chainId)).toBe(true);
       expect(typeof knownData[chainId]).toBe("object");
     }
   });
@@ -32,17 +33,24 @@ describe("data/known-addresses.json validity", () => {
     }
   });
 
-  test("optional source/added, when present, are non-empty strings", () => {
-    for (const chainId of Object.keys(knownData)) {
-      for (const entry of Object.values(knownData[chainId])) {
-        if ("source" in entry) {
-          expect(typeof entry.source).toBe("string");
-          expect(entry.source.trim().length).toBeGreaterThan(0);
-        }
-        if ("added" in entry) {
-          expect(typeof entry.added).toBe("string");
-          expect(entry.added.trim().length).toBeGreaterThan(0);
-        }
+  test("every entry has a non-empty source and an ISO added date", () => {
+    for (const chain of Object.values(knownData)) {
+      for (const entry of Object.values(chain)) {
+        expect(typeof entry.source).toBe("string");
+        expect(entry.source.trim().length).toBeGreaterThan(0);
+        expect(entry.added).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+    }
+  });
+
+  test("token entries carry an uppercase symbol and integer decimals when present", () => {
+    for (const chain of Object.values(knownData)) {
+      for (const entry of Object.values(chain)) {
+        if (entry.category !== "token") continue;
+        expect(typeof entry.symbol).toBe("string");
+        expect(entry.symbol.length).toBeGreaterThan(0);
+        expect(entry.symbol).toBe(entry.symbol.toUpperCase());
+        if ("decimals" in entry) expect(Number.isInteger(entry.decimals)).toBe(true);
       }
     }
   });

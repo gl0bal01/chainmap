@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress } from "../src/knownAddresses.js";
+import { knownEntry, loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress } from "../src/knownAddresses.js";
 
 const DATA = {
   "1": {
@@ -86,5 +86,31 @@ test("extended records (source/added) still resolve label/category and chains", 
   expect(knownCategory("0xabc0000000000000000000000000000000000001", 1, EXT_DATA)).toBe("mixer");
   expect(chainsForKnownAddress("0xabc0000000000000000000000000000000000001", EXT_DATA)).toEqual([
     { chainId: 1, label: "Tornado Cash: 100 ETH", category: "mixer" },
+  ]);
+});
+
+const S = "0x098b716b8aaf21512996dc57eb0615e2383e2f96";
+const STAR = {
+  "*": { [S]: { label: "LAZARUS GROUP (OFAC SDN)", category: "sanctioned", source: "OFAC SDN list, published 2026-11-13", added: "2026-11-13" } },
+  "1": { [S]: { label: "Ronin Exploiter (OFAC SDN)", category: "sanctioned", source: "https://example.org/a", added: "2026-07-12" } },
+};
+
+test("knownEntry: chain-specific beats '*', '*' answers any other chain, null on miss", () => {
+  expect(knownEntry(S.toUpperCase().replace("0X", "0x"), 1, STAR).label).toBe("Ronin Exploiter (OFAC SDN)");
+  expect(knownEntry(S, "137", STAR).label).toBe("LAZARUS GROUP (OFAC SDN)");
+  expect(knownEntry("0x0000000000000000000000000000000000000009", 1, STAR)).toBeNull();
+  expect(knownEntry(S, 1, null)).toBeNull();
+  expect(knownEntry("constructor", 1, { "1": {} })).toBeNull(); // inherited keys never match
+});
+
+test("knownLabel / knownCategory fall back to '*'", () => {
+  expect(knownLabel(S, 56, STAR)).toBe("LAZARUS GROUP (OFAC SDN)");
+  expect(knownCategory(S, 56, STAR)).toBe("sanctioned");
+});
+
+test("chainsForKnownAddress: chain-specific first, then one '*' item", () => {
+  expect(chainsForKnownAddress(S, STAR)).toEqual([
+    { chainId: 1, label: "Ronin Exploiter (OFAC SDN)", category: "sanctioned" },
+    { chainId: "*", label: "LAZARUS GROUP (OFAC SDN)", category: "sanctioned" },
   ]);
 });

@@ -10,9 +10,10 @@
 
 import { DATA_PATHS } from "./config.js";
 
+/** @typedef {{ label:string, category:string, source:string, added:string, symbol?:string, decimals?:number, note?:string }} KnownEntry */
 /**
- * @typedef {Record<string, Record<string, { label:string, category:string, source?:string, added?:string }>>} KnownData
- *   Shape: { "<chainId>": { "<lowercased address>": { label, category } } }
+ * @typedef {Record<string, Record<string, KnownEntry>>} KnownData
+ *   Top-level keys: "*" (valid on every EVM chain) or a chain-id string.
  */
 
 /**
@@ -36,50 +37,50 @@ export async function loadKnownAddresses(fetchImpl, path) {
 }
 
 /**
- * Look up a display label for an address on a given chain.
+ * Look up the full entry for an address: chain-specific first, then the "*"
+ * (all EVM chains) bucket. Own-property only, so inherited keys never match.
  * @param {string} address
  * @param {number|string} chainId
  * @param {KnownData} data
- * @returns {string|null}
+ * @returns {KnownEntry|null}
  */
+export function knownEntry(address, chainId, data) {
+  if (!data || !address) return null;
+  const addr = String(address).toLowerCase();
+  for (const key of [String(chainId), "*"]) {
+    const chain = Object.hasOwn(data, key) ? data[key] : null;
+    if (chain && Object.hasOwn(chain, addr)) return chain[addr];
+  }
+  return null;
+}
+
+/** @returns {string|null} display label (chain-specific, else "*") */
 export function knownLabel(address, chainId, data) {
-  if (!data || !address) return null;
-  const chain = data[String(chainId)];
-  if (!chain) return null;
-  const entry = chain[address.toLowerCase()];
-  return entry && entry.label ? entry.label : null;
+  return knownEntry(address, chainId, data)?.label || null;
 }
 
-/**
- * Look up the known CATEGORY for an address on a chain (mixer/bridge/exchange/…).
- * @param {string} address
- * @param {number|string} chainId
- * @param {KnownData} data
- * @returns {string|null}
- */
+/** @returns {string|null} category (mixer/bridge/exchange/token/…) */
 export function knownCategory(address, chainId, data) {
-  if (!data || !address) return null;
-  const chain = data[String(chainId)];
-  if (!chain) return null;
-  const entry = chain[address.toLowerCase()];
-  return entry && entry.category ? entry.category : null;
+  return knownEntry(address, chainId, data)?.category || null;
 }
 
 /**
- * Every chain on which `address` is a KNOWN labeled entity, from the bundled dataset.
- * Zero network — pure lookup over the already-loaded known-address map.
+ * Every chain on which `address` is a KNOWN labeled entity. Chain-specific hits
+ * first (numeric ids), then at most one `{ chainId: "*" }` item last.
  * @param {string} address
  * @param {KnownData} data
- * @returns {{ chainId:number, label:string, category:string }[]} (empty if none)
+ * @returns {{ chainId:number|"*", label:string, category:string }[]}
  */
 export function chainsForKnownAddress(address, data) {
   const out = [];
   if (!data || !address) return out;
   const addr = String(address).toLowerCase();
+  const item = (chainId, e) => ({ chainId, label: e.label || "", category: e.category || "" });
   for (const chainId of Object.keys(data)) {
+    if (chainId === "*") continue;
     const chain = data[chainId];
-    const entry = chain && chain[addr];
-    if (entry) out.push({ chainId: Number(chainId), label: entry.label || "", category: entry.category || "" });
+    if (chain && Object.hasOwn(chain, addr)) out.push(item(Number(chainId), chain[addr]));
   }
+  if (data["*"] && Object.hasOwn(data["*"], addr)) out.push(item("*", data["*"][addr]));
   return out;
 }

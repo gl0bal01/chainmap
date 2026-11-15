@@ -208,6 +208,7 @@ export const KNOWN_CATEGORIES = [
   "burn",
   "mixer",
   "contract",
+  "token",
   "sanctioned",
   "other",
 ];

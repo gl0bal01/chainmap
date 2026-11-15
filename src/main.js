@@ -16,7 +16,7 @@ import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
 import { isValidAddress, isFailedTx, shortAddress } from "./format.js";
-import { loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress } from "./knownAddresses.js";
+import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
 import { classifyHubs } from "./sinkFaucet.js";
@@ -344,11 +344,7 @@ function showNodeDetails(address) {
     explorer: explorerFor(dataChain()),
     onRename: promptAlias,
     risk: computeRisk(address),
-    getKnownSource: (a) => {
-      const chain = knownData[String(dataChain())];
-      const entry = chain && chain[String(a).toLowerCase()];
-      return entry && entry.source ? entry.source : null;
-    },
+    getKnownSource: (a) => knownEntry(a, dataChain(), knownData)?.source || null,
     history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
     pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
     onLoadOlder: () => loadOlderFor(address),
@@ -742,11 +738,12 @@ async function startDetectChain() {
 
   // No-API shortcut: a known labeled address already tells us its chain(s) locally.
   const localHits = chainsForKnownAddress(address, knownData);
-  if (localHits.length) {
-    const hit = localHits[0]; // first-listed chain wins
+  // A "*"-only hit names no chain, so it falls through to the API probe.
+  if (localHits.some((h) => h.chainId !== "*")) {
+    const hit = localHits[0]; // first-listed chain-specific hit wins
     $("chainSelect").value = String(hit.chainId);
     $("chainSelect").dispatchEvent(new Event("change"));
-    const chains = localHits.map((h) => chainName(h.chainId)).join(", ");
+    const chains = localHits.map((h) => (h.chainId === "*" ? t("details.allChains") : chainName(h.chainId))).join(", ");
     logger.log({ level: "info", key: "detect.localHit", params: { label: hit.label, chains } });
     if (el) {
       el.className = "detect ok";

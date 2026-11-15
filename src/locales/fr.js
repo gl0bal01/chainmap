@@ -129,6 +129,7 @@ export default {
   "details.empty": "Cliquez sur un nœud ou une flèche du graphe.",
   "details.alias": "Alias",
   "details.address": "Adresse",
+  "details.allChains": "toutes les chaînes EVM",
   "details.source": "Source",
   "details.depth": "Profondeur",
   "details.root": "Racine",

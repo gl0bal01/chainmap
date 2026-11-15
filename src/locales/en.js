@@ -130,6 +130,7 @@ export default {
   "details.empty": "Click a node or an arrow in the graph.",
   "details.alias": "Alias",
   "details.address": "Address",
+  "details.allChains": "all EVM chains",
   "details.source": "Source",
   "details.depth": "Depth",
   "details.root": "Root",

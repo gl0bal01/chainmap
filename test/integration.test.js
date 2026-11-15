@@ -102,6 +102,7 @@ beforeAll(async () => {
   globalThis.localStorage = window.localStorage;
   globalThis.sessionStorage = window.sessionStorage;
   globalThis.navigator = window.navigator;
+  globalThis.Event = window.Event; // main.js dispatches `new Event("change")` on happy-dom elements
   globalThis.Node = window.Node; // browser builtin ui.js relies on (value instanceof Node)
   globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
   window.vis = stubVis();
@@ -977,4 +978,21 @@ test("long annotations wrap to a fixed width instead of one ultra-wide line (dem
   expect(note).toBeTruthy();
   expect(note.label.length).toBeGreaterThan(300); // the demo's long disclaimer is kept in full
   expect(note.widthConstraint).toEqual({ maximum: 300 }); // ...but wrapped, so fit() doesn't shrink the graph
+});
+
+test("detect chain: a curated chain-1 address selects Ethereum with no API call", async () => {
+  await sleep(100); // bundled known-address data loads async at init
+  try {
+    $("resetBtn").click();
+    setChain("137");
+    $("apiKey").value = "";
+    $("address").value = DEMO_ROOT;
+    $("detectChainBtn").click();
+    await until(() => $("chainSelect").value === "1");
+    expect($("chainSelect").value).toBe("1");
+    expect($("addressDetect").textContent).toContain("Ethereum");
+  } finally {
+    $("address").value = "";
+    restoreForm();
+  }
 });

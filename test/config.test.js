@@ -133,7 +133,7 @@ describe("KNOWN_CATEGORIES", () => {
   });
 
   test("covers the categories used by the flag mechanism", () => {
-    for (const c of ["exchange", "router", "bridge", "burn", "mixer", "contract", "sanctioned", "other"]) {
+    for (const c of ["exchange", "router", "bridge", "burn", "mixer", "contract", "token", "sanctioned", "other"]) {
       expect(KNOWN_CATEGORIES).toContain(c);
     }
   });
