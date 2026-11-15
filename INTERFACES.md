@@ -173,7 +173,7 @@ indicator, sampling banner.
 
 ## Cross-cutting contracts (frozen)
 
-- **Vendored libs** (`vendor/VENDOR.md`): vis-network 10.1.0 → `window.vis`; jsPDF 4.2.1 → `window.jspdf.jsPDF`. No CDN.
+- **Vendored libs** (`vendor/VENDOR.md`): vis-network 10.1.5 → `window.vis`; jsPDF 4.2.1 → `window.jspdf.jsPDF`. No CDN.
 - **CSP** (`index.html`): `script-src 'self'` (no inline script); `connect-src 'self' https://api.etherscan.io`; `object-src 'none'`.
 - **Persistence** (`STORAGE_KEYS`): `etherscanApiKey`, `etherscanChainId`, `addressFormat`, `locale` — localStorage only; nothing leaves the browser.
 - **DOM ids** the render/ui layer binds (kept identical to the reference so Stage C wiring is mechanical): `apiKey, chainSelect, address, addressFormat, depth, maxTxPerAddress, safetyCap, rps, typeNormal, typeInternal, typeToken, startBtn, stopBtn, resetBtn, deleteNodesBtn, rotateLeftBtn, rotateRightBtn, status, degreeThreshold, selectHighDegreeBtn, fitViewBtn, exportResolution, exportPngBtn, exportPdfBtn, exportCsvBtn, graph, detailsContent, logContent` — plus new: `langToggle, samplingBanner, privacyBody, requestIndicator`.
