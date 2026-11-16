@@ -411,6 +411,7 @@ export function exportCsv(store, deps) {
  * Evidence bundle: graph.csv (exact exportCsv bytes, BOM included), workspace.json,
  * graph.png (omitted when over the pixel cap), query-log.json, MANIFEST.json and
  * SHA256SUMS in one store-only zip; logs the zip's SHA-256. Needs Web Crypto.
+ * Never rejects: any failure logs log.bundleFailed and downloads nothing.
  * @param {import('./network.js').GraphView} view
  * @param {import('../graphStore.js').GraphStore} store
  * @param {Parameters<typeof exportPng>[2] & Parameters<typeof buildCsvRows>[1] & {
@@ -430,25 +431,36 @@ export async function exportEvidenceBundle(view, store, deps) {
     return;
   }
 
-  const enc = (s) => new TextEncoder().encode(s);
-  const csv = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, provenance: { exportedAt, retrieval } });
-  const files = [{ name: "graph.csv", bytes: enc(csv) }, { name: "workspace.json", bytes: enc(deps.workspaceText) }];
-  const omitted = [];
-  const size = computeExportSize(deps.preset, nodeCount);
-  if (size.capped) {
-    omitted.push({ name: "graph.png", reason: "too-large" });
-    onLog({ level: "error", key: "log.bundlePngOmitted", params: { pixels: size.pixels } });
-  } else {
-    const { addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge } = deps;
-    const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge });
-    const png = await new Promise((r) => canvas.toBlob(r, "image/png"));
-    files.push({ name: "graph.png", bytes: new Uint8Array(await png.arrayBuffer()) });
-  }
-  files.push({ name: "query-log.json", bytes: enc(deps.queryLogText) });
+  // The bundle owns its failure path: any error (render, a null toBlob, zip)
+  // logs log.bundleFailed, downloads nothing and never rejects.
+  let url = null, sha256, names;
+  try {
+    const enc = (s) => new TextEncoder().encode(s);
+    const csv = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, provenance: { exportedAt, retrieval } });
+    const files = [{ name: "graph.csv", bytes: enc(csv) }, { name: "workspace.json", bytes: enc(deps.workspaceText) }];
+    const omitted = [];
+    const size = computeExportSize(deps.preset, nodeCount);
+    if (size.capped) {
+      omitted.push({ name: "graph.png", reason: "too-large" });
+      onLog({ level: "error", key: "log.bundlePngOmitted", params: { pixels: size.pixels } });
+    } else {
+      const { addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge } = deps;
+      const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge });
+      const png = await new Promise((r) => canvas.toBlob(r, "image/png"));
+      if (!png) throw new Error("canvas.toBlob returned null");
+      files.push({ name: "graph.png", bytes: new Uint8Array(await png.arrayBuffer()) });
+    }
+    files.push({ name: "query-log.json", bytes: enc(deps.queryLogText) });
 
-  const { zip, sha256, names } = await buildEvidenceZip({ exportedAt, ...deps.manifest, graph: store.stats(), retrieval, files, omitted });
-  const url = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
-  triggerDownload(url, `chainmap-evidence-${fileStamp(new Date(exportedAt))}.zip`);
+    let zip;
+    ({ zip, sha256, names } = await buildEvidenceZip({ exportedAt, ...deps.manifest, graph: store.stats(), retrieval, files, omitted }));
+    url = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
+    triggerDownload(url, `chainmap-evidence-${fileStamp(new Date(exportedAt))}.zip`);
+  } catch {
+    if (url) URL.revokeObjectURL(url);
+    onLog({ level: "error", key: "log.bundleFailed" });
+    return;
+  }
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   onLog({ level: "info", key: "log.bundleExported", params: { sha256, files: names.length } });
 }

@@ -569,3 +569,27 @@ test("bundle: happy path — six files, CSV bytes = csvText, stamped name, zip s
     expect(done.params).toEqual({ sha256: await sha256Hex(zipBytes), files: 6 });
   });
 });
+
+test("bundle: null toBlob or a render failure -> log.bundleFailed, nothing downloaded, never rejects", async () => {
+  const breakers = [
+    () => {
+      const create = document.createElement;
+      document.createElement = (tag) => {
+        const el = create(tag);
+        if (tag === "canvas") el.toBlob = (cb) => cb(null);
+        return el;
+      };
+    },
+    () => { window.vis.Network = class { constructor() { throw new Error("boom"); } }; },
+  ];
+  for (const breakIt of breakers) {
+    const logs = [];
+    await fakeCanvasEnv(async (env) => {
+      breakIt();
+      await expect(exportEvidenceBundle(env.view, storeAB(), bundleDeps({ onLog: (e) => logs.push(e) }))).resolves.toBeUndefined();
+      expect(env.anchors).toEqual([]);
+      expect(env.blobs).toEqual([]);
+    });
+    expect(logs).toEqual([{ level: "error", key: "log.bundleFailed" }]);
+  }
+});
