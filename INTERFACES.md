@@ -150,7 +150,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 ## render/labels.js — nearly pure (stub → Stage B)
 
 - `depthColor(depth): string` (hsl)
-- `nodeLabel(node, {addressFormat}): string`
+- `nodeLabel(node, {addressFormat, knownLabel?, chainTag?}): string` (a truthy `chainTag` is appended as a last `\n` line; `nodeVisual` title gets ` · {chainTag}`)
 - `nodeVisual(node): { color, title }`
 - `edgeLabel(edge): string`
 
@@ -238,7 +238,8 @@ Contract extensions:
 - `display.passesFilters` gains `minTime`/`maxTime` (UNIX secs; unknown-timestamp edges not excluded); `filtersActive` accounts for them.
 - `createGraphView` deps: `getCategory?(address, chainId)` (🌀/🌉/⛔ badge) and `getKnownNote?(address, chainId)→string|null` (appended to the node hover title as ` · {note}`) both take the node's own chain; `DisplayOptions.spamContractsFor?(chainId)→Set<string>` replaces `spamContracts`.
 - `GraphView` gains `setLayout(mode)`, `refreshHubs()`, `addAnnotation(text)`, `clearAnnotations()`, `getAnnotations()`, `setAnnotations(list)`. `createGraphView` deps gain optional `getHubKind(id)→('sink'|'faucet'|null)` (by node id). vis node ids are store node ids; vis edge endpoints are `fromId`/`toId`; `hasRenderedNode(id)` / `focusNode(id)` take node ids. Annotations are `note:*` overlay nodes (not graph nodes; not in store/CSV).
-- `render/export.renderExportCanvas`/`exportPng`/`exportPdf` accept `annotations` (baked into the image).
+- `render/export.renderExportCanvas`/`exportPng`/`exportPdf` accept `annotations` (baked into the image) and `chainTag?(chainId)→string|null` (chain label line per node).
+- `createGraphView` deps `getChainTag?(chainId)→string|null`: node label/title, edge title and bundle title get the tag (main shows it only at 2+ chains, always for an unknown chain). DOM id `legendChainTag` (legend row, hidden below 2 chains).
 
 New i18n keys: filters.dateFrom/dateTo/hubs, form.layout.*, investigate.label, workspace.label, btn.addNote/clearNotes/estimate/save/load/demo, help.apiKey, log.workspaceSaved/workspaceLoaded/workspaceError/demoLoaded/estimate/notesCleared, details.bundleType/count/total, alias.notePrompt (en+fr, 134/134).
 Bundled data: `data/demo-workspace.json` (loads with no API key), `data/known-addresses.json`. New `config.DATA_PATHS.demo`.

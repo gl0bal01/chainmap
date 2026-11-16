@@ -113,6 +113,8 @@ export default {
 
   // --- sidebar: legend ------------------------------------------------------
   "legend.title": "Legend",
+  "legend.chainTag": "Chain shown under the address",
+  "chain.unknown": "chain {id}",
   "legend.root": "Searched address",
   "legend.discovered": "Discovered address",
   "legend.moreHistory": "More history available (load older)",

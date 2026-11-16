@@ -102,6 +102,7 @@ function buildOptions(layout) {
  *           getLayout?:()=>('force'|'hierarchical'),
  *           getKnownLabel?:(address:string, chainId:string)=>(string|null),
  *           getKnownNote?:(address:string, chainId:string)=>(string|null),
+ *           getChainTag?:(chainId:string)=>(string|null),
  *           getHubKind?:(id:string)=>('sink'|'faucet'|null),
  *           getHubDimOn?:()=>boolean,
  *           getCategory?:(address:string, chainId:string)=>(string|null),
@@ -110,7 +111,7 @@ function buildOptions(layout) {
  * @returns {GraphView}
  */
 export function createGraphView(container, store, deps) {
-  const { i18n, getAddressFormat, getLayout, getKnownLabel, getKnownNote, getHubKind, getHubDimOn, getCategory, getEdgeFlags } = deps;
+  const { i18n, getAddressFormat, getLayout, getKnownLabel, getKnownNote, getChainTag, getHubKind, getHubDimOn, getCategory, getEdgeFlags } = deps;
   const vis = window.vis;
 
   const nodesDS = new vis.DataSet([]); // full graph (mirror of store) + annotation nodes
@@ -165,9 +166,15 @@ export function createGraphView(container, store, deps) {
   const RISK_COLOR = { high: "#e0603a", info: "#d8b24a" }; // red danger, soft-amber info
   const RISK_MARK = { high: "⚠", info: "ⓘ" };
 
+  const chainSuffix = (chainId) => {
+    const tag = getChainTag ? getChainTag(chainId) : null;
+    return tag ? ` · ${tag}` : "";
+  };
+
   function applyNode(node) {
     const knownLabel = knownFor(node);
-    const visual = labels.nodeVisual(node, { knownLabel });
+    const chainTag = getChainTag ? getChainTag(node.chainId) : null;
+    const visual = labels.nodeVisual(node, { knownLabel, chainTag });
     const hub = hubFor(node.id); // 'sink' | 'faucet' | null — used for title + (elsewhere) hide filter
     const dimOn = getHubDimOn ? getHubDimOn() : false; // dim-only toggle, decoupled from hide
     const bg = hub && dimOn ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs only when dim-only toggle is on
@@ -182,7 +189,7 @@ export function createGraphView(container, store, deps) {
     const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
       id: node.id,
-      label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel }),
+      label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel, chainTag }),
       color: ringColor ? { background: bg, border: ringColor } : more ? { background: bg, border: MORE_BORDER } : bg,
       borderWidth: ringColor ? 3 : more ? 2 : 1,
       shapeProperties: { borderDashes: more ? [4, 3] : false },
@@ -204,11 +211,12 @@ export function createGraphView(container, store, deps) {
     const flags = flagsForEdgeView(edge);
     const sev = edgeSeverity(flags);
     const width = edgeWidth(edgeAmountNumber(edge), maxAmount);
+    const tag = chainSuffix(edge.chainId);
     return {
       label: sev ? `${base ? base + " " : ""}${RISK_MARK[sev]}` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base),
       title: sev
-        ? `${edgeTitle(edge, i18n)} · ${RISK_MARK[sev]} ${flags.map((k) => i18n.t(k)).join(", ")}`
-        : (edge.hasData ? edgeDataTitle(edge, i18n) : edgeTitle(edge, i18n)),
+        ? `${edgeTitle(edge, i18n)}${tag} · ${RISK_MARK[sev]} ${flags.map((k) => i18n.t(k)).join(", ")}`
+        : (edge.hasData ? edgeDataTitle(edge, i18n) : edgeTitle(edge, i18n)) + tag,
       color: { color: sev ? RISK_COLOR[sev] : edgeColorFor(edge) },
       width: sev === "high" ? width + 2 : sev === "info" ? width + 1 : width,
       dashes: sev === "high" ? [6, 4] : sev === "info" ? [2, 3] : !!edge.hasData,
@@ -278,7 +286,7 @@ export function createGraphView(container, store, deps) {
         const memberFlags = [...new Set((b.memberKeys || []).flatMap((k) => flagsByKey.get(k) || []))];
         const sev = edgeSeverity(memberFlags);
         const baseWidth = edgeWidth(b.total, maxTotal);
-        const baseTitle = `${b.count} tx — ${b.totalText} ${b.symbol}`.trim();
+        const baseTitle = `${b.count} tx — ${b.totalText} ${b.symbol}`.trim() + chainSuffix(b.chainId);
         return {
           id: b.id,
           from: b.fromId,

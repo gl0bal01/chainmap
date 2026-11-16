@@ -94,3 +94,11 @@ describe("edgeLabel", () => {
     expect(edgeLabel(edge)).toBe("");
   });
 });
+
+test("chainTag adds a last label line and a title suffix; absent leaves today's output", () => {
+  const node = { address: ADDR, alias: "Mine", depth: 1, isRoot: false };
+  expect(nodeLabel(node, { addressFormat: "short", chainTag: "Base" })).toBe(`Mine\n(${shortAddress(ADDR)})\nBase`);
+  expect(nodeLabel({ ...node, alias: null }, { addressFormat: "full", chainTag: "Base" })).toBe(`${ADDR}\nBase`);
+  expect(nodeLabel(node, { addressFormat: "short", chainTag: null })).toBe(`Mine\n(${shortAddress(ADDR)})`);
+  expect(nodeVisual(node, { chainTag: "Base" }).title).toBe(`Mine — ${ADDR} · Base`);
+});

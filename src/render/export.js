@@ -64,7 +64,8 @@ export function computeExportSize(preset, nodeCount) {
  * @param {import('./network.js').GraphView} view  live view (for node positions)
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ size:ExportSize, background?:string, addressFormat:'short'|'full',
- *           annotations?:Array<{text:string,x:number,y:number}> }} opts
+ *           annotations?:Array<{text:string,x:number,y:number}>,
+ *           chainTag?:(chainId:string)=>(string|null) }} opts
  * @returns {Promise<HTMLCanvasElement>}
  */
 export function renderExportCanvas(view, store, opts) {
@@ -108,7 +109,7 @@ export function renderExportCanvas(view, store, opts) {
             x: p.x,
             y: p.y,
             fixed: { x: true, y: true },
-            label: nodeLabel(n, { addressFormat }),
+            label: nodeLabel(n, { addressFormat, chainTag: opts.chainTag ? opts.chainTag(n.chainId) : null }),
             color: visual.color,
             title: visual.title,
           };
@@ -190,11 +191,12 @@ export function renderExportCanvas(view, store, opts) {
  * @param {import('./network.js').GraphView} view
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ preset:'hd'|'qhd'|'uhd'|'auto', addressFormat:'short'|'full',
+ *           chainTag?:(chainId:string)=>(string|null),
  *           onLog:(e:{level:string,key:string,params?:object})=>void }} deps
  * @returns {Promise<void>}
  */
 export async function exportPng(view, store, deps) {
-  const { preset, addressFormat, onLog, annotations } = deps;
+  const { preset, addressFormat, onLog, annotations, chainTag } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -207,7 +209,7 @@ export async function exportPng(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag });
   triggerDownload(canvas.toDataURL("image/png"), `graph-${Date.now()}.png`);
   onLog({ level: "info", key: "log.exportPng", params: { w: canvas.width, h: canvas.height } });
 }
@@ -217,11 +219,12 @@ export async function exportPng(view, store, deps) {
  * @param {import('./network.js').GraphView} view
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ preset:'hd'|'qhd'|'uhd'|'auto', addressFormat:'short'|'full', jsPDF:any,
+ *           chainTag?:(chainId:string)=>(string|null),
  *           onLog:(e:{level:string,key:string,params?:object})=>void }} deps
  * @returns {Promise<void>}
  */
 export async function exportPdf(view, store, deps) {
-  const { preset, addressFormat, jsPDF, onLog, annotations } = deps;
+  const { preset, addressFormat, jsPDF, onLog, annotations, chainTag } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -234,7 +237,7 @@ export async function exportPdf(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag });
   const imgData = canvas.toDataURL("image/png");
   const doc = new jsPDF({
     orientation: canvas.width >= canvas.height ? "l" : "p",

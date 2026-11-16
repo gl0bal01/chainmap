@@ -56,7 +56,13 @@ const clampInt = (raw, { min, max }, fallback) => {
 const chainById = (id) => CHAINS.find((c) => String(c.id) === String(id));
 // Explorer host for a record's chain; an unknown chain gets no link (no fallback host).
 const explorerFor = (id) => chainById(id)?.explorer || null;
-const chainName = (id) => chainById(id)?.name || String(id);
+const chainLabel = (id) => chainById(id)?.name || t("chain.unknown", { id });
+// Chain tag on labels: only once the graph spans 2+ chains; an unknown chain is always tagged.
+const getChainTag = (id) => (chainById(id) ? (store.chains().length >= 2 ? chainLabel(id) : null) : chainLabel(id));
+function syncChainUi() {
+  view.refreshProjection();
+  $("legendChainTag").hidden = store.chains().length < 2;
+}
 // Tx types ticked in the scan form (what a scan or a load fetches).
 const formTypes = () =>
   selectedTypes({
@@ -174,6 +180,10 @@ function populateChains() {
     sel.appendChild(opt);
   });
   sel.value = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
+  if (!sel.value) { // stale stored chain no longer in CHAINS
+    sel.value = "1";
+    localStorage.setItem(STORAGE_KEYS.chainId, "1");
+  }
   // The selector is only the chain for the next scan: nodes keep their own chain.
   sel.addEventListener("change", () => localStorage.setItem(STORAGE_KEYS.chainId, sel.value));
 }
@@ -326,7 +336,7 @@ function loadRefusal(chainId) {
 // Log "Added {chain}" when a scan brought a new chain into a multi-chain graph.
 function logChainAdded(before, chainId) {
   const n = store.chains().length;
-  if (!before.includes(chainId) && n >= 2) logger.log({ level: "info", key: "log.chainAdded", params: { chain: chainName(chainId), n } });
+  if (!before.includes(chainId) && n >= 2) logger.log({ level: "info", key: "log.chainAdded", params: { chain: chainLabel(chainId), n } });
 }
 
 function showNodeDetails(id) {
@@ -398,6 +408,7 @@ function promptAlias(id) {
 // no separate index to keep in sync.
 function buildSearchRecords() {
   const records = [];
+  const multi = store.chains().length >= 2;
   for (const node of store.listNodes()) {
     const alias = store.getAlias(node.id);
     const known = knownLabel(node.address, node.chainId, knownData);
@@ -406,7 +417,7 @@ function buildSearchRecords() {
       kind: "node",
       id: node.id,
       title: alias || known || shortAddress(node.address),
-      subtitle: node.address,
+      subtitle: multi ? `${node.address} · ${chainLabel(node.chainId)}` : node.address,
       text: [alias, known, category].filter(Boolean).map((s) => s.toLowerCase()),
       hex: [node.address],
     });
@@ -602,7 +613,7 @@ async function startScan() {
   logChainAdded(before, chainId);
   status.set(
     summary.planRequired
-      ? t("status.planRequired", { chain: chainName(chainId) })
+      ? t("status.planRequired", { chain: chainLabel(chainId) })
       : t("status.done", { nodes: summary.nodes, edges: summary.edges })
   );
 
@@ -651,7 +662,7 @@ async function loadOlderFor(id) {
   });
   const done = { edges: res.newEdges, addr: shortAddress(node.address), errors: res.errors };
   const key = res.stopped ? "status.loadOlderStopped" : res.errors ? "status.loadOlderErrors" : "status.loadOlderDone";
-  status.set(res.planRequired ? t("status.planRequired", { chain: chainName(node.chainId) }) : t(key, done));
+  status.set(res.planRequired ? t("status.planRequired", { chain: chainLabel(node.chainId) }) : t(key, done));
 }
 
 function resetGraph() {
@@ -736,7 +747,7 @@ async function startDetectChain() {
     const hit = localHits[0]; // first-listed chain-specific hit wins
     $("chainSelect").value = String(hit.chainId);
     $("chainSelect").dispatchEvent(new Event("change"));
-    const chains = localHits.map((h) => (h.chainId === "*" ? t("details.allChains") : chainName(h.chainId))).join(", ");
+    const chains = localHits.map((h) => (h.chainId === "*" ? t("details.allChains") : chainLabel(h.chainId))).join(", ");
     logger.log({ level: "info", key: "detect.localHit", params: { label: hit.label, chains } });
     if (el) {
       el.className = "detect ok";
@@ -894,7 +905,7 @@ function applyWorkspace(ws) {
   applyDisplayOptions();
   clearDetails();
   if (ws.assumedChainId) {
-    logger.log({ level: "info", key: "log.workspaceAssumedChain", params: { chain: chainName(ws.assumedChainId) } });
+    logger.log({ level: "info", key: "log.workspaceAssumedChain", params: { chain: chainLabel(ws.assumedChainId) } });
   }
   return true;
 }
@@ -992,7 +1003,7 @@ function wireControls() {
   const onLog = (e) => logger.log(e);
   const addressFormat = () => $("addressFormat").value;
   $("exportPngBtn").addEventListener("click", () =>
-    exportPng(view, store, { preset: $("exportResolution").value, addressFormat: addressFormat(), annotations: view.getAnnotations(), onLog })
+    exportPng(view, store, { preset: $("exportResolution").value, addressFormat: addressFormat(), annotations: view.getAnnotations(), chainTag: getChainTag, onLog })
   );
   $("exportPdfBtn").addEventListener("click", () =>
     exportPdf(view, store, {
@@ -1000,6 +1011,7 @@ function wireControls() {
       addressFormat: addressFormat(),
       jsPDF: window.jspdf.jsPDF,
       annotations: view.getAnnotations(),
+      chainTag: getChainTag,
       onLog,
     })
   );
@@ -1085,6 +1097,7 @@ function init() {
     i18n,
     getAddressFormat: () => $("addressFormat").value,
     getKnownLabel: (a, c) => knownLabel(a, c, knownData),
+    getChainTag,
     getKnownNote: (a, c) => (isAllChainEntry(a, c, knownData) ? t("details.allChainsListing") : null),
     // Returns the hub classification whenever ANY hub-driven feature is engaged
     // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
@@ -1100,6 +1113,21 @@ function init() {
     getHubDimOn: () => hubOn,
     getCategory: (a, c) => knownCategory(a, c, knownData),
     getEdgeFlags: (edge) => flagsForEdge(edge, flagCtx),
+  });
+  // Chain tags / legend row depend on the distinct chain set: resync only when it changes.
+  let lastChains = store.chains().join(",");
+  let chainSyncQueued = false;
+  store.subscribe((e) => {
+    if (e.type !== "node:add" && e.type !== "node:remove" && e.type !== "reset") return;
+    if (chainSyncQueued) return;
+    chainSyncQueued = true;
+    queueMicrotask(() => {
+      chainSyncQueued = false;
+      const now = store.chains().join(",");
+      if (now === lastChains) return;
+      lastChains = now;
+      syncChainUi();
+    });
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

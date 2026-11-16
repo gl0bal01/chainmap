@@ -111,6 +111,8 @@ export default {
   "hint.export": "Les exports PNG/PDF capturent toujours le graphe entier (pas seulement ce qui est visible à l'écran), avec les adresses et alias affichés en entier et à la résolution choisie ci-dessus pour rester lisibles.",
 
   // --- sidebar: legend ------------------------------------------------------
+  "legend.chainTag": "Chaîne affichée sous l'adresse",
+  "chain.unknown": "chaîne {id}",
   "legend.title": "Légende",
   "legend.root": "Adresse recherchée",
   "legend.discovered": "Adresse découverte",

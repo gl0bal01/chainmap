@@ -4,6 +4,7 @@
 import { test, expect, beforeAll } from "bun:test";
 import { Window } from "happy-dom";
 import KNOWN from "../data/known-addresses.json";
+import V2 from "./fixtures/workspace-v2.json";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40); // 40-hex address helper
 const ROOT = A(1), N2 = A(2), N3 = A(3), N4 = A(4), TOKEN = A(9);
@@ -75,7 +76,7 @@ function stubFetch() {
 
 function stubVis() {
   class FakeDataSet {
-    constructor() { this.items = new Map(); }
+    constructor(init) { this.items = new Map(); if (init) this.add(init); }
     add(o) { for (const it of [].concat(o)) this.items.set(it.id, it); }
     update(o) { for (const it of [].concat(o)) this.items.set(it.id, { ...(this.items.get(it.id) || {}), ...it }); }
     remove(id) { for (const i of [].concat(id)) this.items.delete(i); }
@@ -101,7 +102,7 @@ function stubVis() {
     setOptions() {}
     getConnectedEdges(id) { return this.edges.get().filter((e) => e.from === id || e.to === id).map((e) => e.id); }
     getPositions(ids) { const o = {}; for (const id of ids || this.nodes.getIds()) o[id] = { x: 0, y: 0 }; return o; }
-    moveNode() {} fit() {} destroy() {} DOMtoCanvas(p) { return p; }
+    once() {} moveNode() {} fit() {} destroy() {} DOMtoCanvas(p) { return p; }
   }
   FakeNetwork.first = null;
   return { DataSet: FakeDataSet, DataView: FakeDataView, Network: FakeNetwork };
@@ -1443,6 +1444,96 @@ test("a two-chain graph with a note round-trips through save and load", async ()
     URL.revokeObjectURL = orig.revoke;
     window.prompt = orig.prompt;
     $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+const legendShown = () => !$("legendChainTag").hidden;
+
+test("a legacy v2 workspace renders exactly as before", async () => {
+  try {
+    await loadAsDemo(V2);
+    const net = window.vis.Network.first;
+    expect(net.nodes.get().filter((n) => !String(n.id).startsWith("note:") && n.label.includes("\nEthereum")).length).toBe(0);
+    expect(net.edges.get().filter((e) => String(e.title).includes(" · Ethereum")).length).toBe(0);
+    expect($("legendChainTag").hidden).toBe(true);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("two chains: every node shows its chain line, edges name their chain, legend row shown", async () => {
+  try {
+    await twoChainScan();
+    expect(visNode(ID("1", ROOT)).label.endsWith("\nEthereum")).toBe(true);
+    expect(visNode(ID("42161", ROOT)).label.endsWith("\nArbitrum One")).toBe(true);
+    const e = window.vis.Network.first.edges.get().find((x) => x.id.startsWith("42161|"));
+    expect(e.title).toContain(" · Arbitrum One");
+    expect(legendShown()).toBe(true);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("pruning back to one chain removes the chain line", async () => {
+  try {
+    await twoChainScan();
+    const net = window.vis.Network.first;
+    net.setSelection({ nodes: net.nodes.getIds().filter((i) => String(i).startsWith("42161:")) });
+    $("deleteNodesBtn").click();
+    await sleep(0);
+    expect(net.nodes.get().some((n) => String(n.label).endsWith("\nEthereum"))).toBe(false);
+    expect(legendShown()).toBe(false);
+  } finally {
+    window.vis.Network.first.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("palette finds both twins of an address, subtitled with their chain", async () => {
+  const subs = () => [...document.querySelectorAll("#paletteResults .palette-item-subtitle")].map((e) => e.textContent);
+  const search = () => {
+    $("searchBtn").click();
+    $("paletteInput").value = ROOT;
+    $("paletteInput").dispatchEvent(new window.Event("input"));
+  };
+  try {
+    await twoChainScan();
+    search();
+    expect(subs()).toContain(`${ROOT} · Ethereum`);
+    expect(subs()).toContain(`${ROOT} · Arbitrum One`);
+    $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await freshScan("20");
+    search();
+    expect(subs().filter((s) => s.startsWith(ROOT))).toEqual([ROOT]);
+  } finally {
+    $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    restoreForm();
+  }
+});
+
+test("an unknown-chain node is tagged 'chain 999999' even alone", async () => {
+  try {
+    await loadAsDemo(v3ws([v3Node("999999", ROOT, { depth: 0, isRoot: true })], []));
+    expect(visNode(ID("999999", ROOT)).label.endsWith("\nchain 999999")).toBe(true);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("PNG export uses node ids and the chain line", async () => {
+  try {
+    await twoChainScan();
+    $("exportPngBtn").click();
+    const net = window.vis.Network.last;
+    const nodes = net.nodes.get();
+    const byId = Object.fromEntries(nodes.map((n) => [n.id, n.label]));
+    expect(byId[ID("1", ROOT)].endsWith("\nEthereum")).toBe(true);
+    expect(byId[ID("42161", ROOT)].endsWith("\nArbitrum One")).toBe(true);
+    for (const e of net.edges.get()) expect(e.from).toMatch(/^\d+:0x/), expect(e.to).toMatch(/^\d+:0x/);
+  } finally {
     restoreForm();
   }
 });
