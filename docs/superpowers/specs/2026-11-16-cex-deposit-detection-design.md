@@ -73,7 +73,8 @@ hosts (CSP unchanged); textContent only for untrusted strings.
 
 ```
 findDeposits(nodes, edges, ctx) → Map<nodeId, DepositEvidence>
-  ctx = { known(address, chainId) → KnownEntry|null, ignoreEdge?(edge) → boolean }
+  ctx = { known(address, chainId) → KnownEntry|null, ignoreEdge?(edge) → boolean,
+          trustedToken?(contract, chainId) → boolean }
 DepositEvidence = {
   walletId, wallet, label,          // the one exchange wallet (node id, address, known label)
   swept, outgoing,                  // N of M outgoing value transfers
@@ -94,8 +95,9 @@ Criteria for node `N` (all must hold; constants in the module, conservative):
    action in `txlist` / `txlistinternal` / `tokentx` **and present in `N.history`**
    (NFT edges ignored; an internal edge counts only if N fetched `txlistinternal`),
    `BigInt(value) > 0n` (unparseable → skipped), and not `ctx.ignoreEdge(edge)`
-   (main passes imitation-token + spam-list edges: fake `Transfer(from=N)` events used
-   for address poisoning must not dilute the evidence).
+   (main passes imitation-token + spam-list edges, so known poisoning fakes do not
+   dilute the evidence; an unlisted spoofed token still can — see 9 and the
+   final-review rulings).
 4. **Exchange-bound** `S` = edges of `O` whose `to` has category `exchange` on
    `edge.chainId` (`ctx.known(edge.to, edge.chainId)`). `S` non-empty.
 5. **One wallet:** every edge of `S` goes to the same address `W`.
@@ -107,10 +109,16 @@ Criteria for node `N` (all must hold; constants in the module, conservative):
    never shows as 100 %).
 8. Twins: nothing special — every lookup uses the record's chain and every edge joins
    two nodes of one chain, so evidence never crosses chains.
+9. **Trusted asset:** at least one edge of `S` is native (`txlist` / `txlistinternal`:
+   N itself originated it) or a `tokentx` whose `tokenContract` passes
+   `ctx.trustedToken(contract, edge.chainId)` (main: known `token` category on that
+   chain; absent → only native counts). Spoofed sweeps still count in the `S`/`O`
+   shares; they cannot create a mark alone.
 
 **Delay (evidence, not a criterion):** for each edge in `S`, delay = its `timeStamp`
 minus the latest inflow (`toId === N.id`, same asset, `timeStamp <=` the sweep)
-seen in the store. `maxDelaySec` = max over sweeps that have one; `null` when none
+seen in the store, same filter as outflows (fetched action, value > 0, not ignored).
+Only decimal-digit timestamps count; anything else never times a sweep. `maxDelaySec` = max over sweeps that have one; `null` when none
 (the inflow fell outside the sample). Delay is shown, not gated (sweep policies range
 from minutes to weeks; a gate would mostly reject on missing sample data).
 
@@ -211,3 +219,22 @@ Builder check (sonnet, fresh) raised 8 questions; rulings (spec text above updat
    The demo nodes gain `history` only where needed (the deposit node).
 8. **CSV.** One node row per `chainId:address` (store nodes); the map is keyed by node
    id, so twins get independent cells.
+
+## Final-review rulings
+
+Final whole-branch review (2026-11-16); spec text above updated:
+
+1. **Trusted asset (criterion 9).** Any contract can emit `Transfer(from=N, to=<hot
+   wallet>)`, so a sweep made only in an unlisted token could frame an arbitrary address.
+   A mark now needs at least one native or trusted-token sweep (main: known `token`
+   category on the edge's chain). Cost: sweeps made only in unlisted tokens are no longer
+   marked (false negatives only). Not closed: an unknown spoofed token can still dilute
+   (hide) a real deposit address; dropping all unlisted-token edges from `O` would create
+   false positives instead. Documented as a limit in LEARN.
+2. **Timestamps:** decimal digits only (`/^\d+$/`, safe integer, > 0); anything else
+   never times a sweep, so a tampered workspace cannot fabricate delay evidence.
+3. **Deferred (Minor):** the token symbol is not escaped inside `deposit_evidence` (no
+   formula injection: the cell starts with `wallet=`); full recompute per store
+   macrotask during scans (fine for sampled graphs; skip while scanning if large scans
+   feel slow); one-task stale window on reset / workspace reload (self-heals in the next
+   macrotask; the end state is integration-tested).

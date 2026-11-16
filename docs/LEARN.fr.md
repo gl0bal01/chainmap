@@ -214,8 +214,11 @@ chainmap marque une telle adresse « dépôt probable → `<portefeuille>` » qu
 - **La règle 90/90 :** au moins 90 % de ses transferts sortants (en nombre) sont allés à ce
   portefeuille et, pour chaque actif balayé, au moins 90 % de la valeur (BigInt sur les unités
   de base, pourcentage arrondi à l'inférieur : 99,9 % n'apparaît jamais comme 100 %). Les
-  jetons imitation et spam sont ignorés pour que des transferts d'empoisonnement ne diluent pas
-  l'indice.
+  faux transferts de jetons imitation ou listés comme spam sont ignorés.
+- **Au moins un balayage se fait dans la monnaie native de la chaîne ou dans un jeton connu**
+  (listé dans `data/`). N'importe qui peut déployer un jeton dont le contrat émet un faux
+  `Transfer` depuis n'importe quelle adresse : un transfert de jeton forgé ne peut donc pas, à
+  lui seul, créer une marque.
 
 Le panneau de détails montre les indices : « N transferts sortants sur M », la part par actif
 et une **ligne de délai** (« balayé moins de 10 minutes après la dernière entrée »). Le délai
@@ -232,6 +235,12 @@ Limites, à lire avant de se fier à une marque :
 - Seuls les portefeuilles de `data/` sont reconnus ; les autres plateformes restent invisibles.
 - Un flux réparti entre deux portefeuilles de plateforme reste non marqué (cela pourrait être
   deux plateformes).
+- **Des transferts falsifiés peuvent encore masquer un dépôt.** Les faux transferts d'un jeton
+  inconnu comptent comme des transferts sortants : ils peuvent faire passer une vraie adresse
+  de dépôt sous le seuil de 90 %.
+- **Les actifs jamais balayés vers le portefeuille ne sont pas jugés en valeur.** Un gros
+  transfert d'un autre actif ailleurs ne compte que pour un transfert dans la part de 90 % en
+  nombre.
 - Le jugement se fait **par chaîne** ; la même adresse sur deux chaînes est jugée deux fois,
   indépendamment.
 - C'est une **piste, pas une preuve de propriété** : vérifiez auprès de la plateforme.

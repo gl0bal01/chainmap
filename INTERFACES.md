@@ -419,7 +419,7 @@ Heuristic: an address whose sampled outflow went nearly entirely to one known ex
 is a likely deposit address. A display projection, never stored, never in workspaces.
 
 - **depositDetect.js** — new, pure, DOM-free:
-  - `findDeposits(nodes, edges, ctx:{known(address, chainId)→KnownEntry|null, ignoreEdge?(edge)→boolean}): Map<nodeId, DepositEvidence>`
+  - `findDeposits(nodes, edges, ctx:{known(address, chainId)→KnownEntry|null, ignoreEdge?(edge)→boolean, trustedToken?(contract, chainId)→boolean}): Map<nodeId, DepositEvidence>`
   - `DepositEvidence = { walletId, wallet, label, swept, outgoing, assets:[{symbol, contract, sharePct}], maxDelaySec:number|null, timedSweeps }` (`contract ""` = native; `maxDelaySec` null = no prior inflow in the sample).
   - `delayParts(sec) → { key:'duration.m'|'duration.h'|'duration.d', params:{n} }`
   - Criteria (all must hold), constants in the module:
@@ -430,7 +430,8 @@ is a likely deposit address. A display projection, never stored, never in worksp
     5. All such exchange-bound edges go to the same wallet.
     6. Count share: `|S| * 100 >= |O| * 90`.
     7. Value share per swept asset (BigInt, raw units): `sum(S_a) * 100n >= sum(O_a) * 90n`; `sharePct` is the floored integer percent.
-  - Delay (evidence only): sweep `timeStamp` minus the latest same-asset inflow (`<=`) in the store, same filter as outflows (fetched action, value > 0, not imitation/spam). Chains never mix.
+    8. Trusted asset (spec criterion 9): at least one exchange-bound edge is native (txlist/txlistinternal) or a tokentx whose contract passes `trustedToken(contract, edge.chainId)` (absent → native only). main passes the known `token` category. Spoofed sweeps still count in the shares.
+  - Delay (evidence only): sweep `timeStamp` minus the latest same-asset inflow (`<=`) in the store, same filter as outflows (fetched action, value > 0, not imitation/spam); decimal-digit timestamps only. Chains never mix.
 - **riskScore.js** — `RiskInput.deposit:boolean` adds the context reason `risk.deposit` (no score).
 - **render/network.js** — `createGraphView` dep `getDeposit?(id)→DepositEvidence|null` (label line + tooltip); `GraphView.refreshNodes(ids)` re-applies only the given nodes.
 - **ui.js** — `renderNodeDetails` dep `deposit?: DepositEvidence|null` renders the "Exchange deposit" row (textContent only).
