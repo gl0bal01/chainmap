@@ -1,10 +1,14 @@
 import { describe, test, expect } from "bun:test";
 import {
   buildUrl,
+  buildParams,
   createEtherscanClient,
   EtherscanError,
 } from "../src/etherscanClient.js";
 import { API_BASE } from "../src/config.js";
+import { sha256Hex, PARAM_KEYS } from "../src/queryLog.js";
+
+const enc = new TextEncoder();
 
 // --- test helpers -----------------------------------------------------------
 
@@ -20,7 +24,7 @@ function fakeResponse(body, { status = 200, headers = {} } = {}) {
         return key != null ? headers[key] : null;
       },
     },
-    json: async () => body,
+    arrayBuffer: async () => enc.encode(typeof body === "string" ? body : JSON.stringify(body)).buffer,
   };
 }
 
@@ -365,4 +369,129 @@ describe("setApiKey / setChainId", () => {
     expect(u.searchParams.get("chainid")).toBe("137");
   });
 
+});
+
+// --- onQuery hook -----------------------------------------------------------
+
+const A = "0x" + "a".repeat(40);
+const mk = (extra = {}) => {
+  const recs = [];
+  const fetchImpl = extra.fetchImpl;
+  const client = createEtherscanClient({
+    apiKey: "K", chainId: 1, fetchImpl, backoffBaseMs: 1,
+    onQuery: (r) => { recs.push(r); }, ...extra.opts,
+  });
+  return { recs, client };
+};
+const run = (c) => c.fetchAction(A, "txlist", { offset: 20 });
+
+describe("onQuery hook", () => {
+  test("hook: ok hashes the exact served bytes", async () => {
+    const served = { status: "1", message: "OK", result: [{ hash: "0x1" }, { hash: "0x2" }] };
+    const { recs, client } = mk({ fetchImpl: queuedFetch([fakeResponse(served)]) });
+    await run(client);
+    expect(recs.length).toBe(1);
+    expect(recs[0].outcome).toBe("ok");
+    expect(recs[0].httpStatus).toBe(200);
+    expect(recs[0].rows).toBe(2);
+    expect(recs[0].chainId).toBe("1");
+    expect(recs[0].action).toBe("txlist");
+    expect(await sha256Hex(recs[0].body)).toBe(await sha256Hex(enc.encode(JSON.stringify(served))));
+  });
+
+  test("hook: no-tx", async () => {
+    const { recs, client } = mk({ fetchImpl: queuedFetch([fakeResponse({ status: "0", message: "No transactions found", result: "No transactions found" })]) });
+    await run(client);
+    expect(recs.length).toBe(1);
+    expect(recs[0].rows).toBe(0);
+    expect(recs[0].outcome).toBe("ok");
+  });
+
+  test("hook: 429 then ok", async () => {
+    const { recs, client } = mk({ fetchImpl: queuedFetch([fakeResponse({}, { status: 429 }), OK([])]) });
+    await run(client);
+    expect(recs.length).toBe(2);
+    expect(recs[0].outcome).toBe("retry");
+    expect(recs[0].httpStatus).toBe(429);
+    expect(recs[0].body).toBeUndefined();
+    expect(recs[1].outcome).toBe("ok");
+  });
+
+  test("hook: 429 on last attempt", async () => {
+    const { recs, client } = mk({ fetchImpl: queuedFetch([fakeResponse({}, { status: 429 })]), opts: { maxRetries: 2 } });
+    const err = await catchError(run(client));
+    expect(err.kind).toBe("rate_limit");
+    expect(recs.map((r) => r.outcome)).toEqual(["retry", "error"]);
+  });
+
+  test("hook: body throttle exhausted", async () => {
+    const { recs, client } = mk({ fetchImpl: queuedFetch([NOTOK("Max rate limit reached")]), opts: { maxRetries: 2 } });
+    await catchError(run(client));
+    expect(recs.map((r) => r.outcome)).toEqual(["retry", "error"]);
+    for (const r of recs) {
+      expect(r.rows).toBeNull();
+      expect(r.body).toBeInstanceOf(Uint8Array);
+    }
+  });
+
+  test("hook: invalid key", async () => {
+    const { recs, client } = mk({ fetchImpl: queuedFetch([NOTOK("Invalid API Key")]) });
+    const err = await catchError(run(client));
+    expect(err.kind).toBe("invalid_key");
+    expect(recs.length).toBe(1);
+    expect(recs[0].outcome).toBe("error");
+  });
+
+  test("hook: invalid JSON", async () => {
+    const { recs, client } = mk({ fetchImpl: queuedFetch([fakeResponse("<html>oops")]) });
+    const err = await catchError(run(client));
+    expect(err.kind).toBe("api");
+    expect(recs.length).toBe(1);
+    expect(recs[0].outcome).toBe("error");
+    expect(recs[0].httpStatus).toBe(200);
+    expect(recs[0].rows).toBeNull();
+    expect(await sha256Hex(recs[0].body)).toBe(await sha256Hex(enc.encode("<html>oops")));
+  });
+
+  test("hook: network + timeout", async () => {
+    const a = mk({ fetchImpl: async () => { throw new Error("boom"); } });
+    await catchError(run(a.client));
+    expect(a.recs.length).toBe(1);
+    expect(a.recs[0].outcome).toBe("network");
+    expect(a.recs[0].httpStatus).toBeNull();
+    expect(a.recs[0].rows).toBeNull();
+    expect(a.recs[0].body).toBeUndefined();
+    const b = mk({ fetchImpl: hangingFetch(), opts: { timeoutMs: 5 } });
+    const err = await catchError(run(b.client));
+    expect(err.kind).toBe("timeout");
+    expect(b.recs.map((r) => r.outcome)).toEqual(["network"]);
+  });
+
+  test("hook: aborted attempts not logged", async () => {
+    const ac = new AbortController();
+    const { recs, client } = mk({ fetchImpl: hangingFetch() });
+    const p = client.fetchAction(A, "txlist", { offset: 20, signal: ac.signal });
+    ac.abort();
+    const err = await catchError(p);
+    expect(err.kind).toBe("aborted");
+    expect(recs.length).toBe(0);
+  });
+
+  test("throwing hook does not break the fetch", async () => {
+    const res = [{ hash: "0x1" }];
+    const base = await createEtherscanClient({ apiKey: "K", chainId: 1, fetchImpl: queuedFetch([OK(res)]) }).fetchAction(A, "txlist", { offset: 20 });
+    for (const onQuery of [() => { throw new Error("x"); }, async () => { throw new Error("y"); }]) {
+      const c = createEtherscanClient({ apiKey: "K", chainId: 1, fetchImpl: queuedFetch([OK(res)]), onQuery });
+      expect(await run(c)).toEqual(base);
+    }
+  });
+
+  test("params redacted", async () => {
+    const { recs, client } = mk({ fetchImpl: queuedFetch([OK([])]) });
+    await run(client);
+    expect(recs[0].params).toEqual(buildParams({ chainId: 1, action: "txlist", address: A, offset: 20 }));
+    expect("apikey" in recs[0].params).toBe(false);
+    expect(Object.keys(recs[0].params)).toEqual(PARAM_KEYS);
+    expect(buildUrl({ chainId: 1, action: "txlist", address: A, offset: 20, apiKey: "K" })).toMatch(/&apikey=K$/);
+  });
 });

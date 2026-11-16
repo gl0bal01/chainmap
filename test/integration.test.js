@@ -70,7 +70,7 @@ function stubFetch() {
       ok: true,
       status: 200,
       headers: { get: () => null },
-      json: async () => ({ status: result.length ? "1" : "0", message: result.length ? "OK" : "No transactions found", result: result.length ? result : "No transactions found" }),
+      arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: result.length ? "1" : "0", message: result.length ? "OK" : "No transactions found", result: result.length ? result : "No transactions found" })).buffer,
     };
   };
 }
@@ -1205,7 +1205,7 @@ test("load on a demo graph shows the sampling banner and reports failed requests
     globalThis.fetch = async (url, init) =>
       String(url).includes("data/")
         ? realFetch(url, init)
-        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+        : { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: "0", message: "NOTOK", result: "Invalid API Key" })).buffer };
     window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
     loadBtn().click();
     await waitLoaded();
@@ -1663,7 +1663,7 @@ test("a load that fetches nothing leaves no phantom node", async () => {
     globalThis.fetch = async (url, init) =>
       String(url).includes("data/")
         ? realFetch(url, init)
-        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+        : { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: "0", message: "NOTOK", result: "Invalid API Key" })).buffer };
     const sel = $("detailsContent").querySelector("select");
     sel.value = "42161";
     sel.dispatchEvent(new window.Event("change"));
@@ -2167,7 +2167,7 @@ test("a Load on {chain} that finds no transactions removes the node and says so,
     globalThis.fetch = async (url, init) =>
       String(url).includes("data/") || !String(url).includes("chainid=42161")
         ? realFetch(url, init)
-        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "No transactions found", result: "No transactions found" }) };
+        : { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: "0", message: "No transactions found", result: "No transactions found" })).buffer };
     const sel = $("detailsContent").querySelector("select");
     sel.value = "42161";
     sel.dispatchEvent(new window.Event("change"));

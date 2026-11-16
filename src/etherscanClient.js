@@ -46,6 +46,7 @@ export class EtherscanError extends Error {
  * @property {number}  [maxRetries]     default config.FETCH.maxRetries
  * @property {number}  [backoffBaseMs]  default config.FETCH.backoffBaseMs
  * @property {typeof fetch} [fetchImpl]  injectable for tests (default global fetch)
+ * @property {(rec:object)=>(void|Promise<void>)} [onQuery]  called once per fetch attempt (query log); errors swallowed
  */
 
 /**
@@ -146,6 +147,20 @@ function sleep(ms, signal) {
  */
 export function buildUrl(p) {
   const params = new URLSearchParams({
+    ...buildParams(p),
+    apikey: String(p.apiKey ?? ""),
+  });
+  return `${p.apiBase ?? API_BASE}?${params.toString()}`;
+}
+
+/**
+ * The nine query parameters in PARAM_KEYS order, WITHOUT the API key
+ * (safe to record in the query log).
+ * @param {object} p same fields as buildUrl
+ * @returns {Record<string,string>}
+ */
+export function buildParams(p) {
+  return {
     chainid: String(p.chainId),
     module: "account",
     action: String(p.action),
@@ -155,9 +170,7 @@ export function buildUrl(p) {
     page: String(p.page ?? FETCH.page),
     offset: String(p.offset),
     sort: String(p.sort ?? FETCH.sort),
-    apikey: String(p.apiKey ?? ""),
-  });
-  return `${p.apiBase ?? API_BASE}?${params.toString()}`;
+  };
 }
 
 /**
@@ -174,6 +187,7 @@ export function createEtherscanClient(options) {
   const maxRetries = opts.maxRetries ?? FETCH.maxRetries;
   const backoffBaseMs = opts.backoffBaseMs ?? FETCH.backoffBaseMs;
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+  const onQuery = opts.onQuery;
 
   /**
    * @param {string} address
@@ -192,18 +206,22 @@ export function createEtherscanClient(options) {
       onRetry,
     } = fetchOpts || {};
 
-    const url = buildUrl({
-      apiBase,
-      chainId,
-      action,
-      address,
-      apiKey,
-      offset,
-      page,
-      sort,
-      startblock,
-      endblock,
-    });
+    const urlParams = { apiBase, chainId, action, address, apiKey, offset, page, sort, startblock, endblock };
+    const url = buildUrl(urlParams);
+    const params = buildParams(urlParams);
+
+    // Report one fetch attempt; a failing hook must never break the fetch.
+    const log = async (fields) => {
+      try {
+        await onQuery?.({
+          at: new Date().toISOString(),
+          chainId: String(chainId),
+          action,
+          params,
+          ...fields,
+        });
+      } catch {}
+    };
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       if (signal && signal.aborted) {
@@ -231,6 +249,7 @@ export function createEtherscanClient(options) {
       } catch (e) {
         cleanup();
         if (timedOut) {
+          await log({ httpStatus: null, rows: null, outcome: "network" });
           throw new EtherscanError(
             `request timed out after ${timeoutMs}ms (${action})`,
             "timeout",
@@ -240,6 +259,7 @@ export function createEtherscanClient(options) {
         if ((signal && signal.aborted) || (e && e.name === "AbortError")) {
           throw new EtherscanError(`aborted (${action})`, "aborted", { action });
         }
+        await log({ httpStatus: null, rows: null, outcome: "network" });
         throw new EtherscanError(
           `network error (${action}): ${e && e.message}`,
           "network",
@@ -253,6 +273,7 @@ export function createEtherscanClient(options) {
       if (httpStatus === 429 || httpStatus >= 500) {
         const retryAfterMs = parseRetryAfter(resp.headers);
         const waitMs = retryAfterMs != null ? retryAfterMs : backoffBaseMs * attempt;
+        await log({ httpStatus, rows: null, outcome: attempt < maxRetries ? "retry" : "error" });
         if (attempt < maxRetries) {
           if (onRetry) onRetry({ action, attempt, waitMs, reason: `http_${httpStatus}` });
           await sleep(waitMs, signal);
@@ -265,10 +286,26 @@ export function createEtherscanClient(options) {
         );
       }
 
+      // Read bytes once: the logged hash covers exactly what was parsed.
+      let buf;
+      try {
+        buf = new Uint8Array(await resp.arrayBuffer());
+      } catch (e) {
+        if (signal && signal.aborted) {
+          throw new EtherscanError(`aborted (${action})`, "aborted", { action });
+        }
+        await log({ httpStatus, rows: null, outcome: "error" });
+        throw new EtherscanError(
+          `invalid JSON response (${action})`,
+          "api",
+          { action, httpStatus, cause: e && e.message }
+        );
+      }
       let data;
       try {
-        data = await resp.json();
+        data = JSON.parse(new TextDecoder().decode(buf));
       } catch (e) {
+        await log({ httpStatus, rows: null, outcome: "error", body: buf });
         throw new EtherscanError(
           `invalid JSON response (${action})`,
           "api",
@@ -277,6 +314,12 @@ export function createEtherscanClient(options) {
       }
 
       if (data && data.status === "1") {
+        await log({
+          httpStatus,
+          rows: Array.isArray(data.result) ? data.result.length : null,
+          outcome: "ok",
+          body: buf,
+        });
         return data.result || [];
       }
 
@@ -286,11 +329,13 @@ export function createEtherscanClient(options) {
 
       // Not an error: no matching transactions is a valid empty result.
       if (/no transactions found/i.test(combined)) {
+        await log({ httpStatus, rows: 0, outcome: "ok", body: buf });
         return [];
       }
 
       // Invalid key: surface immediately, never retry.
       if (isInvalidKeyMessage(combined)) {
+        await log({ httpStatus, rows: null, outcome: "error", body: buf });
         throw new EtherscanError(
           `invalid API key (${action})`,
           "invalid_key",
@@ -301,6 +346,7 @@ export function createEtherscanClient(options) {
       // Body-level throttling (Etherscan returns HTTP 200 + status "0" here).
       if (isThrottleMessage(combined)) {
         const waitMs = backoffBaseMs * attempt;
+        await log({ httpStatus, rows: null, outcome: attempt < maxRetries ? "retry" : "error", body: buf });
         if (attempt < maxRetries) {
           if (onRetry) onRetry({ action, attempt, waitMs, reason: "throttled" });
           await sleep(waitMs, signal);
@@ -317,6 +363,7 @@ export function createEtherscanClient(options) {
       // Checked AFTER throttle: a transient "high activity" notice that also
       // suggests upgrading must stay retryable, not abort the scan.
       if (isPlanRequiredMessage(combined)) {
+        await log({ httpStatus, rows: null, outcome: "error", body: buf });
         throw new EtherscanError(
           `paid API plan required (${action})`,
           "plan_required",
@@ -325,6 +372,7 @@ export function createEtherscanClient(options) {
       }
 
       // Any other status "0" (bad module/action, etc.) is a real API error.
+      await log({ httpStatus, rows: null, outcome: "error", body: buf });
       throw new EtherscanError(
         `API error (${action}): ${combined}`,
         "api",
