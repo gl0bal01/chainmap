@@ -148,3 +148,10 @@ describe("nearestInDirection", () => {
     expect(nearestInDirection({ x: 0, y: 0 }, { a: { x: 0, y: 0 } }, "right")).toBeNull();
   });
 });
+
+test("selectHighDegree never counts same-key overlay edges", () => {
+  const net = makeFakeNetwork({ positions: { "1:x": { x: 0, y: 0 }, "8453:x": { x: 1, y: 1 } } });
+  net.getConnectedEdges = (id) => [`${id}-e0`, `${id}-e1`, "twin:1:x|8453:x"];
+  expect(selectHighDegree(net, 3)).toEqual([]);
+  expect(selectHighDegree(net, 2).sort()).toEqual(["1:x", "8453:x"]);
+});

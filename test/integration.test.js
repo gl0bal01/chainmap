@@ -1461,8 +1461,98 @@ test("a legacy v2 workspace renders exactly as before", async () => {
     expect(net.edges.get().filter((e) => String(e.title).includes(" · Ethereum")).length).toBe(0);
     expect($("legendChainTag").hidden).toBe(true);
     expect($("chainFilter").hidden).toBe(true);
+    expect($("twinToggleRow").hidden).toBe(true);
+    expect(twins().length).toBe(0);
   } finally {
     $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+const twins = () => window.vis.Network.first.edges.get().filter((e) => e.twin);
+
+test("exactly one same-key link joins the two roots; address-only pairs are never drawn", async () => {
+  try {
+    await twoChainScan();
+    expect(twins().length).toBe(1);
+    expect(twins()[0]).toMatchObject({ from: ID("1", ROOT), to: ID("42161", ROOT), label: "same key" });
+    expect(twins()[0].arrows.to.enabled).toBe(false);
+    expect(twins().some((t) => [N2, N4].some((n) => t.from.endsWith(n)))).toBe(false);
+    expect($("legendTwinKey").hidden).toBe(false);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("same-key links bypass filters, bundles and the high-degree count, and never reach CSV", async () => {
+  try {
+    await twoChainScan();
+    $("minAmount").value = "999999";
+    $("minAmount").dispatchEvent(new window.Event("input"));
+    expect(twins().length).toBe(1);
+    $("minAmount").value = "0";
+    $("minAmount").dispatchEvent(new window.Event("input"));
+    $("bundleToggle").checked = true;
+    $("bundleToggle").dispatchEvent(new window.Event("change"));
+    expect(twins().length).toBe(1);
+    $("bundleToggle").checked = false;
+    $("bundleToggle").dispatchEvent(new window.Event("change"));
+    expect((await captureCsv()).split("\n").filter((l) => l.startsWith("edge,")).length).toBe(4);
+    $("degreeThreshold").value = "3";
+    $("selectHighDegreeBtn").click();
+    expect($("logContent").textContent).toContain("0 node(s) with degree ≥ 3");
+  } finally {
+    $("minAmount").value = "0";
+    $("bundleToggle").checked = false;
+    restoreForm();
+  }
+});
+
+test("toggle off hides the link and is saved", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  try {
+    await twoChainScan();
+    $("twinToggle").checked = false;
+    $("twinToggle").dispatchEvent(new window.Event("change"));
+    expect(twins().length).toBe(0);
+    expect($("legendTwinKey").hidden).toBe(true);
+    $("saveBtn").click();
+    expect(JSON.parse(await captured.text()).filters.showTwins).toBe(false);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    $("twinToggle").checked = true;
+    $("twinToggle").dispatchEvent(new window.Event("change"));
+    restoreForm();
+  }
+});
+
+test("clicking a same-key link explains its basis", async () => {
+  try {
+    await twoChainScan();
+    window.vis.Network.first._on.click[0]({ nodes: [], edges: [twins()[0].id] });
+    const txt = $("detailsContent").textContent;
+    expect(txt).toContain("Same-address link (not a transaction)");
+    expect(txt).toContain("Ethereum ↔ Arbitrum One");
+    expect(txt).toContain("Same owner is still an inference");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("PNG export draws the shown same-key link", async () => {
+  try {
+    await twoChainScan();
+    $("exportPngBtn").click();
+    const t = window.vis.Network.last.edges.get().filter((e) => String(e.id).startsWith("twin:"));
+    expect(t.length).toBe(1);
+    expect(t[0].dashes).toBeTruthy();
+    expect(t[0].arrows.to.enabled).toBe(false);
+    expect([t[0].from, t[0].to]).toEqual([ID("1", ROOT), ID("42161", ROOT)]);
+  } finally {
     restoreForm();
   }
 });

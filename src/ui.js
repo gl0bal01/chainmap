@@ -359,6 +359,25 @@ export function renderBundleDetails(container, bundle, deps) {
 }
 
 /**
+ * Details for a same-key overlay link (not a transaction). Strings via textContent.
+ * @param {HTMLElement} container
+ * @param {{ address:string, chains:[string,string] }} link
+ * @param {{ i18n:import('./i18n.js').I18n }} deps
+ */
+export function renderTwinDetails(container, link, { i18n }) {
+  container.replaceChildren();
+  const table = document.createElement("table");
+  table.appendChild(detailRow(i18n.t("details.type"), i18n.t("details.twinType")));
+  table.appendChild(detailRow(i18n.t("details.address"), link.address));
+  table.appendChild(detailRow(i18n.t("filters.chains"), `${link.chains[0]} ↔ ${link.chains[1]}`));
+  container.appendChild(table);
+  const note = document.createElement("p");
+  note.className = "hint";
+  note.textContent = i18n.t("details.twinKeyNote");
+  container.appendChild(note);
+}
+
+/**
  * Chain visibility checkboxes (checked = visible); names via textContent.
  * @param {HTMLElement} container
  * @param {{ chains:Array<{chainId:string,name:string}>, hidden:Set<string>,

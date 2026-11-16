@@ -195,6 +195,7 @@ export function parseWorkspace(json, opts) {
   if (Array.isArray(filters.hiddenChains)) {
     filters.hiddenChains = filters.hiddenChains.map((c) => parseChainId(c)).filter((c) => c != null);
   } else delete filters.hiddenChains;
+  if (typeof filters.showTwins !== "boolean") delete filters.showTwins;
   const annotations = Array.isArray(obj.annotations) ? [...obj.annotations] : [];
 
   return {

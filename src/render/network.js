@@ -12,7 +12,7 @@
 // NOTE: needs vis-network + a real DOM; manual canvas QA deferred to Stage C+.
 // =============================================================================
 
-import { TX_TYPE_GROUPS } from "../config.js";
+import { TX_TYPE_GROUPS, CHAINS } from "../config.js";
 import * as labels from "./labels.js";
 import { passesFilters, filtersActive, edgeAmountNumber, edgeWidth, bundleEdges, ageColor } from "../display.js";
 import { findCycleNodes } from "../roundTrips.js";
@@ -22,6 +22,7 @@ import { methodName } from "../selectors.js";
 import { decodeInputText } from "../abiDecode.js";
 import { escapeHtml } from "../format.js";
 import { hasMoreHistory } from "../history.js";
+import { addressEvidence, sameAddressLinks } from "../chainTwins.js";
 
 /**
  * @typedef {object} DisplayOptions
@@ -122,6 +123,8 @@ export function createGraphView(container, store, deps) {
   let visibleNodes = null; // null => show all; Set => only these
   let maxAmount = 0;
   let bundled = false;
+  let twinsOn = false;
+  let twinLinks = []; // drawn same-key links (derived, never stored)
   let hubHidden = { faucet: false, sink: false }; // reversible faucet/sink hide (display projection only)
   // Investigator overlays
   let roundTripOn = false;
@@ -139,7 +142,7 @@ export function createGraphView(container, store, deps) {
   const ANNOTATION_MAX_WIDTH = 300; // px; notes wrap to this width
   let annCounter = 0;
 
-  const edgesView = new vis.DataView(edgesDS, { filter: (e) => passesFilters(e.data, display) });
+  const edgesView = new vis.DataView(edgesDS, { filter: (e) => e.twin === true || passesFilters(e.data, display) });
   const nodesView = new vis.DataView(nodesDS, {
     filter: (n) => {
       if (n.group === "annotation") return true;
@@ -242,7 +245,7 @@ export function createGraphView(container, store, deps) {
     maxAmount = 0;
     let aMin = Infinity;
     let aMax = -Infinity;
-    const items = edgesDS.get();
+    const items = edgesDS.get().filter((it) => !it.twin);
     items.forEach((it) => {
       const a = edgeAmountNumber(it.data);
       if (a > maxAmount) maxAmount = a;
@@ -263,6 +266,7 @@ export function createGraphView(container, store, deps) {
     }
     const ids = new Set();
     edgesView.get().forEach((e) => {
+      if (e.twin) return;
       ids.add(e.from);
       ids.add(e.to);
     });
@@ -276,7 +280,7 @@ export function createGraphView(container, store, deps) {
   // (fromId,toId,contract,symbol). Store per-tx rows are untouched; memberKeys let the
   // detail panel drill back. Rebuilt from the FILTERED edge view.
   function rebuildBundles() {
-    const records = edgesView.get().map((e) => e.data);
+    const records = edgesView.get().filter((e) => !e.twin).map((e) => e.data);
     const bundles = bundleEdges(records);
     let maxTotal = 0;
     bundles.forEach((b) => { if (b.total > maxTotal) maxTotal = b.total; });
@@ -303,9 +307,35 @@ export function createGraphView(container, store, deps) {
         };
       })
     );
+    bundledDS.add(edgesDS.get().filter((e) => e.twin));
+  }
+
+  // Same-key overlay: derived from the store each time, only basis 'key' is drawn.
+  function syncTwins() {
+    edgesDS.remove(edgesDS.getIds().filter((id) => String(id).startsWith("twin:")));
+    twinLinks = [];
+    if (twinsOn && store.chains().length >= 2) {
+      const links = sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS)).filter((l) => l.basis === "key");
+      twinLinks = links;
+      edgesDS.add(
+        links.map((l) => ({
+          id: `twin:${l.a}|${l.b}`, from: l.a, to: l.b, twin: true, data: { twin: true, ...l },
+          label: i18n.t("details.twinKey"), title: i18n.t("legend.twinKey"),
+          dashes: [2, 6], width: 1, color: { color: "#8b93a3" }, font: { color: "#8b93a3" },
+          arrows: { to: { enabled: false } }, physics: false,
+        }))
+      );
+    }
+    if (bundled) rebuildBundles();
+  }
+
+  function setTwins(on) {
+    twinsOn = !!on;
+    syncTwins();
   }
 
   function refreshProjection() {
+    syncTwins();
     edgesView.refresh();
     restyleEdges();
     if (roundTripOn) roundTripSet = findCycleNodes(store.listNodes(), store.listEdges());
@@ -493,6 +523,7 @@ export function createGraphView(container, store, deps) {
         if (edgeIds.length) edgesDS.remove(edgeIds);
         nodesDS.remove(e.id);
         if (bundled) rebuildBundles();
+        if (twinsOn) syncTwins();
         break;
       }
       case "edge:add":
@@ -519,6 +550,7 @@ export function createGraphView(container, store, deps) {
         annCounter = 0;
         maxAmount = 0;
         visibleNodes = null;
+        twinLinks = [];
         break;
       default:
         break;
@@ -533,6 +565,8 @@ export function createGraphView(container, store, deps) {
     refreshProjection,
     setDisplayOptions,
     setBundling,
+    setTwins,
+    getTwinLinks: () => twinLinks.map((l) => ({ ...l })),
     getEdgeData,
     setLayout,
     setRoundTrip,

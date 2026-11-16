@@ -44,6 +44,7 @@ import {
   renderBundleDetails,
   createLogger,
   renderChainFilter,
+  renderTwinDetails,
   createStatus,
   createRequestIndicator,
 } from "./ui.js";
@@ -79,6 +80,8 @@ function syncChainUi() {
   const cs = store.chains();
   hiddenChains = cs.length < 2 ? new Set() : new Set([...hiddenChains].filter((c) => cs.includes(c)));
   $("legendChainTag").hidden = cs.length < 2;
+  $("twinToggleRow").hidden = cs.length < 2;
+  $("legendTwinKey").hidden = cs.length < 2 || !$("twinToggle").checked;
   refreshChainFilter();
   applyDisplayOptions(); // also refreshes the projection
 }
@@ -385,6 +388,10 @@ function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
   currentDetail = { kind: "edge", id: edgeKey };
+  if (data.twin) {
+    const lab = (id) => chainLabel(store.getNode(id)?.chainId);
+    return renderTwinDetails($("detailsContent"), { address: data.address, chains: [lab(data.a), lab(data.b)] }, { i18n });
+  }
   const deps = {
     i18n,
     explorer: explorerFor(data.chainId),
@@ -882,6 +889,7 @@ function currentFilters() {
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
     hiddenChains: [...hiddenChains],
+    showTwins: $("twinToggle").checked,
   };
 }
 
@@ -931,8 +939,11 @@ function applyWorkspace(ws) {
   if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
   if ($("peelChk").checked) view.setPeelChains(findPeelChains(store.listEdges(), {}));
   view.refreshLabels();
+  $("twinToggle").checked = f.showTwins !== false;
+  view.setTwins($("twinToggle").checked);
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
+  syncChainUi();
   clearDetails();
   if (ws.assumedChainId) {
     logger.log({ level: "info", key: "log.workspaceAssumedChain", params: { chain: chainLabel(ws.assumedChainId) } });
@@ -1033,7 +1044,7 @@ function wireControls() {
   const onLog = (e) => logger.log(e);
   const addressFormat = () => $("addressFormat").value;
   $("exportPngBtn").addEventListener("click", () =>
-    exportPng(view, store, { preset: $("exportResolution").value, addressFormat: addressFormat(), annotations: view.getAnnotations(), chainTag: getChainTag, onLog })
+    exportPng(view, store, { preset: $("exportResolution").value, addressFormat: addressFormat(), annotations: view.getAnnotations(), chainTag: getChainTag, twinLinks: view.getTwinLinks(), twinLabel: t("details.twinKey"), onLog })
   );
   $("exportPdfBtn").addEventListener("click", () =>
     exportPdf(view, store, {
@@ -1042,6 +1053,8 @@ function wireControls() {
       jsPDF: window.jspdf.jsPDF,
       annotations: view.getAnnotations(),
       chainTag: getChainTag,
+      twinLinks: view.getTwinLinks(),
+      twinLabel: t("details.twinKey"),
       onLog,
     })
   );
@@ -1054,6 +1067,10 @@ function wireControls() {
   $("hideZeroToggle").addEventListener("change", applyDisplayOptions);
   $("hideSpamToggle").addEventListener("change", applyDisplayOptions);
   $("bundleToggle").addEventListener("change", () => view.setBundling($("bundleToggle").checked));
+  $("twinToggle").addEventListener("change", () => {
+    view.setTwins($("twinToggle").checked);
+    syncChainUi();
+  });
   $("address").addEventListener("input", renderAddressDetect);
   // History row + load button follow the selected types and page size.
   // `input` (not `change`) for the page size: a blur-time rebuild would swallow the next Load click.
@@ -1146,6 +1163,7 @@ function init() {
   });
   // Chain tags / legend row depend on the distinct chain set: resync only when it changes.
   let lastChains = store.chains().join(",");
+  view.setTwins(true);
   let chainSyncQueued = false;
   store.subscribe((e) => {
     if (e.type !== "node:add" && e.type !== "node:remove" && e.type !== "reset") return;

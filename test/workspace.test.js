@@ -387,3 +387,9 @@ test("filters.hiddenChains keeps decimal chain ids only", () => {
   expect(f(["1", 42161, "eth", null]).hiddenChains).toEqual(["1", "42161"]);
   expect("hiddenChains" in f("1")).toBe(false);
 });
+
+test("filters.showTwins is kept only as a boolean", () => {
+  const f = (showTwins) => parseWorkspace({ chainId: "1", nodes: [], edges: [], filters: { showTwins } }).data.filters;
+  expect(f(false).showTwins).toBe(false);
+  expect("showTwins" in f("yes")).toBe(false);
+});

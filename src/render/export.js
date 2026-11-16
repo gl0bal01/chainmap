@@ -65,7 +65,8 @@ export function computeExportSize(preset, nodeCount) {
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ size:ExportSize, background?:string, addressFormat:'short'|'full',
  *           annotations?:Array<{text:string,x:number,y:number}>,
- *           chainTag?:(chainId:string)=>(string|null) }} opts
+ *           chainTag?:(chainId:string)=>(string|null),
+ *           twinLinks?:Array<{a:string,b:string}>, twinLabel?:string }} opts
  * @returns {Promise<HTMLCanvasElement>}
  */
 export function renderExportCanvas(view, store, opts) {
@@ -125,6 +126,14 @@ export function renderExportCanvas(view, store, opts) {
           title: e.title,
         }))
       );
+      // Same-key overlay links (derived, display-only; same style as the live view).
+      (opts.twinLinks || []).forEach((l) => {
+        exportEdges.add({
+          id: `twin:${l.a}|${l.b}`, from: l.a, to: l.b, label: opts.twinLabel || "",
+          dashes: [2, 6], width: 1, color: { color: "#8b93a3", inherit: false },
+          font: { color: "#8b93a3" }, arrows: { to: { enabled: false } }, physics: false,
+        });
+      });
 
       // Sticky-note annotations bake into the exported image too.
       annotations.forEach((a, i) => {
@@ -196,7 +205,7 @@ export function renderExportCanvas(view, store, opts) {
  * @returns {Promise<void>}
  */
 export async function exportPng(view, store, deps) {
-  const { preset, addressFormat, onLog, annotations, chainTag } = deps;
+  const { preset, addressFormat, onLog, annotations, chainTag, twinLinks, twinLabel } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -209,7 +218,7 @@ export async function exportPng(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel });
   triggerDownload(canvas.toDataURL("image/png"), `graph-${Date.now()}.png`);
   onLog({ level: "info", key: "log.exportPng", params: { w: canvas.width, h: canvas.height } });
 }
@@ -224,7 +233,7 @@ export async function exportPng(view, store, deps) {
  * @returns {Promise<void>}
  */
 export async function exportPdf(view, store, deps) {
-  const { preset, addressFormat, jsPDF, onLog, annotations, chainTag } = deps;
+  const { preset, addressFormat, jsPDF, onLog, annotations, chainTag, twinLinks, twinLabel } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -237,7 +246,7 @@ export async function exportPdf(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel });
   const imgData = canvas.toDataURL("image/png");
   const doc = new jsPDF({
     orientation: canvas.width >= canvas.height ? "l" : "p",

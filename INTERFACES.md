@@ -395,3 +395,9 @@ licenses are documented in `data/README.md` (not repeated here).
 - `addressEvidence(edges, chainsConfig) → Map<nodeId,'eoa'|'contract'>`: `txlist` from = eoa; `txlistinternal` from / `tokenContract` = contract; eoa wins; edges on `nativeAA` chains skipped.
 - `sameAddressLinks(nodes, evidence) → [{address,a,b,basis:'key'|'address'}]`: all pairs per address, chain-numeric order; `key` iff any twin has eoa evidence.
 - config: `Chain.nativeAA?: boolean` (true for Abstract 2741/11124).
+
+### Same-key overlay (multi-chain Task 8)
+- `GraphView.setTwins(on)`, `getTwinLinks() → [{address,a,b,basis:'key'}]` (the drawn ones). Drawn only when `on && store.chains().length >= 2` and `basis==='key'`; address-only pairs are never drawn. Derived in `refreshProjection`/`node:remove`, never stored, cleared on `reset`.
+- Twin vis item id `twin:${a}|${b}`, `twin:true`, dotted grey, `physics:false`, in `edgesDS` and `bundledDS`. The edge view filter lets `twin` items through; restyle, visible-node computation and bundle building skip them; `selectHighDegree` ignores `twin:` ids; never CSV rows.
+- `renderExportCanvas` opts `twinLinks?:[{a,b}]`, `twinLabel?`; `exportPng`/`exportPdf` forward them.
+- `ui.renderTwinDetails(container, {address, chains:[A,B]}, {i18n})`. Workspace `filters.showTwins` kept only if boolean.
