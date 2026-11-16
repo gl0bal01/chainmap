@@ -550,6 +550,48 @@ describe("createPriceService", () => {
     expect(late.changes()).toBe(2); // ETH published + TOK reverted to unrequested
   });
 
+  test("allowed re-checked before each retry: a pair that became a root during the backoff is never resent", async () => {
+    let rootNow = false;
+    const h = svc({
+      script: [() => { rootNow = true; return reply({}, 503); }, reply(priced(ETH, B))],
+      allowed: (c) => !(rootNow && c === TOK),
+    });
+    h.s.want([{ coin: ETH, ts: B }, { coin: TOK, ts: B }]);
+    await until(() => h.s.stats().pending === 0);
+    await ticks();
+    expect(h.calls.length).toBe(1);
+    expect(outcomes(h)).toEqual(["retry"]);
+    expect(h.s.get(TOK, B)).toBeUndefined();
+    expect(h.s.get(ETH, B)).toEqual({ state: "error" });
+    expect(h.changes()).toBe(1);
+    // the remaining pair is re-requested later, re-filtered, under a fresh URL
+    expect(h.s.want([{ coin: ETH, ts: B }])).toBe(1);
+    await until(() => h.s.get(ETH, B)?.state === "ok");
+    expect(h.calls.length).toBe(2);
+    expect(h.calls[1].url).toBe(priceUrl(coinsOf({ [ETH]: [B] }), "30m"));
+
+    // stale generation: cancel during the backoff publishes nothing, even when a pair flipped
+    let flip = false, c;
+    c = svc({
+      script: [reply({}, 503)],
+      allowed: (coin) => !(flip && coin === TOK),
+      hold: (r) => { if (r.outcome === "retry") { flip = true; c.s.cancel(); } },
+    });
+    c.s.want([{ coin: ETH, ts: B }, { coin: TOK, ts: B }]);
+    await until(() => c.recs.length === 1);
+    await ticks();
+    expect(c.calls.length).toBe(1);
+    expect(c.s.stats()).toEqual(ZERO);
+    expect(c.changes()).toBe(0);
+  });
+
+  test("Retry-After is capped at maxRetryWaitMs", async () => {
+    const h = svc({ script: [reply({}, 429, { "Retry-After": "86400" }), reply(priced(ETH, B))] });
+    h.s.want([{ coin: ETH, ts: B }]);
+    await until(() => h.s.get(ETH, B)?.state === "ok");
+    expect(h.sleeps).toEqual([60_000]);
+  });
+
   test("own limiter: one service's cancel leaves another's queue intact", async () => {
     let finishB;
     const a = svc({ script: [hang] });

@@ -193,6 +193,7 @@ export const PRICE_FETCH = {
   timeoutMs: 15_000,
   maxRetries: 3,
   backoffBaseMs: 2000,
+  maxRetryWaitMs: 60_000, // a server Retry-After never holds a request longer
   bucketSec: 3600,
   searchWidth: "30m",
   windowSec: 1800,

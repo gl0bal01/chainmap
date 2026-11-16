@@ -256,6 +256,13 @@ export function createPriceService({ fetchImpl, onQuery, limiter, allowed, sleep
     };
 
     for (let attempt = 1; myGen === gen; attempt++) {
+      // R5 before EACH request: a pair that turned root during the backoff ends this send. It reverts to
+      // unrequested; the rest become error, so a later want re-requests them re-filtered, under a fresh URL.
+      const ok = attempt > 1 && pairs.map((p) => isAllowed(p.coin));
+      if (ok && ok.includes(false)) {
+        pairs.forEach((p, i) => (ok[i] ? states.set(id(p), { state: "error" }) : states.delete(id(p))));
+        return notify();
+      }
       const ctrl = (inflight = new AbortController());
       const timer = setTimeout(() => ctrl.abort(), PRICE_FETCH.timeoutMs);
       let resp, bytes;
@@ -277,7 +284,7 @@ export function createPriceService({ fetchImpl, onQuery, limiter, allowed, sleep
         await log({ httpStatus, rows: null, outcome: last ? "error" : "retry" });
         if (last) return publish(null);
         try {
-          await sleep(parseRetryAfter(resp.headers) ?? PRICE_FETCH.backoffBaseMs * attempt, ctrl.signal);
+          await sleep(Math.min(parseRetryAfter(resp.headers) ?? PRICE_FETCH.backoffBaseMs * attempt, PRICE_FETCH.maxRetryWaitMs), ctrl.signal);
         } catch {} // aborted by cancel()/clear(): the loop guard ends this send unpublished
         continue;
       }

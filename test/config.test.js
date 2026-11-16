@@ -153,7 +153,7 @@ describe("APP_VERSION", () => {
 describe("price config", () => {
   test("PRICE_API and PRICE_FETCH carry the spec values", () => {
     expect(PRICE_API).toBe("https://coins.llama.fi");
-    expect(PRICE_FETCH).toEqual({ rps: 1, maxUrlChars: 8000, timeoutMs: 15000, maxRetries: 3, backoffBaseMs: 2000,
+    expect(PRICE_FETCH).toEqual({ rps: 1, maxUrlChars: 8000, timeoutMs: 15000, maxRetries: 3, backoffBaseMs: 2000, maxRetryWaitMs: 60000,
       bucketSec: 3600, searchWidth: "30m", windowSec: 1800, minConfidence: 0.9 });
   });
   test("LLAMA_CHAINS covers exactly the CHAINS mainnets (no testnet)", () => {
