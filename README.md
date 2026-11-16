@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **472 unit/integration tests** on the DOM-free core.
+- **555 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -63,6 +63,13 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   page further back by block number; new counterparties are added but not explored
   automatically. The cursor is saved in the workspace. A graph can hold several chains:
   every node and edge keeps its own chain, and the same address on two chains is two nodes.
+- **Multi-chain graph** — add a chain from the scan form or a node's **Other chains** row. The
+  same address on two chains is two nodes. A dotted **same key** link appears only when the
+  address signed a transaction on a non-AA chain; "same address only" pairs are listed, never
+  drawn. *Known limitation:* on OP-stack/Arbitrum chains Etherscan's `txlist` can include L1→L2
+  deposit/system transactions whose sender is an aliased L1 contract, which could read as
+  "same key" across two such chains. The link is a signal, not proof of common ownership.
+  Not in this version: coloring nodes by chain, and drawing "same address only" links.
 - **Three tx families** — normal, internal, and ERC-20/721/1155 token transfers, each a
   colored edge.
 - **Calldata decoding** — 4-byte selectors → human method names + **named** decoded args and
@@ -164,7 +171,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 472 unit + integration tests
+bun test        # 555 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:

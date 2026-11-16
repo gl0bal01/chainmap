@@ -142,6 +142,28 @@ paramètre `chainid`.
 > quelle chaîne (ni mainnet vs testnet) elle appartient — il faut le contexte des
 > transactions. Le détecteur de chaîne rend cette limite explicite.
 
+### Même clé vs même adresse
+
+La signature d'un EOA prouve qu'**une seule clé** contrôle cette adresse sur toutes les
+chaînes EVM : la même adresse EOA sur deux chaînes est donc un indice de clé unique (le même
+*propriétaire* reste une inférence). Un **contrat** à la même adresse est en général sans
+rapport : Multicall3 et Permit2 sont à la même adresse partout, et n'importe qui peut
+déployer un autre contrat à une adresse que vous contrôlez sur une autre chaîne. Exemple : en
+juin 2022, Wintermute a envoyé 20 M d'OP sur Optimism à l'adresse de son Safe L1 ; ce Safe
+n'existait pas sur Optimism, et un attaquant y a déployé un Safe et pris les jetons.
+
+> **Dans chainmap :** la même adresse sur deux chaînes donne deux nœuds. Un lien pointillé
+> **même clé** n'est tracé que si l'adresse a signé une transaction normale (`txlist`) sur une
+> chaîne qui n'est pas nativement en abstraction de compte. Les paires sans cet indice
+> apparaissent comme « même adresse seulement — probablement sans rapport » dans la ligne
+> *Autres chaînes* du nœud, et ne sont jamais tracées.
+>
+> **Limite connue :** sur les chaînes OP-stack/Arbitrum, le `txlist` d'Etherscan peut inclure
+> des transactions de dépôt/système L1→L2 dont l'émetteur est un contrat L1 aliasé ; cela
+> pourrait passer pour « même clé » entre deux telles chaînes. Le lien est un indice, pas une
+> preuve de propriété commune. Colorer les nœuds par chaîne et tracer les liens « même adresse
+> seulement » ne sont pas dans cette version.
+
 ## 10. Heuristiques pour enquêter
 
 Transformer des données en pistes. Les vraies blockchains sont bruitées. chainmap encode les

@@ -552,7 +552,9 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   const demo = JSON.parse(await Bun.file(new URL("../data/demo-workspace.json", import.meta.url)).text());
   const knownData = JSON.parse(await Bun.file(new URL("../data/known-addresses.json", import.meta.url)).text());
   const cat = (a) => knownCategory(a, "1", knownData);
-  const flagsOf = (hash) => flagsForEdge(demo.edges.find((e) => e.hash === hash), { category: cat });
+  const dNodes = demo.graph.nodes;
+  const dEdges = demo.graph.edges;
+  const flagsOf = (hash) => flagsForEdge(dEdges.find((e) => e.hash === hash), { category: cat });
 
   // Store invariants: every edge endpoint resolves to a node. A corrupted/typo'd
   // address would drop the edge (endpoint invariant) — this catches it.
@@ -561,10 +563,18 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   const store = new GraphStore();
   store.loadSnapshot(parsed.data.nodes, parsed.data.edges);
   expect(store.checkInvariants().ok).toBe(true);
-  expect(store.listEdges().length).toBe(demo.edges.length); // no edge silently dropped
+  expect(store.listEdges().length).toBe(dEdges.length); // no edge silently dropped
+  expect(demo.version).toBe(3);
+  expect(store.chains()).toEqual(["1", "42161"]);
+  const { addressEvidence, sameAddressLinks } = await import("../src/chainTwins.js");
+  const { CHAINS } = await import("../src/config.js");
+  const keyLinks = sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS)).filter((l) => l.basis === "key");
+  const F3 = "0xf00d000000000000000000000000000000000003";
+  expect(keyLinks.length).toBe(1);
+  expect(keyLinks[0]).toMatchObject({ address: F3, a: ID("1", F3), b: ID("42161", F3) });
 
   // All 6 known categories appear as labeled nodes (the demo's USDC is a canonical `token`).
-  const cats = new Set(demo.nodes.map((n) => cat(n.address)).filter(Boolean));
+  const cats = new Set(dNodes.filter((n) => n.chainId === "1").map((n) => cat(n.address)).filter(Boolean));
   for (const c of ["sanctioned", "mixer", "bridge", "exchange", "router", "token"]) {
     expect(cats.has(c)).toBe(true);
   }
@@ -583,14 +593,26 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   expect(peelHit).toBe(true);
 
   // NFT (ERC-721) edge present with a tokenId (dedup key carries tokenID).
-  const nft = demo.edges.find((e) => e.action === "tokennfttx");
+  const nft = dEdges.find((e) => e.action === "tokennfttx");
   expect(nft).toBeDefined();
   expect(nft.tokenId).toBe("8817");
 
   // Round-trip preserved: root <-> Uniswap (ETH out, USDC back).
   const uni = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
-  expect(demo.edges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
-  expect(demo.edges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+  expect(dEdges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
+  expect(dEdges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+});
+
+test("demo shows the same-key hop", async () => {
+  $("resetBtn").click();
+  $("demoBtn").click();
+  for (let i = 0; i < 80 && !twins().length; i++) await sleep(25);
+  expect(twins().length).toBe(1);
+  expect($("legendTwinKey").hidden).toBe(false);
+  const F3 = "0xf00d000000000000000000000000000000000003";
+  const lab = (c) => window.vis.Network.first.nodes.get(ID(c, F3)).label;
+  expect(lab("1").endsWith("\nEthereum")).toBe(true);
+  expect(lab("42161").endsWith("\nArbitrum One")).toBe(true);
 });
 
 test("scan marks nodes with more history using a dashed border", async () => {

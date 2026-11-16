@@ -403,3 +403,12 @@ licenses are documented in `data/README.md` (not repeated here).
 - Twin vis item id `twin:${a}|${b}`, `twin:true`, dotted grey, `physics:false`, in `edgesDS` and `bundledDS`. The edge view filter lets `twin` items through; restyle, visible-node computation and bundle building skip them; `selectHighDegree` ignores `twin:` ids; never CSV rows.
 - `renderExportCanvas` opts `twinLinks?:[{a,b}]`, `twinLabel?`; `exportPng`/`exportPdf` forward them.
 - `ui.renderTwinDetails(container, {address, chains:[A,B]}, {i18n})`. Workspace `filters.showTwins` kept only if boolean.
+
+## Multi-chain graph (Phase 2 summary)
+- **Ids/records:** node id `chainId:address`; every NodeRecord/EdgeRecord carries `chainId`; edge keys are `chainId|…`. Workspace v3 = `{version:3, graph:{nodes,edges}, …}` with no top-level chain (v1/v2 migrate on load). CSV gains `chain_id`.
+- **chainTwins.js** (pure): `addressEvidence(edges, CHAINS)`, `sameAddressLinks(nodes, evidence)`; `basis:'key'` only with txlist-signer evidence on a known non-`nativeAA` chain.
+- **View twins:** `GraphView.setTwins(on)` / `getTwinLinks()`; dotted `twin:` vis edges (never stored, never CSV); `filters.showTwins`; legend `legendTwinKey`; chain filter `filters.hiddenChains`.
+- **ui:** `otherChains` row (same key / "same address only") with twin focus and conservative alias apply; `renderTwinDetails(container, {address, chains}, {i18n})`.
+- **export:** `renderExportCanvas`/`exportPng`/`exportPdf` accept `twinLinks`, `twinLabel`.
+- **Details actions:** "Check other chains" probe (Stop discards partial results) and "Load on {chain}" (one page, mainnet-first picker, no alias copy).
+- **Known limitation:** OP-stack/Arbitrum `txlist` may include aliased L1→L2 deposit senders, so "same key" is a signal, not proof. Not in this version: color-by-chain, drawing address-only links.
