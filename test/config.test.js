@@ -138,3 +138,7 @@ describe("KNOWN_CATEGORIES", () => {
     }
   });
 });
+
+test("only the Abstract chains are native-AA", () => {
+  expect(CHAINS.filter((c) => c.nativeAA).map((c) => c.id).sort((x, y) => x - y)).toEqual([2741, 11124]);
+});

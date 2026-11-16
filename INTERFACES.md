@@ -390,3 +390,8 @@ licenses are documented in `data/README.md` (not repeated here).
 - `ui.renderChainFilter(container, { chains:[{chainId,name}], hidden:Set, onToggle(chainId, visible) })` renders `<label class="field check"><input type="checkbox" data-chain>` per chain (checked = visible; names via `textContent`).
 - Workspace `filters.hiddenChains`: array of `parseChainId`-valid strings; other items dropped, a non-array removed. main restores only chains present at 2+ chains.
 - DOM ids: `chainFilter` (hidden below 2 chains), `chainFilterList`. i18n `filters.chains` (en+fr). `revealNode` re-shows a hidden chain first.
+
+### chainTwins.js (multi-chain Task 7, pure)
+- `addressEvidence(edges, chainsConfig) → Map<nodeId,'eoa'|'contract'>`: `txlist` from = eoa; `txlistinternal` from / `tokenContract` = contract; eoa wins; edges on `nativeAA` chains skipped.
+- `sameAddressLinks(nodes, evidence) → [{address,a,b,basis:'key'|'address'}]`: all pairs per address, chain-numeric order; `key` iff any twin has eoa evidence.
+- config: `Chain.nativeAA?: boolean` (true for Abstract 2741/11124).

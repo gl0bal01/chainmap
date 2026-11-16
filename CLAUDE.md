@@ -43,6 +43,7 @@ DOM-free, Node-testable modules (pure logic; the heart of the app):
 - `scanner.js` — BFS orchestration (enqueue-dedup + safetyCap at enqueue, failed-tx drop, cancel).
 - `display.js` — filters, amount-weighted width, edge bundling, age color (all pure).
 - `history.js` — per-node "Load older" block-cursor math (`nextRequest`/`advance`/`historyState`/`sanitizeHistory`).
+- `chainTwins.js` — same-address cross-chain pairs + key evidence.
 - `roundTrips.js` — Tarjan SCC cycle detection. `sinkFaucet.js` — hub classification.
 - `selectors.js` + `abiDecode.js` — 4-byte method selectors + ABI head decoder.
 - `riskScore.js` — explainable per-node risk. `blockchainDetect.js` — chain-by-format detection.
