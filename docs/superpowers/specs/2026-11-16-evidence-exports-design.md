@@ -232,3 +232,29 @@ Builder check (sonnet), answered by the lead:
 5. **Footer vs pixel cap.** The footer band is carved *inside* the computed size: the graph area is
    `h − band`, so the total never exceeds the guard and `computeExportSize` is unchanged. *Cost if wrong:* a
    slightly shorter graph area.
+
+## Execution and final-review rulings (lead)
+
+- **Action pattern** is `^[a-z0-9]{1,32}$`, not `^[a-z]{1,32}$`: `token1155tx` contains digits. *Cost if wrong:* none.
+- **Bundle failures** are handled by `exportEvidenceBundle` itself: any render, encode or zip failure logs
+  `log.bundleFailed` and downloads nothing, and the function never rejects. *Cost if wrong:* none.
+- **Manifest snapshot:** every manifest input, including `graph` counts, is taken synchronously at click, before
+  the first `await`. This keeps a bundle exported mid-scan self-consistent. *Cost if wrong:* none.
+- **`retrieval.complete` is renamed `fullyLogged`.** It means only that nothing was dropped and no unlogged data
+  came in. It does **not** mean the data is complete: requests may have failed, scans may have been stopped, and
+  the data is sampled. The caveats say so. *Cost if wrong:* wording only.
+- **In-flight probes:** `makeClient` captures the log epoch when the client is created. Records from a client
+  created before a reset or load are dropped. As a result, the remaining requests of an estimate or chain
+  detection that straddles a reset are not logged. Those requests add no graph data. *Cost if wrong:* a few probe
+  requests are missing from the log.
+- **`at` normalisation:** the sanitizer requires a real date and re-saves `at` in millisecond ISO form, so
+  `windowOf` sorts correctly. A second-precision value from a file is re-saved with milliseconds. *Cost if wrong:*
+  none.
+- **Entry consistency:** an entry whose `params.chainid` or `params.action` disagrees with its own
+  `chainId`/`action` is rejected as invalid, which marks the log partial. *Cost if wrong:* none.
+- **Accepted limitations:**
+  - Without signatures, a hand-edited workspace can claim `unloggedData:false`. This is documented in LEARN.
+  - The body hash covers the body as `fetch` delivers it, after content decoding, not the wire bytes.
+  - The workspace `caveats` field is static.
+  - `log.bundlePngOmitted` is logged at error level, although the bundle is still produced.
+  - CSV line 1 reads `…Z UTC`. The `UTC` is redundant but was pinned by the spec.
