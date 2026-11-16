@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { GraphStore } from "../src/graphStore.js";
 import { WORKSPACE_VERSION, parseWorkspace, serializeWorkspace } from "../src/workspace.js";
+import { queryUrl } from "../src/queryLog.js";
 
 const A = "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
@@ -392,4 +393,78 @@ test("filters.showTwins is kept only as a boolean", () => {
   const f = (showTwins) => parseWorkspace({ chainId: "1", nodes: [], edges: [], filters: { showTwins } }).data.filters;
   expect(f(false).showTwins).toBe(false);
   expect("showTwins" in f("yes")).toBe(false);
+});
+
+describe("workspace query log + provenance (v3, optional fields)", () => {
+  const entry = (over = {}) => {
+    const params = { chainid: "1", module: "account", action: "txlist", address: a, page: "1", offset: "10", sort: "desc" };
+    return {
+      at: "2026-11-16T10:00:00.000Z", chainId: "1", action: "txlist", params,
+      url: queryUrl(params), httpStatus: 200, rows: 3, sha256: "a".repeat(64), outcome: "ok",
+      ...over,
+    };
+  };
+  const state = { entries: [entry(), entry({ at: "2026-11-16T10:00:01Z", rows: 0 })], dropped: 0, unloggedData: false };
+
+  test("serialize writes queryLog + provenance after annotations", () => {
+    const ws = serializeWorkspace({
+      nodes: [], edges: [], queryLog: state,
+      provenance: { savedAt: "2026-11-16T10:05:00.000Z", appVersion: "1.3.0", caveats: ["sampled"] },
+    });
+    expect(Object.keys(ws)).toEqual(["version", "root", "graph", "filters", "layout", "annotations", "queryLog", "savedAt", "appVersion", "caveats"]);
+    expect(ws.version).toBe(3);
+    expect(ws.queryLog).toEqual(state);
+    expect(ws.savedAt).toBe("2026-11-16T10:05:00.000Z");
+    expect(ws.appVersion).toBe("1.3.0");
+    expect(ws.caveats).toEqual(["sampled"]);
+  });
+
+  test("without queryLog or provenance the output keeps today's six keys", () => {
+    const ws = serializeWorkspace({ nodes: [], edges: [] });
+    expect(Object.keys(ws)).toEqual(["version", "root", "graph", "filters", "layout", "annotations"]);
+  });
+
+  test("queryLog round-trips through JSON", () => {
+    const r = parseWorkspace(JSON.stringify(serializeWorkspace({ nodes: [], edges: [], queryLog: state })));
+    expect(r.ok).toBe(true);
+    expect(r.data.queryLog).toEqual(state);
+    expect(r.data.queryLogInvalid).toBe(0);
+  });
+
+  test("a v3 file without queryLog parses to queryLog null", () => {
+    const r = parseWorkspace({ version: 3, graph: { nodes: [], edges: [] } });
+    expect(r.ok).toBe(true);
+    expect(r.data.queryLog).toBeNull();
+    expect(r.data.queryLogInvalid).toBe(0);
+  });
+
+  test("invalid query-log entries are dropped and counted; forged fields never survive", () => {
+    const bad = entry({ url: "https://evil.example", outcome: "pwned" });
+    const r = parseWorkspace({
+      version: 3, graph: { nodes: [], edges: [] },
+      queryLog: { entries: [entry(), bad, entry({ at: "2026-11-16T10:00:02Z" })], dropped: 0, unloggedData: false },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.data.queryLog.entries).toHaveLength(2);
+    expect(r.data.queryLogInvalid).toBe(1);
+    expect(r.data.queryLog.unloggedData).toBe(true);
+    expect("invalid" in r.data.queryLog).toBe(false);
+    expect(r.data.queryLog.entries.some((e) => e.url.includes("evil"))).toBe(false);
+  });
+
+  test("unloggedData with zero entries round-trips; savedAt/appVersion/caveats never reach data; nodes and edges unchanged", () => {
+    const node1 = node(a, { chainId: "1", isRoot: true });
+    const ws = serializeWorkspace({
+      nodes: [node1], edges: [],
+      queryLog: { entries: [], dropped: 0, unloggedData: true },
+      provenance: { savedAt: "2026-11-16T10:05:00.000Z", appVersion: "1.3.0", caveats: [] },
+    });
+    const r = parseWorkspace(JSON.stringify(ws));
+    expect(r.ok).toBe(true);
+    expect(r.data.queryLog).toEqual({ entries: [], dropped: 0, unloggedData: true });
+    for (const k of ["savedAt", "appVersion", "caveats"]) expect(k in r.data).toBe(false);
+    const plain = parseWorkspace(JSON.stringify(serializeWorkspace({ nodes: [node1], edges: [] })));
+    expect(r.data.nodes).toEqual(plain.data.nodes);
+    expect(r.data.edges).toEqual(plain.data.edges);
+  });
 });
