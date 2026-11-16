@@ -2281,3 +2281,55 @@ test("palette edge subtitles name the chain once the graph spans 2 chains", asyn
     restoreForm();
   }
 });
+
+// ---- query-log panel ----
+async function qlogEnv() {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  return { ui, i18n: createI18n({ dictionaries: { en, fr }, locale: "en" }) };
+}
+const qEntry = (i, over = {}) => ({
+  at: `2026-11-16T10:00:${String(i % 60).padStart(2, "0")}.000Z`, chainId: "1", action: "txlist",
+  address: A(1), params: { page: 1, offset: 20 }, httpStatus: 200, rows: 3,
+  sha256: "ab".repeat(32), outcome: "ok", ...over,
+});
+
+test("renderQueryLog: rows newest first via textContent", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const c = document.createElement("div");
+  const evil = "<img src=x onerror=alert(1)>";
+  ui.renderQueryLog(c, [qEntry(1, { action: evil }), qEntry(2)], { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  const rows = c.querySelectorAll("tbody tr");
+  expect(rows.length).toBe(2);
+  expect(rows[0].textContent).toContain("10:00:02");
+  expect(c.querySelector("img")).toBeNull();
+  expect(rows[1].textContent).toContain(evil);
+  const sha = [...rows[0].querySelectorAll("td")].find((td) => td.title === "ab".repeat(32));
+  expect(sha.textContent.length).toBe(12);
+});
+
+test("renderQueryLog: 250 entries → 200 rows + showing note", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const c = document.createElement("div");
+  ui.renderQueryLog(c, Array.from({ length: 250 }, (_, i) => qEntry(i)), { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  expect(c.querySelectorAll("tbody tr").length).toBe(200);
+  expect(c.textContent).toContain("Showing the latest 200 of 250 requests.");
+});
+
+test("renderQueryLog: empty / dropped / unlogged notes", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const c = document.createElement("div");
+  ui.renderQueryLog(c, [], { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  expect(c.textContent).toContain("No Etherscan request logged in this session.");
+  ui.renderQueryLog(c, [qEntry(1)], { i18n, dropped: 7, unloggedData: true, limit: 5000 });
+  expect(c.textContent).toContain("7 older entries were dropped (log limit 5000).");
+  expect(c.textContent).toContain("Part of this graph was not retrieved under this log");
+  expect(c.textContent).not.toContain("No Etherscan request logged");
+});
+
+test("shell has the bundle + query-log controls", () => {
+  expect($("evidenceBundleBtn").textContent).toBe("Evidence bundle (.zip)");
+  expect($("exportQueryLogBtn")).not.toBeNull();
+});

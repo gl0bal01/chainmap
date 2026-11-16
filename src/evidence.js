@@ -91,3 +91,18 @@ export async function buildEvidenceZip(input) {
   const zip = createZip(members, new Date(input.exportedAt));
   return { zip, sha256: await sha256Hex(zip), names: members.map((f) => f.name) };
 }
+
+const utc = (iso) => iso.slice(0, 19).replace("T", " ");
+
+/** Provenance footer text (PNG/PDF) as translated lines. */
+export function footerLines({ t, appVersion, exportedAt, retrieval }) {
+  return [
+    t("export.footer.app", { version: appVersion, at: utc(exportedAt) }),
+    retrieval
+      ? t("export.footer.retrieved", { first: utc(retrieval.first), last: utc(retrieval.last), n: retrieval.queries })
+      : t("export.footer.retrievalUnknown"),
+    ...(retrieval && !retrieval.complete ? [t("export.footer.partial")] : []),
+    t("export.footer.sampling"),
+    t("export.footer.signals"),
+  ];
+}

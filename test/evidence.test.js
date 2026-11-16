@@ -97,3 +97,34 @@ describe("evidence", () => {
     for (const re of [/sampl/, /signals, not facts/, /heuristic/, /same-key/, /snapshot/, /graph\.png and graph\.csv/, /estimate/, /tamper/]) expect(t).toMatch(re);
   });
 });
+
+describe("footerLines", () => {
+  const mk = async (locale) => {
+    const { createI18n } = await import("../src/i18n.js");
+    const en = (await import("../src/locales/en.js")).default;
+    const fr = (await import("../src/locales/fr.js")).default;
+    return createI18n({ dictionaries: { en, fr }, locale });
+  };
+  const ret = { queries: 4, dropped: 0, first: "2026-11-16T09:00:00.000Z", last: "2026-11-16T09:30:00.000Z", complete: true };
+  const base = { appVersion: "1.3.0", exportedAt: "2026-11-16T10:15:30.123Z" };
+
+  test("footerLines en", async () => {
+    const { footerLines } = await import("../src/evidence.js");
+    const i18n = await mk("en");
+    const lines = footerLines({ ...base, t: i18n.t, retrieval: ret });
+    expect(lines.length).toBe(4);
+    expect(lines[0]).toBe("chainmap 1.3.0 — exported 2026-11-16 10:15:30 UTC");
+    const unk = footerLines({ ...base, t: i18n.t, retrieval: null });
+    expect(unk.length).toBe(4);
+    expect(unk[1]).toBe("Retrieval time unknown — no query log");
+    expect(footerLines({ ...base, t: i18n.t, retrieval: { ...ret, complete: false } }).length).toBe(5);
+  });
+
+  test("footerLines fr", async () => {
+    const { footerLines } = await import("../src/evidence.js");
+    const i18n = await mk("fr");
+    const lines = footerLines({ ...base, t: i18n.t, retrieval: { ...ret, complete: false } });
+    expect(lines.length).toBe(5);
+    for (const l of lines) { expect(l).not.toBe(""); expect(l).not.toContain("{"); }
+  });
+});
