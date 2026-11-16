@@ -302,11 +302,14 @@ hidden or highlighted on screen.
     🌀/🌉/⛔ node badges and the mixer/bridge/sanctioned risk flags.
 
 - **render/export.js** gains:
-  - `buildCsvRows(store: GraphStore, ctx: {category:(addr:string)=>(string|null), formatTimestamp?:(t:string)=>string}): string[][]`
+  - `buildCsvRows(store: GraphStore, ctx: {category:(addr:string, chainId:string)=>(string|null), isFakeToken?:(edge)=>boolean, formatTimestamp?:(t:string)=>string}): string[][]`
     — pure row builder (no DOM) factored out of `exportCsv`, directly unit-testable. Returns
     the sampling-caveat line, header, then one row per node/edge. `CSV_HEADER` gained five
     trailing edge-only columns: `method`, `method_sig`, `real_recipient`, `decoded_amount`,
     `risk_flags` (semicolon-joined `flagsForEdge` keys); node rows leave them blank.
+    The very last column is `chain_id` (`n.chainId` / `e.chainId`) on every row. Line 1 is the
+    sampling caveat; when node rows span >= 2 distinct `chainId`s it is extended with
+    `; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer`. Header stays on line 2.
     `exportCsv(store, deps)` now builds its rows via `buildCsvRows` and accepts an optional
     `deps.category` lookup (defaults to a no-op returning `null`).
 

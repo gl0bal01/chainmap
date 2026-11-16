@@ -1314,3 +1314,27 @@ test("a v2 workspace with no chain takes the selector's chain and says so; a new
     restoreForm();
   }
 });
+
+test("CSV: chain_id on every row, per-chain flags, multi-chain caveat", async () => {
+  await knownLoaded();
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "56"]), v3Node("1", ONE_ONLY), v3Node("56", ONE_ONLY)],
+      [v3Edge({ chainId: "1", hash: "0xm1", to: ONE_ONLY }), v3Edge({ chainId: "56", hash: "0xm2", to: ONE_ONLY, symbol: "BNB" })],
+    ));
+    const lines = (await captureCsv()).split("\n");
+    expect(lines[0]).toContain("multi-chain");
+    expect(lines[1].startsWith("row_type,")).toBe(true);
+    const data = lines.filter((l) => /^(node|edge),/.test(l));
+    expect(data.length).toBe(6);
+    for (const l of data) expect(/,(1|56)$/.test(l)).toBe(true);
+    const m1 = lines.find((l) => l.includes("0xm1")), m2 = lines.find((l) => l.includes("0xm2"));
+    expect(m1).toContain("flag.mixer");
+    expect(m1.endsWith(",1")).toBe(true);
+    expect(m2).not.toContain("flag.mixer");
+    expect(m2.endsWith(",56")).toBe(true);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});

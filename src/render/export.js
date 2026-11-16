@@ -252,7 +252,7 @@ export async function exportPdf(view, store, deps) {
 const CSV_HEADER = [
   "row_type", "address", "alias", "depth", "is_root",
   "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-  "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags",
+  "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
 ];
 
 /**
@@ -266,19 +266,22 @@ export function buildCsvRows(store, ctx) {
   const fmtTs = (ctx && ctx.formatTimestamp) || formatTimestamp;
   const category = (ctx && ctx.category) || (() => null);
   const isFakeToken = ctx && ctx.isFakeToken;
+  const nodes = store.listNodes();
+  const multiChain = new Set(nodes.map((n) => n.chainId)).size >= 2;
   const rows = [
     // Sampling caveat: this graph reflects only the transactions retrieved
     // during the scan (latest-first, capped per address/type) — not full
     // on-chain history. Kept as the first CSV line so it survives copy/paste.
-    ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete"],
+    ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete" +
+      (multiChain ? "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer" : "")],
     CSV_HEADER,
   ];
 
-  for (const n of store.listNodes()) {
+  for (const n of nodes) {
     rows.push([
       "node", n.address, n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "",
+      "", "", "", "", "", n.chainId,
     ]);
   }
   for (const e of store.listEdges()) {
@@ -300,7 +303,7 @@ export function buildCsvRows(store, ctx) {
       "edge", "", "", "", "",
       e.group || "", e.from || "", e.to || "", e.amountText || "", e.symbol || "",
       e.hash || "", e.blockNumber || "", fmtTs(e.timeStamp),
-      method, sig, realRecipient, decodedAmount, flags,
+      method, sig, realRecipient, decodedAmount, flags, e.chainId,
     ]);
   }
   return rows;

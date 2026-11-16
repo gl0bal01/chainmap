@@ -141,18 +141,19 @@ function makeFakeStore(nodes, edges) {
   };
 }
 
-const NODE_A = { address: "0xaaaa000000000000000000000000000000aaaa", depth: 0, isRoot: true, alias: "Root, Alice" };
-const NODE_B = { address: "0xbbbb000000000000000000000000000000bbbb", depth: 1, isRoot: false, alias: null };
+const SINGLE_CAVEAT = "# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete";
+const NODE_A = { chainId: "1", address: "0xaaaa000000000000000000000000000000aaaa", depth: 0, isRoot: true, alias: "Root, Alice" };
+const NODE_B = { chainId: "1", address: "0xbbbb000000000000000000000000000000bbbb", depth: 1, isRoot: false, alias: null };
 
 const EDGE_1 = {
-  key: "k1", action: "txlist", group: "normal", color: "#4f8ef7",
+  key: "k1", chainId: "1", action: "txlist", group: "normal", color: "#4f8ef7",
   from: NODE_A.address, to: NODE_B.address, hash: "0xhash1",
   symbol: "ETH", tokenContract: "", tokenId: "",
   value: "1500000000000000000", amountText: "1.500000", amountIndeterminate: false,
   timeStamp: "1700000000", blockNumber: "123456",
 };
 const EDGE_2 = {
-  key: "k2", action: "tokentx", group: "token", color: "#4fd67a",
+  key: "k2", chainId: "1", action: "tokentx", group: "token", color: "#4fd67a",
   from: NODE_B.address, to: NODE_A.address, hash: "0xhash2",
   symbol: 'Weird "Token"', tokenContract: "0xtoken0000000000000000000000000000000001", tokenId: "",
   value: "1000000", amountText: "1.000000", amountIndeterminate: false,
@@ -185,14 +186,14 @@ describe("exportCsv", () => {
     const lines = csv.split("\n");
 
     // First line: sampling caveat comment (not the header).
-    expect(lines[0].startsWith("# sampling caveat")).toBe(true);
+    expect(lines[0]).toBe(SINGLE_CAVEAT);
     expect(lines[0].toLowerCase()).toContain("sampl");
 
     // Second line: exact header row.
     const expectedHeader = [
       "row_type", "address", "alias", "depth", "is_root",
       "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
     ].join(",");
     expect(lines[1]).toBe(expectedHeader);
 
@@ -200,12 +201,12 @@ describe("exportCsv", () => {
     const nodeARow = [
       "node", NODE_A.address, csvEscape(NODE_A.alias), String(NODE_A.depth), "1",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "",
+      "", "", "", "", "", "1",
     ].join(",");
     const nodeBRow = [
       "node", NODE_B.address, "", String(NODE_B.depth), "0",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "",
+      "", "", "", "", "", "1",
     ].join(",");
     expect(lines[2]).toBe(nodeARow);
     expect(lines[3]).toBe(nodeBRow);
@@ -217,13 +218,13 @@ describe("exportCsv", () => {
       "edge", "", "", "", "",
       EDGE_1.group, EDGE_1.from, EDGE_1.to, EDGE_1.amountText, EDGE_1.symbol,
       EDGE_1.hash, EDGE_1.blockNumber, csvEscape(formatTimestamp(EDGE_1.timeStamp)),
-      "", "", "", "", "",
+      "", "", "", "", "", "1",
     ].join(",");
     const edge2Row = [
       "edge", "", "", "", "",
       EDGE_2.group, EDGE_2.from, EDGE_2.to, EDGE_2.amountText, csvEscape(EDGE_2.symbol),
       EDGE_2.hash, EDGE_2.blockNumber, csvEscape(formatTimestamp(EDGE_2.timeStamp)),
-      "", "", "", "", "",
+      "", "", "", "", "", "1",
     ].join(",");
     expect(lines[4]).toBe(edge1Row);
     expect(lines[5]).toBe(edge2Row);
@@ -257,7 +258,7 @@ describe("buildCsvRows", () => {
     expect(header).toEqual([
       "row_type", "address", "alias", "depth", "is_root",
       "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
     ]);
   });
 
@@ -277,6 +278,18 @@ describe("buildCsvRows", () => {
   test("risk_flags is computed for plain (no-calldata) edges, incl. flag.fakeToken", () => {
     const edge = { group: "token", action: "tokentx", from: "0xa", to: "0xb", amountText: "1", symbol: "USDT", hash: "0xh", blockNumber: "1", timeStamp: "0", hasData: false };
     const rows = buildCsvRows(makeFakeStore([], [edge]), { category: () => null, isFakeToken: () => true });
-    expect(rows.find((r) => r[0] === "edge").at(-1)).toBe("flag.fakeToken");
+    expect(rows.find((r) => r[0] === "edge").at(-2)).toBe("flag.fakeToken");
   });
+});
+
+test("multi-chain CSV: chain_id on every row, caveat extended on line 1, header still line 2", () => {
+  const rows = buildCsvRows(makeFakeStore([{ ...NODE_A, chainId: "1" }, { ...NODE_A, chainId: "42161" }], [{ ...EDGE_1, chainId: "42161" }]), { category: () => null });
+  expect(rows[0][0]).toBe(SINGLE_CAVEAT + "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer");
+  expect(rows[1].at(-1)).toBe("chain_id");
+  expect(rows.slice(2).map((r) => r.at(-1))).toEqual(["1", "42161", "42161"]);
+});
+test("risk_flags uses each edge's chain", () => {
+  const category = (addr, chainId) => (chainId === "1" ? "mixer" : null);
+  const rows = buildCsvRows(makeFakeStore([], [{ ...EDGE_1, chainId: "1" }, { ...EDGE_1, key: "k9", chainId: "56" }]), { category });
+  expect(rows.filter((r) => r[0] === "edge").map((r) => [r.at(-2), r.at(-1)])).toEqual([["flag.mixer", "1"], ["", "56"]]);
 });
