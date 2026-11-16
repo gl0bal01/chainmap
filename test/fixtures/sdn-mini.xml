@@ -1,0 +1,42 @@
+<?xml version="1.0" standalone="yes"?>
+<sdnList xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/XML">
+  <publshInformation>
+    <Publish_Date>11/13/2026</Publish_Date>
+    <Record_Count>4</Record_Count>
+  </publshInformation>
+  <sdnEntry>
+    <uid>1</uid>
+    <lastName>NO CRYPTO CO</lastName>
+    <sdnType>Entity</sdnType>
+    <idList><id><uid>10</uid><idType>Registration Number</idType><idNumber>0x1111111111111111111111111111111111111111</idNumber></id></idList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>2</uid>
+    <lastName>LAZARUS GROUP</lastName>
+    <sdnType>Entity</sdnType>
+    <idList>
+      <id><uid>20</uid><idType>Digital Currency Address - ETH</idType><idNumber>0xAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaa</idNumber></id>
+      <id><uid>21</uid><idType>Digital Currency Address - USDT</idType><idNumber>0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</idNumber></id>
+      <id><uid>22</uid><idType>Digital Currency Address - TRX</idType><idNumber>TXyz1234567890abcdefghijklmnopqrst</idNumber></id>
+      <id><uid>23</uid><idType>Digital Currency Address - XBT</idType><idNumber>12aNKp2iDKuhEde2YfPdd4DFGenRUTKupL</idNumber></id>
+    </idList>
+    <akaList><aka><uid>24</uid><type>a.k.a.</type><category>strong</category><lastName>APT38</lastName></aka></akaList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>3</uid>
+    <firstName>Roman</firstName>
+    <lastName>SEMENOV</lastName>
+    <sdnType>Individual</sdnType>
+    <idList>
+      <id><uid>30</uid><idType>Digital Currency Address - ETH</idType><idNumber>0xcccccccccccccccccccccccccccccccccccccccc</idNumber></id>
+      <id><uid>31</uid><idType>Digital Currency Address - ARB</idType><idNumber>0xAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaa</idNumber></id>
+    </idList>
+    <akaList><aka><uid>32</uid><type>a.k.a.</type><category>weak</category><firstName>Roma</firstName><lastName>SEMYONOV</lastName></aka></akaList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>4</uid>
+    <lastName>A &amp; B TRADING</lastName>
+    <sdnType>Entity</sdnType>
+    <idList><id><uid>40</uid><idType>Digital Currency Address - BSC</idType><idNumber>0xdddddddddddddddddddddddddddddddddddddddd</idNumber></id></idList>
+  </sdnEntry>
+</sdnList>

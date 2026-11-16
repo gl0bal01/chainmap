@@ -191,9 +191,10 @@ export function renderNodeDetails(container, node, deps) {
  * @param {{ i18n:import('./i18n.js').I18n, explorer:string,
  *           getAlias:(addr:string)=>(string|null),
  *           getKnownLabel?:(addr:string)=>(string|null),
- *           getCategory?:(addr:string)=>(string|null) }} deps
- *   getKnownLabel/getCategory are optional (graceful when absent — e.g. Feature
- *   Layer 1 known-address data not yet loaded).
+ *           getCategory?:(addr:string)=>(string|null),
+ *           isFakeToken?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} deps
+ *   getKnownLabel/getCategory/isFakeToken are optional (graceful when absent — e.g.
+ *   Feature Layer 1 known-address data not yet loaded).
  */
 export function renderEdgeDetails(container, edge, deps) {
   const { i18n, explorer, getAlias } = deps;
@@ -248,7 +249,7 @@ export function renderEdgeDetails(container, edge, deps) {
     // Risk flags are computed from the edge's own signals (approvals, hidden
     // recipient, mixer/bridge/sanctioned category) regardless of hasData — a
     // plain-value transfer TO a known mixer/sanctioned address still flags.
-    const flags = flagsForEdge(edge, { category: (a) => (deps.getCategory ? deps.getCategory(a) : null) });
+    const flags = flagsForEdge(edge, { category: (a) => (deps.getCategory ? deps.getCategory(a) : null), isFakeToken: deps.isFakeToken });
     if (flags.length) {
       const warn = document.createElement("strong");
       warn.style.color = "#e0603a";

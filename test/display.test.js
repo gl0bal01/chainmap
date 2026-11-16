@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { edgeAmountNumber, isSpam, passesFilters, filtersActive, edgeWidth, bundleEdges, ageColor } from "../src/display.js";
+import { edgeAmountNumber, isSpam, passesFilters, filtersActive, edgeWidth, bundleEdges, ageColor, parseSpamList } from "../src/display.js";
 
 const edge = (over) => ({ amountText: "1", symbol: "ETH", tokenContract: "", ...over });
 
@@ -69,4 +69,31 @@ test("bundleEdges: collapses same from|to|contract|symbol, keeps member keys", (
   expect(ab.total).toBe(3);
   expect(ab.totalText).toBe("3");
   expect(ab.memberKeys).toEqual(["k1", "k2"]); // per-tx keys preserved for detail/CSV
+});
+
+test("hideSpam also hides edges the isFakeToken predicate flags", () => {
+  const fake = (e) => e.symbol === "USDT";
+  expect(passesFilters(edge({ symbol: "USDT" }), { hideSpam: true, isFakeToken: fake })).toBe(false);
+  expect(passesFilters(edge({ symbol: "USDT" }), { hideSpam: false, isFakeToken: fake })).toBe(true);
+  expect(passesFilters(edge({ symbol: "USDC" }), { hideSpam: true, isFakeToken: fake })).toBe(true);
+  expect(passesFilters(edge({ symbol: "USDT" }), { hideSpam: true })).toBe(true);
+});
+
+test("parseSpamList: legacy array = '*', per-chain contracts, global symbols", () => {
+  const legacy = parseSpamList(["0xAbC", "SCAM"]);
+  expect(legacy.contractsFor("1").has("0xabc")).toBe(true);
+  expect(legacy.contractsFor(56).has("0xabc")).toBe(true);
+  expect(legacy.symbols.has("scam")).toBe(true);
+  const keyed = parseSpamList({ "*": ["0xaaa"], "56": ["0xBBB", "Junk"] });
+  expect([...keyed.contractsFor("56")].sort()).toEqual(["0xaaa", "0xbbb"]);
+  expect([...keyed.contractsFor("1")]).toEqual(["0xaaa"]);
+  expect(keyed.symbols.has("junk")).toBe(true);
+});
+
+test("parseSpamList: malformed input yields empty sets, never throws", () => {
+  for (const bad of [null, undefined, 42, "x", { "1": "0xnotarray" }, { "1": [null, 7, {}] }]) {
+    const p = parseSpamList(bad);
+    expect(p.contractsFor("1").size).toBe(0);
+    expect(p.symbols.size).toBe(0);
+  }
 });

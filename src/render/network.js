@@ -30,6 +30,7 @@ import { hasMoreHistory } from "../history.js";
  * @property {boolean} [hideSpam]
  * @property {Set<string>} [spamContracts]
  * @property {Set<string>} [spamSymbols]
+ * @property {(edge:import('../graphStore.js').EdgeRecord)=>boolean} [isFakeToken] hidden by hideSpam too
  */
 
 /**
@@ -184,33 +185,35 @@ export function createGraphView(container, store, deps) {
     });
   }
 
+  // Full flag-aware visual for one per-tx edge (label, title, color, width,
+  // dashes). Contract-call edges (non-empty calldata) are dashed + marked "✱" so
+  // an investigator can spot interactions vs plain transfers at a glance.
+  // Risk-flagged edges escalate further, tiered by severity: 'high' (mixer/
+  // bridge/sanctioned — money-flow waypoints or blocklist hits) gets the loud
+  // red "⚠" treatment; 'info' (unlimited approval, hidden recipient, imitation
+  // token — context, not a verdict) gets a quieter amber "ⓘ" so it doesn't drown
+  // out real danger. Used at add time AND on every restyle, so flags that change
+  // later (known data / canonical index loading) fully restyle existing edges.
+  function edgeVisual(edge) {
+    const base = labels.edgeLabel(edge);
+    const flags = flagsForEdgeView(edge);
+    const sev = edgeSeverity(flags);
+    const width = edgeWidth(edgeAmountNumber(edge), maxAmount);
+    return {
+      label: sev ? `${base ? base + " " : ""}${RISK_MARK[sev]}` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base),
+      title: sev
+        ? `${edgeTitle(edge, i18n)} · ${RISK_MARK[sev]} ${flags.map((k) => i18n.t(k)).join(", ")}`
+        : (edge.hasData ? edgeDataTitle(edge, i18n) : edgeTitle(edge, i18n)),
+      color: { color: sev ? RISK_COLOR[sev] : edgeColorFor(edge) },
+      width: sev === "high" ? width + 2 : sev === "info" ? width + 1 : width,
+      dashes: sev === "high" ? [6, 4] : sev === "info" ? [2, 3] : !!edge.hasData,
+    };
+  }
+
   function applyEdge(edge) {
     const amount = edgeAmountNumber(edge);
     if (amount > maxAmount) maxAmount = amount;
-    const base = labels.edgeLabel(edge);
-    // Contract-call edges (non-empty calldata) are dashed + marked "✱" so an
-    // investigator can spot interactions vs plain transfers at a glance.
-    // Risk-flagged edges escalate further, tiered by severity: 'high' (mixer/
-    // bridge/sanctioned — money-flow waypoints or blocklist hits) gets the loud
-    // red "⚠" treatment; 'info' (unlimited approval, hidden recipient — context,
-    // not a verdict) gets a quieter amber "ⓘ" so it doesn't drown out real danger.
-    const flags = flagsForEdgeView(edge);
-    const sev = edgeSeverity(flags);
-    const label = sev ? `${base ? base + " " : ""}${RISK_MARK[sev]}` : (edge.hasData ? (base ? `${base} ✱` : "✱") : base);
-    const title = sev
-      ? `${edgeTitle(edge, i18n)} · ${RISK_MARK[sev]} ${flags.map((k) => i18n.t(k)).join(", ")}`
-      : (edge.hasData ? edgeDataTitle(edge, i18n) : edgeTitle(edge, i18n));
-    edgesDS.add({
-      id: edge.key,
-      from: edge.from,
-      to: edge.to,
-      label,
-      color: { color: sev ? RISK_COLOR[sev] : edgeColorFor(edge) },
-      title,
-      width: sev === "high" ? edgeWidth(amount, maxAmount) + 2 : sev === "info" ? edgeWidth(amount, maxAmount) + 1 : edgeWidth(amount, maxAmount),
-      dashes: sev === "high" ? [6, 4] : sev === "info" ? [2, 3] : !!edge.hasData,
-      data: edge,
-    });
+    edgesDS.add({ id: edge.key, from: edge.from, to: edge.to, data: edge, ...edgeVisual(edge) });
   }
 
   /** Edge color: age gradient when "color by age" is on, else the tx-type color. */
@@ -233,17 +236,9 @@ export function createGraphView(container, store, deps) {
     });
     ageMin = Number.isFinite(aMin) ? aMin : 0;
     ageMax = Number.isFinite(aMax) ? aMax : 0;
-    // Respect flags here too — otherwise this recompute (amount/age refresh, filter
-    // changes, …) would clobber the tiered risk color applyEdge set.
-    edgesDS.update(items.map((it) => {
-      const sev = edgeSeverity(flagsForEdgeView(it.data));
-      const base = edgeWidth(edgeAmountNumber(it.data), maxAmount);
-      return {
-        id: it.id,
-        width: sev === "high" ? base + 2 : sev === "info" ? base + 1 : base,
-        color: { color: sev ? RISK_COLOR[sev] : edgeColorFor(it.data) },
-      };
-    }));
+    // Full restyle (label/title/dashes too), so flags that appeared since add time
+    // (known data / canonical index loaded later) show completely, not half-styled.
+    edgesDS.update(items.map((it) => ({ id: it.id, ...edgeVisual(it.data) })));
   }
 
   function recomputeVisibleNodes() {
@@ -348,6 +343,7 @@ export function createGraphView(container, store, deps) {
     if (opts.maxTime !== undefined) display.maxTime = Number(opts.maxTime) || 0;
     if (opts.spamContracts) display.spamContracts = opts.spamContracts;
     if (opts.spamSymbols) display.spamSymbols = opts.spamSymbols;
+    if (opts.isFakeToken) display.isFakeToken = opts.isFakeToken;
     refreshProjection();
   }
 

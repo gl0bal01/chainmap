@@ -173,7 +173,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 ## ui.js — DOM view helpers (stub → Stage B)
 
 - `renderNodeDetails(container, node, { i18n, explorer, onRename, risk?, getKnownSource?, history?, pageSize?, onLoadOlder?, busy?, loadBlocked? })` — `history` (`historyState` items + `labelKey`) adds the History row and a Load button that calls `onLoadOlder()`; the button is disabled while `busy`, when `loadBlocked` (`{key, params?}`, shown as a note) is set, or when every selected type is complete.
-- `renderEdgeDetails(container, edge, { i18n, explorer, getAlias })`
+- `renderEdgeDetails(container, edge, { i18n, explorer, getAlias, getKnownLabel?, getCategory?, isFakeToken? })` — the optional deps are absent-safe; `getCategory` and `isFakeToken` feed `flagsForEdge` for the risk-flags row.
 - `createLogger(container, i18n): { log(entry), clear() }`
 - `createStatus(element): { set(text), clear() }`
 - `createRequestIndicator(element, i18n): { setActive(active) }`
@@ -318,3 +318,45 @@ hidden or highlighted on screen.
 native/unknown) is documented in the `graphStore.js` section above (Stage D fix); the decode
 summary and CSV `decoded_amount` column both re-format `methodArgs` amounts with it via
 `formatUnits` rather than trusting a default.
+
+## Known-address pipeline + imitation tokens
+
+Dev-only generator, DOM-free runtime lookups, and an imitation-token flag. Sources and
+licenses are documented in `data/README.md` (not repeated here).
+
+- **`KnownData`** (`data/known-addresses.json`) — `{ "*" | "<chainId>": { "<lc address>": KnownEntry } }`.
+  `"*"` = valid on every EVM chain (OFAC SDN entries). `KnownEntry = { label, category, source,
+  added, symbol?, decimals?, note? }`.
+- **`KNOWN_CATEGORIES`** (`config.js`) gains `token` — a canonical per-chain token contract; such
+  rows carry `symbol` and optionally `decimals`.
+- **knownAddresses.js**
+  - `knownEntry(address, chainId, data) → KnownEntry|null` — chain-specific bucket first, then
+    `"*"`; own-property lookups only. `knownLabel` and `knownCategory` are thin wrappers over it,
+    so they inherit the `"*"` fallback.
+  - `chainsForKnownAddress(address, data)` — chain-specific hits first, then at most one
+    `{ chainId: "*" }` item last.
+- **fakeToken.js** (pure, DOM-free, never throws on untrusted input)
+  - `normalizeSymbol(s) → string` — NFKD, strips combining marks, NFKC, uppercases, maps
+    Cyrillic/Greek look-alikes (and U+20AE) to Latin, drops whitespace/punctuation/invisible chars.
+  - `buildCanonicalIndex(knownData) → Map<chainId, Map<normSymbol, Set<contract>>>` — built from
+    `token` rows of chain-specific buckets (`"*"` is skipped).
+  - `isFakeToken(edge, chainId, index) → boolean` — true only for a `tokentx` edge whose
+    normalized symbol is canonical on that chain but whose `tokenContract` is not one of the
+    curated contracts. Chains with no canonical tokens never flag.
+- **riskFlags.js** — `flagsForEdge` ctx gains optional `isFakeToken(edge)`; when true it adds
+  `flag.fakeToken` (informational tier, amber ⓘ).
+- **display.js** — `parseSpamList(raw) → { symbols:Set, contractsFor(chainId):Set }`; `raw` is
+  `{ "*": [...], "<chainId>": [...] }` (a legacy flat array = `"*"`); `0x…` items are contracts
+  scoped to their key, other strings are global symbols. `passesFilters` opts gain optional
+  `isFakeToken(edge)`; `hideSpam` hides spam-list hits **and** imitation tokens.
+- **render/network.js** — `setDisplayOptions` accepts `isFakeToken`.
+- **ui.js** — `renderEdgeDetails` deps gain optional `isFakeToken(edge)` (absent-safe: no fake-token
+  flag when missing); it is passed to `flagsForEdge` and drives the risk-flags row.
+- **render/export.js** — `buildCsvRows`/`exportCsv` accept `isFakeToken`; `risk_flags` is now
+  computed for every edge row.
+- `loadOlder` / node history are unaffected.
+- **scripts/known-addresses/pipeline.mjs** (dev-only, never run in CI or by the app) exports
+  `parseOfacXml`, `parseSuperchain`, `mergeSources`, `serializeKnownData`, `verifyEntry`.
+  Driven by `bun run data:build [--ofac <sdn.xml>] [--verify-sources]`, which merges OFAC SDN +
+  superchain registry (main HEAD at build time; SHA recorded in each `source`) +
+  `data/sources/curated.json` into `data/known-addresses.json`.

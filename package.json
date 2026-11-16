@@ -36,7 +36,8 @@
   "license": "MIT",
   "scripts": {
     "test": "bun test",
-    "ci": "bash scripts/ci-local.sh"
+    "ci": "bash scripts/ci-local.sh",
+    "data:build": "bun scripts/build-known-addresses.mjs"
   },
   "devDependencies": {
     "happy-dom": "^21.0.4",

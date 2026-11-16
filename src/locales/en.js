@@ -121,7 +121,7 @@ export default {
   "legend.token": "Token transfer",
   "legend.data": "Contract call (input data)",
   "legend.riskHigh": "High risk (mixer / bridge / sanctioned)",
-  "legend.riskInfo": "Info flag (approval / hidden recipient)",
+  "legend.riskInfo": "Info flag (approval / hidden recipient / imitation token)",
   "legend.roundtrip": "Round-trip (cycle)",
   "legend.age": "Edge age (old → recent)",
 
@@ -130,6 +130,7 @@ export default {
   "details.empty": "Click a node or an arrow in the graph.",
   "details.alias": "Alias",
   "details.address": "Address",
+  "details.allChains": "all EVM chains",
   "details.source": "Source",
   "details.depth": "Depth",
   "details.root": "Root",
@@ -193,6 +194,7 @@ export default {
   "flag.mixer": "mixer interaction",
   "flag.bridge": "bridge interaction",
   "flag.sanctioned": "sanctioned entity",
+  "flag.fakeToken": "imitation token — not the official contract for this symbol on this chain",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Log",

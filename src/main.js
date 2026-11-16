@@ -16,7 +16,7 @@ import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
 import { isValidAddress, isFailedTx, shortAddress } from "./format.js";
-import { loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress } from "./knownAddresses.js";
+import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
 import { classifyHubs } from "./sinkFaucet.js";
@@ -24,6 +24,8 @@ import { findCycleNodes } from "./roundTrips.js";
 import { findPeelChains } from "./peelChain.js";
 import { scoreNode } from "./riskScore.js";
 import { flagsForEdge } from "./riskFlags.js";
+import { buildCanonicalIndex, isFakeToken } from "./fakeToken.js";
+import { parseSpamList } from "./display.js";
 import { detectAddress } from "./blockchainDetect.js";
 import { rankChainActivity, probeChains } from "./chainProbe.js";
 import { methodName } from "./selectors.js";
@@ -84,8 +86,12 @@ let indicator;
 
 // --- Feature Layer 1 data (bundled local JSON, no third-party network) ------
 let knownData = {}; // chain-scoped known-address labels
-const spamContracts = new Set();
-const spamSymbols = new Set();
+let canonicalIndex = new Map(); // chain -> SYMBOL -> official token contracts (rebuilt from knownData)
+let spam = parseSpamList([]); // per-chain spam contracts + global spam symbols
+// The ONE flag ctx for every flagsForEdge call site (risk score, graph view,
+// details, CSV) — chain-bound at call time via dataChain().
+const isFakeTokenEdge = (edge) => isFakeToken(edge, dataChain(), canonicalIndex);
+const flagCtx = { category: (a) => knownCategory(a, dataChain(), knownData), isFakeToken: isFakeTokenEdge };
 
 // --- Feature Layer 2 state --------------------------------------------------
 let hubMap = new Map(); // address -> 'sink' | 'faucet'
@@ -132,7 +138,7 @@ function computeRisk(address) {
   const chainId = dataChain();
   const categoryFor = (a) => knownCategory(a, chainId, knownData);
   // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
-  const flags = outEdges.flatMap((e) => flagsForEdge(e, { category: categoryFor }));
+  const flags = outEdges.flatMap((e) => flagsForEdge(e, flagCtx));
   return scoreNode({
     inDeg: inC.size,
     outDeg: outC.size,
@@ -151,8 +157,9 @@ function applyDisplayOptions() {
     hideSpam: $("hideSpamToggle").checked,
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
-    spamContracts,
-    spamSymbols,
+    spamContracts: spam.contractsFor(dataChain()),
+    spamSymbols: spam.symbols,
+    isFakeToken: isFakeTokenEdge,
   });
 }
 
@@ -187,22 +194,15 @@ function populateChains() {
 // fetch (CSP connect-src 'self'); failures are non-fatal (app still runs).
 async function loadLocalData() {
   knownData = await loadKnownAddresses();
-  if (view) view.refreshLabels();
+  canonicalIndex = buildCanonicalIndex(knownData);
+  if (view) view.refreshLabels(); // known labels never wait on the spam request
   try {
     const resp = await fetch(DATA_PATHS.spamTokens);
-    if (resp.ok) {
-      const list = await resp.json();
-      if (Array.isArray(list)) {
-        for (const raw of list) {
-          const s = String(raw).toLowerCase();
-          if (s.startsWith("0x")) spamContracts.add(s);
-          else spamSymbols.add(s);
-        }
-      }
-    }
+    if (resp.ok) spam = parseSpamList(await resp.json());
   } catch {
     /* spam list optional */
   }
+  if (view) applyDisplayOptions(); // re-project: spam sets + edge flags (known data, canonical index)
 }
 
 function wirePersistedInputs() {
@@ -286,6 +286,7 @@ function applyLocale() {
   i18n.applyTo(document);
   document.documentElement.setAttribute("lang", i18n.getLocale());
   refreshDynamicI18n();
+  if (view) view.refreshProjection(); // edge labels/tooltips carry translated flag text
 }
 
 function wireLanguageToggle() {
@@ -344,11 +345,7 @@ function showNodeDetails(address) {
     explorer: explorerFor(dataChain()),
     onRename: promptAlias,
     risk: computeRisk(address),
-    getKnownSource: (a) => {
-      const chain = knownData[String(dataChain())];
-      const entry = chain && chain[String(a).toLowerCase()];
-      return entry && entry.source ? entry.source : null;
-    },
+    getKnownSource: (a) => knownEntry(a, dataChain(), knownData)?.source || null,
     history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
     pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
     onLoadOlder: () => loadOlderFor(address),
@@ -368,6 +365,7 @@ function showEdgeDetails(edgeKey) {
     getAlias: (a) => store.getAlias(a),
     getKnownLabel: (a) => knownLabel(a, chainId, knownData),
     getCategory: (a) => knownCategory(a, chainId, knownData),
+    isFakeToken: isFakeTokenEdge,
   };
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
   else renderEdgeDetails($("detailsContent"), data, deps);
@@ -558,6 +556,7 @@ async function startScan() {
   const refusal = store.stats().nodes > 0 && chainRefusal(chainId);
   if (refusal) return logger.log({ level: "error", ...refusal });
   graphChainId = chainId;
+  applyDisplayOptions(); // per-chain spam contracts follow the graph chain
 
   // Native-value txs (no tokenSymbol) must show THIS chain's ticker, not a
   // hardcoded "ETH" — set before any edges are added so the whole scan is
@@ -742,11 +741,12 @@ async function startDetectChain() {
 
   // No-API shortcut: a known labeled address already tells us its chain(s) locally.
   const localHits = chainsForKnownAddress(address, knownData);
-  if (localHits.length) {
-    const hit = localHits[0]; // first-listed chain wins
+  // A "*"-only hit names no chain, so it falls through to the API probe.
+  if (localHits.some((h) => h.chainId !== "*")) {
+    const hit = localHits[0]; // first-listed chain-specific hit wins
     $("chainSelect").value = String(hit.chainId);
     $("chainSelect").dispatchEvent(new Event("change"));
-    const chains = localHits.map((h) => chainName(h.chainId)).join(", ");
+    const chains = localHits.map((h) => (h.chainId === "*" ? t("details.allChains") : chainName(h.chainId))).join(", ");
     logger.log({ level: "info", key: "detect.localHit", params: { label: hit.label, chains } });
     if (el) {
       el.className = "detect ok";
@@ -1006,7 +1006,7 @@ function wireControls() {
     })
   );
   $("exportCsvBtn").addEventListener("click", () =>
-    exportCsv(store, { onLog, category: (a) => knownCategory(a, dataChain(), knownData) })
+    exportCsv(store, { onLog, ...flagCtx })
   );
 
   // Noise-reduction filters (live display projection; store is untouched).
@@ -1100,7 +1100,7 @@ function init() {
     // sinks (or anything else).
     getHubDimOn: () => hubOn,
     getCategory: (address) => knownCategory(address, dataChain(), knownData),
-    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, dataChain(), knownData) }),
+    getEdgeFlags: (edge) => flagsForEdge(edge, flagCtx),
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

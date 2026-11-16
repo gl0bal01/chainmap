@@ -21,7 +21,7 @@ python3 -m http.server 8000   # open http://localhost:8000/
 Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 
 ```bash
-bun test        # 414 tests
+bun test        # 472 tests
 ```
 
 `vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
@@ -46,7 +46,7 @@ DOM-free, Node-testable modules (pure logic; the heart of the app):
 - `roundTrips.js` — Tarjan SCC cycle detection. `sinkFaucet.js` — hub classification.
 - `selectors.js` + `abiDecode.js` — 4-byte method selectors + ABI head decoder.
 - `riskScore.js` — explainable per-node risk. `blockchainDetect.js` — chain-by-format detection.
-- `knownAddresses.js`, `workspace.js` (save/load), `dryRun.js` (scan estimate).
+- `knownAddresses.js` (`knownEntry`: chain-specific then `"*"`), `fakeToken.js` (imitation-token detection), `workspace.js` (save/load), `dryRun.js` (scan estimate).
 - `i18n.js` + `locales/{en,fr}.js` — flat key dictionaries; `applyTo(root)` translates `[data-i18n*]`.
 
 DOM / vis modules:
@@ -67,8 +67,8 @@ Frozen module contracts live in `INTERFACES.md`.
 - **Sampling is explicit**: scans fetch the latest N per address (page 1, sort desc, offset N), extendable per node via **Load older** (block cursor on `NodeRecord.history`) — not full history, surfaced in UI + exports. A graph is single-chain (cross-chain scans into a non-empty graph are refused). Never present sampled data as complete.
 - **i18n**: no hardcoded UI text in logic. Modules emit `{level, key, params}`; `ui`+`i18n` render it. en/fr key sets must stay at parity (a test enforces it).
 - **Security**: strict CSP (script-src 'self', connect-src limited to api.etherscan.io); user/API strings reach the DOM via `textContent`/escaped only; no inline `onclick`.
-- Adding a chain / tx-type / selector / known-address = one entry in the relevant table
-  (`config.js` / `selectors.js` / `data/*.json`). A new selector gets an entry in
+- Adding a chain / tx-type / selector = one entry in the relevant table
+  (`config.js` / `selectors.js`); a known-address = one row in `data/sources/curated.json`, then rebuild (below). A new selector gets an entry in
   `SELECTORS` (signature) and, if its leading static args are worth naming, a matching
   entry in `SELECTOR_PARAMS` (param names, in `selectors.js`) — `abiDecode.summarizeCall`
   and the CSV `decoded_amount`/`real_recipient` columns depend on those names being present.
@@ -76,4 +76,9 @@ Frozen module contracts live in `INTERFACES.md`.
   faucets/sinks** (`sinkFaucet.shouldHideNode`) are display projections over the store
   mirror, same as filters/bundling — they never mutate `graphStore`, so CSV/detail always
   reflect the full graph regardless of what's hidden or highlighted on screen.
-
+- **`data/known-addresses.json` is generated — never hand-edit it.** Edit
+  `data/sources/curated.json`, then run `bun run data:build --verify-sources` (dev-only
+  pipeline in `scripts/known-addresses/`; see `data/README.md`). Sanctions come only from the
+  OFAC import (curated rows use `ofacDesignated`). `"*"` = all EVM chains; every lookup goes
+  through `knownEntry`. `token` rows are the per-chain canonical set that drives imitation-token
+  detection — curate all legit same-symbol variants or none.

@@ -258,12 +258,14 @@ const CSV_HEADER = [
 /**
  * Build all CSV rows (caveat + header + node/edge rows). Pure — no DOM.
  * @param {import('../graphStore.js').GraphStore} store
- * @param {{ category:(addr:string)=>(string|null), formatTimestamp?:(t:string)=>string }} ctx
+ * @param {{ category:(addr:string)=>(string|null), isFakeToken?:(edge:object)=>boolean,
+ *           formatTimestamp?:(t:string)=>string }} ctx
  * @returns {string[][]}
  */
 export function buildCsvRows(store, ctx) {
   const fmtTs = (ctx && ctx.formatTimestamp) || formatTimestamp;
   const category = (ctx && ctx.category) || (() => null);
+  const isFakeToken = ctx && ctx.isFakeToken;
   const rows = [
     // Sampling caveat: this graph reflects only the transactions retrieved
     // during the scan (latest-first, capped per address/type) — not full
@@ -280,7 +282,9 @@ export function buildCsvRows(store, ctx) {
     ]);
   }
   for (const e of store.listEdges()) {
-    let method = "", sig = "", realRecipient = "", decodedAmount = "", flags = "";
+    let method = "", sig = "", realRecipient = "", decodedAmount = "";
+    // Flags for EVERY edge (a plain transfer to a mixer / an imitation token still flags).
+    const flags = flagsForEdge(e, { category, isFakeToken }).join(";");
     if (e.hasData) {
       method = e.methodId || "";
       sig = methodName(e.methodId) || "";
@@ -291,7 +295,6 @@ export function buildCsvRows(store, ctx) {
         const f = formatUnits(amtArg.value, e.tokenDecimal);
         decodedAmount = f.indeterminate ? amtArg.value : f.text;
       }
-      flags = flagsForEdge(e, { category }).join(";");
     }
     rows.push([
       "edge", "", "", "", "",
@@ -307,7 +310,8 @@ export function buildCsvRows(store, ctx) {
  * CSV export: node rows + edge rows (with sampling caveat header). Walks the store.
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ onLog:(e:{level:string,key:string,params?:object})=>void,
- *           category?:(addr:string)=>(string|null) }} deps
+ *           category?:(addr:string)=>(string|null),
+ *           isFakeToken?:(edge:object)=>boolean }} deps
  */
 export function exportCsv(store, deps) {
   const { onLog } = deps;
@@ -317,7 +321,7 @@ export function exportCsv(store, deps) {
     return;
   }
 
-  const rows = buildCsvRows(store, { category: (deps && deps.category) || (() => null) });
+  const rows = buildCsvRows(store, { category: deps.category, isFakeToken: deps.isFakeToken });
 
   const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });

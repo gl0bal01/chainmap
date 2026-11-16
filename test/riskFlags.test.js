@@ -74,3 +74,13 @@ test("edgeSeverity: null for no flags", () => {
   expect(edgeSeverity(null)).toBeNull();
   expect(edgeSeverity(undefined)).toBeNull();
 });
+
+test("fakeToken flag comes from the injected predicate and is info tier", () => {
+  const e = { action: "tokentx", methodId: "", to: A, hasData: false, methodArgs: [] };
+  expect(flagsForEdge(e, { category: () => null, isFakeToken: () => true })).toContain("flag.fakeToken");
+  expect(flagsForEdge(e, { category: () => null, isFakeToken: () => false })).toEqual([]);
+  expect(flagsForEdge(e, noCat)).toEqual([]);
+  expect(flagSeverity("flag.fakeToken")).toBe("info");
+  expect(edgeSeverity(["flag.fakeToken"])).toBe("info");
+  expect(edgeSeverity(["flag.fakeToken", "flag.mixer"])).toBe("high");
+});

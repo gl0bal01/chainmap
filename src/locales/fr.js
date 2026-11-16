@@ -120,7 +120,7 @@ export default {
   "legend.token": "Transfert token",
   "legend.data": "Appel de contrat (données input)",
   "legend.riskHigh": "Risque élevé (mixeur / pont / sanctionné)",
-  "legend.riskInfo": "Signal info (approbation / destinataire caché)",
+  "legend.riskInfo": "Signal info (approbation / destinataire caché / faux jeton)",
   "legend.roundtrip": "Aller-retour (cycle)",
   "legend.age": "Âge de l'arête (ancien → récent)",
 
@@ -129,6 +129,7 @@ export default {
   "details.empty": "Cliquez sur un nœud ou une flèche du graphe.",
   "details.alias": "Alias",
   "details.address": "Adresse",
+  "details.allChains": "toutes les chaînes EVM",
   "details.source": "Source",
   "details.depth": "Profondeur",
   "details.root": "Racine",
@@ -192,6 +193,7 @@ export default {
   "flag.mixer": "interaction avec un mixeur",
   "flag.bridge": "interaction avec un pont",
   "flag.sanctioned": "entité sanctionnée",
+  "flag.fakeToken": "faux jeton — pas le contrat officiel de ce symbole sur cette chaîne",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Journal",

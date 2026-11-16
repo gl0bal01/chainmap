@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **414 unit/integration tests** on the DOM-free core.
+- **472 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -75,11 +75,23 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
 - **Investigation overlays** — round-trip (cycle) detection, sink/faucet hubs (with
   reversible **Hide faucets / Hide sinks** toggles), **peel-chain** detection (highlights
   forwarding chains where value hops through throwaway addresses), color-by-age,
-  known-address labels, mixer/bridge/sanctioned tagging (🌀/🌉/⛔ badges), and an
+  known-address labels (see below), mixer/bridge/sanctioned tagging (🌀/🌉/⛔ badges), and an
   *explainable* per-node risk score.
+- **Sourced known-address base** — ~580 labels (bridges, routers, mixers, canonical tokens,
+  OFAC-sanctioned addresses, a few exchange hot wallets) generated from the official OFAC SDN
+  list (sanctions and delistings as of the last data rebuild; the OFAC publish date is shown in
+  each sanctioned entry's Source), the MIT superchain registry and a curated seed verified
+  against cited official pages, except 9 legacy explorer-label rows marked
+  `needs official source`. See [`data/README.md`](data/README.md).
+- **Imitation-token detection** — a transfer whose symbol mimics an official token (spoofed
+  USDT/USDC, look-alike letters, invisible characters) from a non-official contract gets an
+  amber ⓘ flag and is hidden by the spam filter ("Hide known spam tokens"). *Known limitation:*
+  legit but uncurated same-symbol contracts (e.g. Wormhole-wrapped USDC/WETH, PulseChain-bridged
+  WETH/WBTC on Ethereum) are flagged too: the flag means "not the official contract for this
+  symbol on this chain", a signal, not a verdict.
 - **Per-edge risk flags** — unlimited/blanket approvals, a hidden real recipient, and
   mixer/bridge/sanctioned counterparties are called out in the edge details panel and
-  escalated on the graph in two visual tiers: danger (mixer/bridge/sanctioned, red ⚠) vs informational (approvals/hidden-recipient, amber ⓘ). **Signals, not verdicts** — always
+  escalated on the graph in two visual tiers: danger (mixer/bridge/sanctioned, red ⚠) vs informational (approvals/hidden-recipient/imitation tokens, amber ⓘ). **Signals, not verdicts** — always
   corroborate before you conclude.
 - **Chain detector** — paste any address; it tells you the chain family (or non-EVM) by format. Then click **Detect chain** to probe ~12 popular chains for on-chain activity and auto-select the one where the address is most active, showing where else it's active.
 - **Exports** — PNG, PDF, and CSV (with a sampling caveat baked in, plus decoded method,
@@ -152,7 +164,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 414 unit + integration tests
+bun test        # 472 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:
