@@ -24,6 +24,11 @@ const CANNED = {
 const apiUrls = [];
 // How many times main.js has received data/known-addresses.json (see knownLoaded()).
 let knownLoads = 0;
+let spamLoads = 0;
+// Spam list served instead of the real (empty) data/spam-tokens.json: dedicated
+// contracts no other test uses, so existing expectations are unaffected.
+const SPAM_STAR = "0x" + "c".repeat(40), SPAM_137 = "0x" + "d".repeat(40);
+const SPAM_FIXTURE = { "*": [SPAM_STAR], "137": [SPAM_137] };
 // When set, API fetches wait on it (abortable via the request signal) so a test
 // can hold a scan/load in flight deterministically.
 let apiGate = null;
@@ -39,6 +44,7 @@ function stubFetch() {
         const json = async () => {
           const data = JSON.parse(text);
           if (path.includes("known-addresses")) knownLoads++;
+          if (path.includes("spam-tokens")) { spamLoads++; return SPAM_FIXTURE; }
           return data;
         };
         return { ok: true, status: 200, headers: { get: () => null }, json };
@@ -1117,16 +1123,72 @@ test("imitation USDT: ⓘ on the graph, flagged in details + CSV, hidden by Hide
       edges: [tok("0xf1", "USDT", FAKE), tok("0xf2", "USDC", USDC)],
     });
     expect(byHash("0xf1").label).toContain("ⓘ");
-    expect(byHash("0xf1").title).toContain("Imitation token");
+    expect(byHash("0xf1").title).toContain("imitation token — not the official contract");
     expect(byHash("0xf2").label).not.toContain("ⓘ");
     window.vis.Network.first._on.click[0]({ nodes: [], edges: [byHash("0xf1").id] });
-    expect($("detailsContent").textContent).toContain("Imitation token");
+    expect($("detailsContent").textContent).toContain("imitation token — not the official contract");
     const lines = (await captureCsv()).split("\n");
     expect(lines.find((l) => l.includes(",0xf1,"))).toContain("flag.fakeToken");
     expect(lines.find((l) => l.includes(",0xf2,"))).not.toContain("flag.fakeToken");
     $("hideSpamToggle").checked = true;
     $("hideSpamToggle").dispatchEvent(new window.Event("change"));
     expect(shown().map((e) => e.data.hash)).toEqual(["0xf2"]);
+  } finally {
+    $("hideSpamToggle").checked = false;
+    $("hideSpamToggle").dispatchEvent(new window.Event("change"));
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a view refresh fully restyles an edge whose flags appeared after it was drawn", async () => {
+  const { createGraphView } = await import("../src/render/network.js");
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  let flags = []; // stands in for flags before the known data / canonical index load
+  const store = new GraphStore();
+  const view = createGraphView(document.createElement("div"), store, {
+    i18n: createI18n({ dictionaries: { en }, locale: "en", fallbackLocale: "en" }),
+    getAddressFormat: () => "short",
+    getEdgeFlags: () => flags,
+  });
+  try {
+    store.loadSnapshot(
+      [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: N2, depth: 1, isRoot: false, alias: null }],
+      [wsEdge({ hash: "0xr1", action: "tokentx", group: "token", symbol: "USDT", tokenContract: "0x" + "e".repeat(40) })],
+    );
+    const edge = () => window.vis.Network.last.edges.get()[0];
+    expect(edge().label).not.toContain("ⓘ");
+    flags = ["flag.fakeToken"];
+    view.refreshProjection();
+    expect(edge().label).toContain("ⓘ");
+    expect(edge().title).toContain("imitation token — not the official contract");
+    expect(edge().dashes).toEqual([2, 3]);
+  } finally {
+    view.destroy();
+  }
+});
+
+test("spam contracts follow the graph chain: '*' hidden everywhere, '137' only on a 137 graph", async () => {
+  await knownLoaded();
+  await until(() => spamLoads > 0);
+  await sleep(0);
+  const tok = (hash, contract) => wsEdge({ hash, action: "tokentx", group: "token", color: "#4fd67a", symbol: "SPAMX", tokenContract: contract });
+  const ws = (chainId) => ({
+    version: 2, chainId, root: ROOT,
+    nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: N2, depth: 1, isRoot: false, alias: null }],
+    edges: [tok("0xp1", SPAM_STAR), tok("0xp2", SPAM_137), wsEdge({ hash: "0xp3" })],
+  });
+  const shownOnSpamHidden = async (chainId) => {
+    await loadAsDemo(ws(chainId));
+    $("hideSpamToggle").checked = true;
+    $("hideSpamToggle").dispatchEvent(new window.Event("change"));
+    return window.vis.Network.first.edges.get().map((e) => e.data.hash).sort();
+  };
+  try {
+    expect(await shownOnSpamHidden("137")).toEqual(["0xp3"]);
+    expect(await shownOnSpamHidden("1")).toEqual(["0xp2", "0xp3"]);
   } finally {
     $("hideSpamToggle").checked = false;
     $("hideSpamToggle").dispatchEvent(new window.Event("change"));

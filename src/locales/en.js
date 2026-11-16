@@ -194,7 +194,7 @@ export default {
   "flag.mixer": "mixer interaction",
   "flag.bridge": "bridge interaction",
   "flag.sanctioned": "sanctioned entity",
-  "flag.fakeToken": "Imitation token: uses the symbol of an official token but is not its official contract on this chain",
+  "flag.fakeToken": "imitation token — not the official contract for this symbol on this chain",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Log",

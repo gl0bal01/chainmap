@@ -195,16 +195,14 @@ function populateChains() {
 async function loadLocalData() {
   knownData = await loadKnownAddresses();
   canonicalIndex = buildCanonicalIndex(knownData);
+  if (view) view.refreshLabels(); // known labels never wait on the spam request
   try {
     const resp = await fetch(DATA_PATHS.spamTokens);
     if (resp.ok) spam = parseSpamList(await resp.json());
   } catch {
     /* spam list optional */
   }
-  if (view) {
-    view.refreshLabels();
-    applyDisplayOptions(); // re-project: new spam sets + canonical index
-  }
+  if (view) applyDisplayOptions(); // re-project: spam sets + edge flags (known data, canonical index)
 }
 
 function wirePersistedInputs() {

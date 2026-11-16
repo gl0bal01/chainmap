@@ -120,7 +120,7 @@ export default {
   "legend.token": "Transfert token",
   "legend.data": "Appel de contrat (données input)",
   "legend.riskHigh": "Risque élevé (mixeur / pont / sanctionné)",
-  "legend.riskInfo": "Signal info (approbation / destinataire caché / token d'imitation)",
+  "legend.riskInfo": "Signal info (approbation / destinataire caché / jeton d'imitation)",
   "legend.roundtrip": "Aller-retour (cycle)",
   "legend.age": "Âge de l'arête (ancien → récent)",
 
@@ -193,7 +193,7 @@ export default {
   "flag.mixer": "interaction avec un mixeur",
   "flag.bridge": "interaction avec un pont",
   "flag.sanctioned": "entité sanctionnée",
-  "flag.fakeToken": "Token d'imitation : utilise le symbole d'un token officiel mais n'est pas son contrat officiel sur cette chaîne",
+  "flag.fakeToken": "jeton d'imitation — pas le contrat officiel de ce symbole sur cette chaîne",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Journal",
