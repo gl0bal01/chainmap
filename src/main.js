@@ -1538,8 +1538,8 @@ function init() {
   applyLocale();
   clearDetails();
   $("usdToggle").checked = false; // never restored (a browser may restore form state on reload)
-  // async; enriches labels + spam sets when ready, then arms USD (fail closed: never rejects)
-  loadLocalData().then((ok) => {
+  // async; enriches labels + spam sets when ready, then arms USD (fail closed: a rejection counts as failed data)
+  loadLocalData().catch(() => false).then((ok) => {
     usdDataOk = ok;
     onUsdToggle();
   });
