@@ -295,7 +295,7 @@ test("risk_flags uses each edge's chain", () => {
 });
 
 const MULTI = "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer";
-const DEPOSIT_CAVEAT = "; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet), not an attribution";
+const DEPOSIT_CAVEAT = "; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet) - not an attribution";
 const DEP = {
   walletId: "1:0xex", wallet: "0xex", label: "Binance 14 (hot wallet)", swept: 9, outgoing: 10,
   assets: [{ symbol: "ETH", contract: "", sharePct: 100 }, { symbol: "USDT", contract: "0xt", sharePct: 93 }],
@@ -331,6 +331,7 @@ test("exportCsv forwards deps.deposits", () => {
   const a = withId(NODE_A);
   exportCsv(makeFakeStore([a], []), { onLog: () => {}, category: () => null, deposits: new Map([[a.id, DEP]]) });
   const lines = capturedCsvText().split("\n");
-  expect(lines[0]).toBe(csvEscape(SINGLE_CAVEAT + DEPOSIT_CAVEAT)); // caveat has a comma -> quoted
+  expect(lines[0]).toBe(SINGLE_CAVEAT + DEPOSIT_CAVEAT);
+  expect(lines[0].startsWith('"')).toBe(false);
   expect(lines[2]).toContain("wallet=0xex;swept=9/10");
 });
