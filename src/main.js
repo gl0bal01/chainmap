@@ -286,6 +286,7 @@ function applyLocale() {
   i18n.applyTo(document);
   document.documentElement.setAttribute("lang", i18n.getLocale());
   refreshDynamicI18n();
+  if (view) view.refreshProjection(); // edge labels/tooltips carry translated flag text
 }
 
 function wireLanguageToggle() {

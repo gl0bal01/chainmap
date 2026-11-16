@@ -1058,6 +1058,7 @@ const STAR_ONLY = Object.keys(KNOWN["*"] || {}).find((a) => KNOWN["*"][a].catego
 
 test("detect chain: an address known only on '*' keeps the selector and falls through to the API probe", async () => {
   await knownLoaded(); // else an unloaded dataset would fall through too (false pass)
+  expect(STAR_ONLY).toBeTruthy(); // the data must hold a '*'-only sanctioned address
   try {
     $("resetBtn").click();
     setChain("137");
@@ -1091,6 +1092,7 @@ test("detect chain: a chain-1 + '*' address names Ethereum and all EVM chains", 
 
 test("a '*'-only OFAC address is labeled, badged, sourced and risk-scored on a non-Ethereum graph", async () => {
   await knownLoaded();
+  expect(STAR_ONLY).toBeTruthy();
   try {
     await loadAsDemo({
       version: 2, chainId: "137", root: ROOT,
@@ -1125,6 +1127,10 @@ test("imitation USDT: ⓘ on the graph, flagged in details + CSV, hidden by Hide
     expect(byHash("0xf1").label).toContain("ⓘ");
     expect(byHash("0xf1").title).toContain("imitation token — not the official contract");
     expect(byHash("0xf2").label).not.toContain("ⓘ");
+    $("langToggle").click(); // a locale switch re-renders edge tooltips
+    try { expect(byHash("0xf1").title).toContain("faux jeton — pas le contrat officiel"); }
+    finally { $("langToggle").click(); }
+    expect(byHash("0xf1").title).toContain("imitation token — not the official contract");
     window.vis.Network.first._on.click[0]({ nodes: [], edges: [byHash("0xf1").id] });
     expect($("detailsContent").textContent).toContain("imitation token — not the official contract");
     const lines = (await captureCsv()).split("\n");
