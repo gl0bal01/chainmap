@@ -21,12 +21,13 @@ export function edgeAmountNumber(edge) {
 
 /**
  * @param {import('./graphStore.js').EdgeRecord} edge
- * @param {{ spamContracts?:Set<string>, spamSymbols?:Set<string> }} opts
+ * @param {{ spamContractsFor?:(chainId:string)=>Set<string>, spamSymbols?:Set<string> }} opts
+ *   spam contracts are looked up on the edge's own chain
  * @returns {boolean} true if the edge is a known spam/airdrop token.
  */
 export function isSpam(edge, opts) {
   if (!edge) return false;
-  const contracts = opts && opts.spamContracts;
+  const contracts = opts && opts.spamContractsFor && opts.spamContractsFor(edge.chainId);
   const symbols = opts && opts.spamSymbols;
   const contract = (edge.tokenContract || "").toLowerCase();
   const symbol = (edge.symbol || "").toLowerCase();
@@ -74,7 +75,7 @@ export function parseSpamList(raw) {
  * @param {import('./graphStore.js').EdgeRecord} edge
  * @param {{ minAmount?:number, hideZero?:boolean, hideSpam?:boolean,
  *           minTime?:number, maxTime?:number,
- *           spamContracts?:Set<string>, spamSymbols?:Set<string>,
+ *           spamContractsFor?:(chainId:string)=>Set<string>, spamSymbols?:Set<string>,
  *           isFakeToken?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} opts
  * @returns {boolean}
  */

@@ -258,7 +258,7 @@ const CSV_HEADER = [
 /**
  * Build all CSV rows (caveat + header + node/edge rows). Pure — no DOM.
  * @param {import('../graphStore.js').GraphStore} store
- * @param {{ category:(addr:string)=>(string|null), isFakeToken?:(edge:object)=>boolean,
+ * @param {{ category:(addr:string, chainId:string)=>(string|null), isFakeToken?:(edge:object)=>boolean,
  *           formatTimestamp?:(t:string)=>string }} ctx
  * @returns {string[][]}
  */
@@ -310,7 +310,7 @@ export function buildCsvRows(store, ctx) {
  * CSV export: node rows + edge rows (with sampling caveat header). Walks the store.
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ onLog:(e:{level:string,key:string,params?:object})=>void,
- *           category?:(addr:string)=>(string|null),
+ *           category?:(addr:string, chainId:string)=>(string|null),
  *           isFakeToken?:(edge:object)=>boolean }} deps
  */
 export function exportCsv(store, deps) {

@@ -177,6 +177,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 
 ## ui.js — DOM view helpers (stub → Stage B)
 
+- `explorer: string|null` in all three renderers — the record's chain host (`main.explorerFor(chainId)`, from `config.CHAINS` only); `null` (unknown chain) omits the Link row. There is no fallback host.
 - `renderNodeDetails(container, node, { i18n, explorer, onRename, risk?, getKnownSource?, history?, pageSize?, onLoadOlder?, busy?, loadBlocked? })` — `history` (`historyState` items + `labelKey`) adds the History row and a Load button that calls `onLoadOlder()`; the button is disabled while `busy`, when `loadBlocked` (`{key, params?}`, shown as a note) is set, or when every selected type is complete.
 - `renderEdgeDetails(container, edge, { i18n, explorer, getAlias, getKnownLabel?, getCategory?, isFakeToken? })` — the optional deps are absent-safe; `getCategory` and `isFakeToken` feed `flagsForEdge` for the risk-flags row.
 - `createLogger(container, i18n): { log(entry), clear() }`
@@ -206,12 +207,12 @@ indicator, sampling banner.
 ## Stage D additions (Feature Layer 1 — noise reduction, D1.1)
 
 New DOM-free modules:
-- **display.js** (pure): `edgeAmountNumber(edge)`, `isSpam(edge,{spamContracts,spamSymbols})`, `passesFilters(edge,opts)`, `filtersActive(opts)`, `edgeWidth(amount,maxAmount)→[1,8]`. Threshold is per-edge nominal magnitude, NOT fiat-normalized (documented caveat).
+- **display.js** (pure): `edgeAmountNumber(edge)`, `isSpam(edge,{spamContractsFor?:(chainId)=>Set<string>,spamSymbols?})` (contracts looked up on `edge.chainId`), `passesFilters(edge,opts)`, `filtersActive(opts)`, `edgeWidth(amount,maxAmount)→[1,8]`. Threshold is per-edge nominal magnitude, NOT fiat-normalized (documented caveat).
 - **knownAddresses.js**: `loadKnownAddresses(fetchImpl?,path?)→Promise<KnownData>` (empty on any failure, never throws), `knownLabel(address,chainId,data)→string|null`. `KnownData = { "<chainId>": { "<lc address>": {label,category} } }`. Bundled at `data/known-addresses.json`.
 
 Contract extensions (additive, backward-compatible):
 - `render/labels.nodeLabel(node,{addressFormat,knownLabel?})` and `nodeVisual(node,{knownLabel?})` — name precedence: user alias > known label > address.
-- `GraphView` gains `setDisplayOptions(opts:DisplayOptions)` and `refreshProjection()`. `createGraphView(container,store,deps)` deps gain optional `getKnownLabel(address)→string|null`. The view now renders vis **DataViews** (filtered edges + nodes) over the full mirror; `graphStore` stays the sole source of truth (filters never mutate it).
+- `GraphView` gains `setDisplayOptions(opts:DisplayOptions)` and `refreshProjection()`. `createGraphView(container,store,deps)` deps gain optional `getKnownLabel(address, chainId)→string|null` (called with the node's own chain). The view now renders vis **DataViews** (filtered edges + nodes) over the full mirror; `graphStore` stays the sole source of truth (filters never mutate it).
 - Bundled data paths already in `config.DATA_PATHS`; `data/spam-tokens.json` = array of lowercased contracts/symbols hidden when "hide spam" is on.
 
 New i18n keys: `filters.label`, `filters.minAmount.label`, `filters.hideZero`, `filters.hideSpam` (en+fr). New DOM ids: `minAmount`, `hideZeroToggle`, `hideSpamToggle`.
@@ -224,10 +225,10 @@ New DOM-free modules:
 - **workspace.js**: `WORKSPACE_VERSION=3`.
   - `serializeWorkspace({root,nodes,edges,filters,layout,annotations}) → { version:3, root, graph:{nodes,edges}, filters, layout, annotations }` — no top-level `chainId` (an input `chainId` is ignored); every record carries its own `chainId`.
   - `parseWorkspace(json|string, {fallbackChainId?}) → { ok:true, data:{ version:3, root, nodes, edges, filters, layout, annotations, assumedChainId:string|null } } | { ok:false, error, errorKey? }` (sanitizes untrusted file input; never throws).
-    - `version > 3` → refused, `errorKey:"error.workspaceTooNew"`.
+    - version gate: absent → v2 migration; a present `version` must be an integer `1`/`2` (migrated) or `3`. An integer `> 3` → refused, `errorKey:"error.workspaceTooNew"`; anything else (`"3"`, `2.5`, `0`, `-1`, `null`, …) → refused as invalid (no `errorKey`).
     - `version === 3` → reads `graph.nodes`/`graph.edges` (both arrays required); drops a node whose `chainId` fails `parseChainId`; drops an edge with a bad `chainId`, a key not prefixed `chainId|`, or an endpoint `nodeId(chainId, from|to)` not among the parsed nodes.
     - anything else → strict v2 migration: one chain `parseChainId(obj.chainId ?? fallbackChainId)` (null → refused, `"workspace chainId must be a decimal chain id"`) is stamped on EVERY record (per-record `chainId` ignored, so a v2 file can never produce mixed chains); each edge key becomes `chainId + "|" + key` (prefixed, not recomputed). `assumedChainId` = that chain only when the file had no `chainId`.
-    - `id`/`fromId`/`toId` in a file are never trusted — `graphStore.loadSnapshot` recomputes them.
+    - `id`/`fromId`/`toId` in a file are never trusted — they are deleted from every returned record (v2 and v3) and `graphStore.loadSnapshot` recomputes them.
 - **dryRun.js**: `estimateScan({firstHopNeighbors,maxDepth,typesCount,rps,maxTxPerAddress,safetyCap})→{addresses,apiCalls,seconds}` (rough upper bound, capped by safetyCap).
 - **sinkFaucet.js**: `classifyHubs(nodes,edges,{minDegree=6,ratio=4})→Map<nodeId,'sink'|'faucet'>` (reads `n.id`, `e.fromId`/`e.toId`; distinct-counterparty degree, self-loops ignored; hubs are per chain), `hubDim(kind)→number`.
 - **roundTrips.js**: `findCycleNodes(nodes, edges) → Set<nodeId>` (Tarjan SCC over `n.id`, `e.fromId`/`e.toId`; a cycle never crosses chains).
@@ -235,6 +236,7 @@ New DOM-free modules:
 Contract extensions:
 - `graphStore.loadSnapshot(nodes, edges)` — replace all state from a snapshot; emits reset→node:add→edge:add; recomputes `id`/`fromId`/`toId`; drops nodes with an invalid `chainId`, and edges with an invalid `chainId`, a key not prefixed `chainId|`, or an endpoint missing on that chain (invariants hold).
 - `display.passesFilters` gains `minTime`/`maxTime` (UNIX secs; unknown-timestamp edges not excluded); `filtersActive` accounts for them.
+- `createGraphView` deps: `getCategory?(address, chainId)` (🌀/🌉/⛔ badge) and `getKnownNote?(address, chainId)→string|null` (appended to the node hover title as ` · {note}`) both take the node's own chain; `DisplayOptions.spamContractsFor?(chainId)→Set<string>` replaces `spamContracts`.
 - `GraphView` gains `setLayout(mode)`, `refreshHubs()`, `addAnnotation(text)`, `clearAnnotations()`, `getAnnotations()`, `setAnnotations(list)`. `createGraphView` deps gain optional `getHubKind(id)→('sink'|'faucet'|null)` (by node id). vis node ids are store node ids; vis edge endpoints are `fromId`/`toId`; `hasRenderedNode(id)` / `focusNode(id)` take node ids. Annotations are `note:*` overlay nodes (not graph nodes; not in store/CSV).
 - `render/export.renderExportCanvas`/`exportPng`/`exportPdf` accept `annotations` (baked into the image).
 
@@ -273,12 +275,12 @@ hidden or highlighted on screen.
   - `resolvedRecipient(edge: EdgeRecord): string` — the real recipient of an edge: the
     decoded `recipient` methodArg (lowercased) when present and a valid address, else the
     tx `to` (lowercased).
-  - `flagsForEdge(edge: EdgeRecord, ctx: {category:(addr:string)=>(string|null)}): string[]`
+  - `flagsForEdge(edge: EdgeRecord, ctx: {category:(addr:string, chainId:string)=>(string|null), isFakeToken?:(edge)=>boolean}): string[]`
     — de-duplicated i18n flag keys for an edge: `flag.approvalUnlimited` (allowance/approval
     ≥ 2^255, or `setApprovalForAll(_, true)`), `flag.hiddenRecipient` (decoded recipient ≠
     tx `to`), `flag.mixer`/`flag.bridge`/`flag.sanctioned` (resolved recipient's known
-    category, via the injected `category` lookup — typically `knownAddresses.knownCategory`
-    bound to the active chain), plus `flag.mixer` unconditionally for the Tornado Cash
+    category, via the injected `category` lookup, called as `category(resolvedRecipient(edge), edge.chainId)`
+    — typically `knownAddresses.knownCategory` on the edge's own chain), plus `flag.mixer` unconditionally for the Tornado Cash
     deposit selector. Each flag is a **signal, not a verdict**.
 
 - **riskScore.js** — `RiskInput` and `scoreNode` gain `approvalRisk:boolean` (+2,
@@ -347,6 +349,12 @@ licenses are documented in `data/README.md` (not repeated here).
     so they inherit the `"*"` fallback.
   - `chainsForKnownAddress(address, data)` — chain-specific hits first, then at most one
     `{ chainId: "*" }` item last.
+  - `isAllChainEntry(address, chainId, data) → boolean` — true iff `knownEntry` would answer from
+    the `"*"` bucket. main.js uses it to say "listed for all EVM chains (address-level designation)"
+    (`details.allChainsListing`) after the Source row and in the node tooltip (Decision 10c).
+  - **One lookup rule:** labels, categories, sources, risk flags, fake tokens, spam and explorer
+    links always use the record's own `chainId` (`node.chainId`, `edge.chainId`); there is no
+    graph-wide data chain.
 - **fakeToken.js** (pure, DOM-free, never throws on untrusted input)
   - `normalizeSymbol(s) → string` — NFKD, strips combining marks, NFKC, uppercases, maps
     Cyrillic/Greek look-alikes (and U+20AE) to Latin, drops whitespace/punctuation/invisible chars.
@@ -355,7 +363,7 @@ licenses are documented in `data/README.md` (not repeated here).
   - `isFakeToken(edge, chainId, index) → boolean` — true only for a `tokentx` edge whose
     normalized symbol is canonical on that chain but whose `tokenContract` is not one of the
     curated contracts. Chains with no canonical tokens never flag.
-- **riskFlags.js** — `flagsForEdge` ctx gains optional `isFakeToken(edge)`; when true it adds
+- **riskFlags.js** — `flagsForEdge` ctx gains optional `isFakeToken(edge)` (main.js: `isFakeToken(e, e.chainId, canonicalIndex)`); when true it adds
   `flag.fakeToken` (informational tier, amber ⓘ).
 - **display.js** — `parseSpamList(raw) → { symbols:Set, contractsFor(chainId):Set }`; `raw` is
   `{ "*": [...], "<chainId>": [...] }` (a legacy flat array = `"*"`); `0x…` items are contracts

@@ -87,7 +87,7 @@ function explorerLink(href, text) {
  * Render the node-details panel. Uses safe DOM nodes / escaped values only.
  * @param {HTMLElement} container  #detailsContent
  * @param {import('./graphStore.js').NodeRecord} node
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(id:string)=>void,
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:(string|null), onRename:(id:string)=>void,
  *           getKnownSource?:(addr:string)=>(string|null),
  *           history?:Array<{action:string,labelKey:string,state:'unloaded'|'more'|'complete',count:number}>,
  *           pageSize?:number, onLoadOlder?:()=>void, busy?:boolean,
@@ -98,6 +98,7 @@ function explorerLink(href, text) {
  *   (from `historyState`, plus each type's `labelKey`) adds the History row and a Load
  *   button (+`pageSize`) whose click calls `onLoadOlder`; the button is disabled when every
  *   type is complete, while `busy`, or when `loadBlocked` (a localized refusal) is set.
+ *   A null `explorer` (unknown chain) omits the Link row.
  */
 export function renderNodeDetails(container, node, deps) {
   const { i18n, explorer, onRename } = deps;
@@ -141,12 +142,14 @@ export function renderNodeDetails(container, node, deps) {
     });
     table.appendChild(detailRow(i18n.t("details.history"), box));
   }
-  table.appendChild(
-    detailRow(
-      i18n.t("details.link"),
-      explorerLink(`https://${explorer}/address/${node.address}`, i18n.t("details.viewOn", { explorer }))
-    )
-  );
+  if (explorer) {
+    table.appendChild(
+      detailRow(
+        i18n.t("details.link"),
+        explorerLink(`https://${explorer}/address/${node.address}`, i18n.t("details.viewOn", { explorer }))
+      )
+    );
+  }
   container.appendChild(table);
 
   const renameBtn = document.createElement("button");
@@ -188,13 +191,13 @@ export function renderNodeDetails(container, node, deps) {
  * Render the edge-details panel (escaped symbol/alias, safe explorer links).
  * @param {HTMLElement} container
  * @param {import('./graphStore.js').EdgeRecord} edge
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string,
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:(string|null),
  *           getAlias:(addr:string)=>(string|null),
  *           getKnownLabel?:(addr:string)=>(string|null),
  *           getCategory?:(addr:string)=>(string|null),
  *           isFakeToken?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} deps
  *   getKnownLabel/getCategory/isFakeToken are optional (graceful when absent — e.g.
- *   Feature Layer 1 known-address data not yet loaded).
+ *   Feature Layer 1 known-address data not yet loaded). A null `explorer` omits the Link row.
  */
 export function renderEdgeDetails(container, edge, deps) {
   const { i18n, explorer, getAlias } = deps;
@@ -316,12 +319,14 @@ export function renderEdgeDetails(container, edge, deps) {
   }
   table.appendChild(detailRow(i18n.t("details.block"), edge.blockNumber));
   table.appendChild(detailRow(i18n.t("details.date"), formatTimestamp(edge.timeStamp, i18n.getLocale())));
-  table.appendChild(
-    detailRow(
-      i18n.t("details.link"),
-      explorerLink(`https://${explorer}/tx/${edge.hash}`, i18n.t("details.viewTx"))
-    )
-  );
+  if (explorer) {
+    table.appendChild(
+      detailRow(
+        i18n.t("details.link"),
+        explorerLink(`https://${explorer}/tx/${edge.hash}`, i18n.t("details.viewTx"))
+      )
+    );
+  }
 
   container.appendChild(table);
 }
@@ -330,8 +335,8 @@ export function renderEdgeDetails(container, edge, deps) {
  * Render the details panel for a BUNDLED edge (collapsed A->B transfers).
  * @param {HTMLElement} container
  * @param {import('./display.js').BundledEdge} bundle
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string,
- *           getAlias:(addr:string)=>(string|null) }} deps
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:(string|null),
+ *           getAlias:(addr:string)=>(string|null) }} deps  null `explorer` omits the Link row
  */
 export function renderBundleDetails(container, bundle, deps) {
   const { i18n, explorer, getAlias } = deps;
@@ -342,7 +347,7 @@ export function renderBundleDetails(container, bundle, deps) {
   table.appendChild(detailRow(i18n.t("details.to"), getAlias(bundle.to) || bundle.to));
   table.appendChild(detailRow(i18n.t("details.count"), String(bundle.count)));
   table.appendChild(detailRow(i18n.t("details.total"), `${bundle.totalText} ${bundle.symbol}`.trim()));
-  if (bundle.from && bundle.to) {
+  if (explorer && bundle.from && bundle.to) {
     table.appendChild(
       detailRow(
         i18n.t("details.link"),

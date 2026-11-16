@@ -84,3 +84,11 @@ test("fakeToken flag comes from the injected predicate and is info tier", () => 
   expect(edgeSeverity(["flag.fakeToken"])).toBe("info");
   expect(edgeSeverity(["flag.fakeToken", "flag.mixer"])).toBe("high");
 });
+
+test("flagsForEdge looks the recipient up on the edge's own chain", () => {
+  const seen = [];
+  const ctx = { category: (addr, chainId) => (seen.push(chainId), addr === A && chainId === "1" ? "mixer" : null) };
+  expect(flagsForEdge({ chainId: "1", to: A, methodArgs: [] }, ctx)).toContain("flag.mixer");
+  expect(flagsForEdge({ chainId: "56", to: A, methodArgs: [] }, ctx)).not.toContain("flag.mixer");
+  expect(seen).toEqual(["1", "56"]);
+});

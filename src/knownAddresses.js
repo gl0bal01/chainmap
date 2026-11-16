@@ -65,6 +65,16 @@ export function knownCategory(address, chainId, data) {
 }
 
 /**
+ * True iff `knownEntry(address, chainId, data)` answers from the `"*"` bucket
+ * (an address-level designation, not a fact about this chain).
+ * @returns {boolean}
+ */
+export function isAllChainEntry(address, chainId, data) {
+  const entry = knownEntry(address, chainId, data);
+  return !!entry && Object.hasOwn(data, "*") && entry === data["*"][String(address).toLowerCase()];
+}
+
+/**
  * Every chain on which `address` is a KNOWN labeled entity. Chain-specific hits
  * first (numeric ids), then at most one `{ chainId: "*" }` item last.
  * @param {string} address

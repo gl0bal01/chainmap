@@ -24,17 +24,21 @@ export const WORKSPACE_VERSION = 3;
  *  linger as own properties and shadow behavior downstream — drop them at the
  *  trust boundary. */
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+/** Derived ids are recomputed by the store; a file's copy could contradict
+ *  `chainId`/`address`, so it never leaves the parser. */
+const DERIVED_KEYS = new Set(["id", "fromId", "toId"]);
 
 /**
- * Shallow-copy an object's own enumerable keys minus {@link DANGEROUS_KEYS},
- * onto a fresh plain object. Used before spreading untrusted node/edge records.
+ * Shallow-copy an object's own enumerable keys minus {@link DANGEROUS_KEYS} and
+ * {@link DERIVED_KEYS}, onto a fresh plain object. Used before spreading
+ * untrusted node/edge records.
  * @param {object} raw
  * @returns {object}
  */
 function stripDangerousKeys(raw) {
   const out = {};
   for (const k of Object.keys(raw)) {
-    if (!DANGEROUS_KEYS.has(k)) out[k] = raw[k];
+    if (!DANGEROUS_KEYS.has(k) && !DERIVED_KEYS.has(k)) out[k] = raw[k];
   }
   return out;
 }
@@ -102,7 +106,9 @@ export function serializeWorkspace(input) {
  * string, or an already-parsed object) into a safe internal shape. Never
  * throws — any failure is reported via `{ ok:false, error, errorKey? }`
  * (`errorKey` is an i18n key when the failure has a localized message).
- * Record ids (`id`/`fromId`/`toId`) are never trusted: the store recomputes them.
+ * Record ids (`id`/`fromId`/`toId`) are never trusted: they are dropped here and
+ * the store recomputes them. A present `version` must be an integer 1..2 (migrated)
+ * or 3; an integer > 3 is refused as "newer", anything else as invalid.
  * @param {string|object} json
  * @param {{ fallbackChainId?: string|number }} [opts] chain for a v2 file without one
  * @returns {{ ok:true, data:ParsedWorkspace } | { ok:false, error:string, errorKey?:string }}
@@ -121,8 +127,12 @@ export function parseWorkspace(json, opts) {
   if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
     return { ok: false, error: "workspace must be a JSON object" };
   }
-  if (typeof obj.version === "number" && obj.version > WORKSPACE_VERSION) {
-    return { ok: false, error: `workspace version ${obj.version} is newer than ${WORKSPACE_VERSION}`, errorKey: "error.workspaceTooNew" };
+  if (obj.version !== undefined) {
+    const v = obj.version;
+    if (Number.isInteger(v) && v > WORKSPACE_VERSION) {
+      return { ok: false, error: `workspace version ${v} is newer than ${WORKSPACE_VERSION}`, errorKey: "error.workspaceTooNew" };
+    }
+    if (!Number.isInteger(v) || v < 1) return { ok: false, error: "workspace version must be an integer from 1 to 3" };
   }
   const v3 = obj.version === 3;
   const graph = v3 ? obj.graph : obj;

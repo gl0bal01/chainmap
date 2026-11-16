@@ -131,6 +131,7 @@ export default {
   "details.alias": "Alias",
   "details.address": "Address",
   "details.allChains": "all EVM chains",
+  "details.allChainsListing": "listed for all EVM chains (address-level designation)",
   "details.source": "Source",
   "details.depth": "Depth",
   "details.root": "Root",

@@ -354,4 +354,30 @@ describe("workspace v3 + v2 migration", () => {
     expect(parseWorkspace({ version: 4, graph: { nodes: [], edges: [] } })).toMatchObject({ ok: false, errorKey: "error.workspaceTooNew" });
     expect(parseWorkspace({ version: 3, nodes: [], edges: [] }).ok).toBe(false);
   });
+
+  test("version gate: a present version must be an integer 1..2 or exactly 3; absent still migrates as v2", () => {
+    const g = { nodes: [], edges: [] };
+    for (const version of ["4", "3", "2", 2.5, -1, 0, null, true, NaN, Infinity]) {
+      const res = parseWorkspace({ version, chainId: "1", ...g, graph: g });
+      expect(res.ok, `version ${String(version)}`).toBe(false);
+      expect(res.errorKey).toBeUndefined(); // invalid, not "newer"
+    }
+    expect(parseWorkspace({ version: 7, graph: g })).toMatchObject({ ok: false, errorKey: "error.workspaceTooNew" });
+    for (const version of [1, 2]) expect(parseWorkspace({ version, chainId: "1", ...g }).ok).toBe(true);
+    expect(parseWorkspace({ version: 3, graph: g }).ok).toBe(true);
+    expect(parseWorkspace({ chainId: "1", ...g }).ok).toBe(true);
+  });
+
+  test("untrusted id/fromId/toId never leave parseWorkspace (v2 and v3)", () => {
+    const lie = { id: "56:" + b, fromId: "56:" + b, toId: "56:" + a };
+    const v2 = parseWorkspace({ version: 2, chainId: "1", nodes: [node(a, lie), node(b, lie)], edges: [edge(a, b, lie)] });
+    const v3 = parseWorkspace({ version: 3, graph: { nodes: [v3node("1", a, lie), v3node("1", b, lie)], edges: [v3edge("1", a, b, lie)] } });
+    for (const res of [v2, v3]) {
+      expect(res.data.nodes.length).toBe(2);
+      expect(res.data.edges.length).toBe(1);
+      for (const r of [...res.data.nodes, ...res.data.edges]) {
+        expect(["id", "fromId", "toId"].filter((k) => Object.hasOwn(r, k))).toEqual([]);
+      }
+    }
+  });
 });

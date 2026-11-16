@@ -16,7 +16,7 @@ import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
 import { isValidAddress, isFailedTx, shortAddress, nodeId } from "./format.js";
-import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress } from "./knownAddresses.js";
+import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress, isAllChainEntry } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
 import { classifyHubs } from "./sinkFaucet.js";
@@ -53,11 +53,10 @@ const clampInt = (raw, { min, max }, fallback) => {
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
 };
-const explorerFor = (chainId) => {
-  const c = CHAINS.find((x) => String(x.id) === String(chainId));
-  return c ? c.explorer : "etherscan.io";
-};
-const chainName = (id) => (CHAINS.find((c) => String(c.id) === String(id)) || {}).name || String(id);
+const chainById = (id) => CHAINS.find((c) => String(c.id) === String(id));
+// Explorer host for a record's chain; an unknown chain gets no link (no fallback host).
+const explorerFor = (id) => chainById(id)?.explorer || null;
+const chainName = (id) => chainById(id)?.name || String(id);
 // Tx types ticked in the scan form (what a scan or a load fetches).
 const formTypes = () =>
   selectedTypes({
@@ -85,9 +84,9 @@ let knownData = {}; // chain-scoped known-address labels
 let canonicalIndex = new Map(); // chain -> SYMBOL -> official token contracts (rebuilt from knownData)
 let spam = parseSpamList([]); // per-chain spam contracts + global spam symbols
 // The ONE flag ctx for every flagsForEdge call site (risk score, graph view,
-// details, CSV) — chain-bound at call time via dataChain().
-const isFakeTokenEdge = (edge) => isFakeToken(edge, dataChain(), canonicalIndex);
-const flagCtx = { category: (a) => knownCategory(a, dataChain(), knownData), isFakeToken: isFakeTokenEdge };
+// details, CSV) — every lookup uses the edge's own chain.
+const isFakeTokenEdge = (e) => isFakeToken(e, e.chainId, canonicalIndex);
+const flagCtx = { category: (a, chainId) => knownCategory(a, chainId, knownData), isFakeToken: isFakeTokenEdge };
 
 // --- Feature Layer 2 state --------------------------------------------------
 let hubMap = new Map(); // node id -> 'sink' | 'faucet'
@@ -122,7 +121,7 @@ function syncHubHidden() {
 // Per-node risk from the graph's own signals (cycle / hub / degree / calldata /
 // known). Explainable — every reason surfaced in the details panel.
 function computeRisk(id) {
-  const { address } = store.getNode(id);
+  const { address, chainId } = store.getNode(id);
   const inC = new Set();
   const outC = new Set();
   const outEdges = [];
@@ -132,8 +131,6 @@ function computeRisk(id) {
     if (e.fromId === id) { outC.add(e.toId); if (e.hasData) hasCall = true; outEdges.push(e); }
   }
   const cyc = findCycleNodes(store.listNodes(), store.listEdges());
-  const chainId = dataChain();
-  const categoryFor = (a) => knownCategory(a, chainId, knownData);
   // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
   const flags = outEdges.flatMap((e) => flagsForEdge(e, flagCtx));
   return scoreNode({
@@ -144,7 +141,7 @@ function computeRisk(id) {
     hasContractCalls: hasCall,
     known: !!knownLabel(address, chainId, knownData),
     approvalRisk: flags.includes("flag.approvalUnlimited"),
-    sanctioned: categoryFor(address) === "sanctioned" || flags.includes("flag.sanctioned"),
+    sanctioned: knownCategory(address, chainId, knownData) === "sanctioned" || flags.includes("flag.sanctioned"),
   });
 }
 function applyDisplayOptions() {
@@ -154,7 +151,7 @@ function applyDisplayOptions() {
     hideSpam: $("hideSpamToggle").checked,
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
-    spamContracts: spam.contractsFor(dataChain()),
+    spamContractsFor: spam.contractsFor,
     spamSymbols: spam.symbols,
     isFakeToken: isFakeTokenEdge,
   });
@@ -182,7 +179,6 @@ function populateChains() {
   sel.value = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
   sel.addEventListener("change", () => {
     localStorage.setItem(STORAGE_KEYS.chainId, sel.value);
-    if (view) view.refreshLabels(); // known-address labels are chain-scoped
     rerenderDetails(); // load button reflects the chain guard
   });
 }
@@ -322,9 +318,6 @@ function wirePanels() {
 // ---------------------------------------------------------------------------
 // Details panel
 // ---------------------------------------------------------------------------
-// Chain the details/workspace describe: the graph's, falling back to the selector.
-const dataChain = () => graphChainId || $("chainSelect").value;
-
 // Refusal for using `chainId` against the current graph, or null when allowed.
 function chainRefusal(chainId) {
   return graphChainId && chainId !== graphChainId
@@ -339,10 +332,13 @@ function showNodeDetails(id) {
   const types = formTypes();
   renderNodeDetails($("detailsContent"), node, {
     i18n,
-    explorer: explorerFor(dataChain()),
+    explorer: explorerFor(node.chainId),
     onRename: promptAlias,
     risk: computeRisk(id),
-    getKnownSource: (a) => knownEntry(a, dataChain(), knownData)?.source || null,
+    getKnownSource: (a) => {
+      const source = knownEntry(a, node.chainId, knownData)?.source || null;
+      return source && isAllChainEntry(a, node.chainId, knownData) ? `${source} — ${t("details.allChainsListing")}` : source;
+    },
     history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
     pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
     onLoadOlder: () => loadOlderFor(id),
@@ -355,13 +351,12 @@ function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
   currentDetail = { kind: "edge", id: edgeKey };
-  const chainId = dataChain();
   const deps = {
     i18n,
-    explorer: explorerFor(chainId),
+    explorer: explorerFor(data.chainId),
     getAlias: (a) => store.getAlias(nodeId(data.chainId, a)),
-    getKnownLabel: (a) => knownLabel(a, chainId, knownData),
-    getCategory: (a) => knownCategory(a, chainId, knownData),
+    getKnownLabel: (a) => knownLabel(a, data.chainId, knownData),
+    getCategory: (a) => knownCategory(a, data.chainId, knownData),
     isFakeToken: isFakeTokenEdge,
   };
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
@@ -398,12 +393,11 @@ function promptAlias(id) {
 // palette.js) so it always reflects the CURRENT store + chain-scoped labels —
 // no separate index to keep in sync.
 function buildSearchRecords() {
-  const chainId = dataChain();
   const records = [];
   for (const node of store.listNodes()) {
     const alias = store.getAlias(node.id);
-    const known = knownLabel(node.address, chainId, knownData);
-    const category = knownCategory(node.address, chainId, knownData);
+    const known = knownLabel(node.address, node.chainId, knownData);
+    const category = knownCategory(node.address, node.chainId, knownData);
     records.push({
       kind: "node",
       id: node.id,
@@ -555,7 +549,6 @@ async function startScan() {
   const refusal = store.stats().nodes > 0 && chainRefusal(chainId);
   if (refusal) return logger.log({ level: "error", ...refusal });
   graphChainId = chainId;
-  applyDisplayOptions(); // per-chain spam contracts follow the graph chain
 
   const client = createEtherscanClient({ apiKey, chainId });
 
@@ -1093,7 +1086,8 @@ function init() {
   view = createGraphView($("graph"), store, {
     i18n,
     getAddressFormat: () => $("addressFormat").value,
-    getKnownLabel: (address) => knownLabel(address, dataChain(), knownData),
+    getKnownLabel: (a, c) => knownLabel(a, c, knownData),
+    getKnownNote: (a, c) => (isAllChainEntry(a, c, knownData) ? t("details.allChainsListing") : null),
     // Returns the hub classification whenever ANY hub-driven feature is engaged
     // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
     // so "Hide faucets"/"Hide sinks" work independently of the dim toggle. The
@@ -1106,7 +1100,7 @@ function init() {
     // checking "Hide faucets" (hubToggle OFF) hides faucets without dimming
     // sinks (or anything else).
     getHubDimOn: () => hubOn,
-    getCategory: (address) => knownCategory(address, dataChain(), knownData),
+    getCategory: (a, c) => knownCategory(a, c, knownData),
     getEdgeFlags: (edge) => flagsForEdge(edge, flagCtx),
   });
   logger = createLogger($("logContent"), i18n);

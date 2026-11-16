@@ -28,7 +28,7 @@ import { hasMoreHistory } from "../history.js";
  * @property {number}  [minAmount]
  * @property {boolean} [hideZero]
  * @property {boolean} [hideSpam]
- * @property {Set<string>} [spamContracts]
+ * @property {(chainId:string)=>Set<string>} [spamContractsFor] spam contracts on an edge's chain
  * @property {Set<string>} [spamSymbols]
  * @property {(edge:import('../graphStore.js').EdgeRecord)=>boolean} [isFakeToken] hidden by hideSpam too
  */
@@ -100,22 +100,24 @@ function buildOptions(layout) {
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ i18n:import('../i18n.js').I18n, getAddressFormat:()=>('short'|'full'),
  *           getLayout?:()=>('force'|'hierarchical'),
- *           getKnownLabel?:(address:string)=>(string|null),
+ *           getKnownLabel?:(address:string, chainId:string)=>(string|null),
+ *           getKnownNote?:(address:string, chainId:string)=>(string|null),
  *           getHubKind?:(id:string)=>('sink'|'faucet'|null),
  *           getHubDimOn?:()=>boolean,
- *           getCategory?:(address:string)=>(string|null),
+ *           getCategory?:(address:string, chainId:string)=>(string|null),
  *           getEdgeFlags?:(edge:import('../graphStore.js').EdgeRecord)=>string[] }} deps
+ *   Known-address lookups take the node's own chain; `getKnownNote` is appended to the hover title.
  * @returns {GraphView}
  */
 export function createGraphView(container, store, deps) {
-  const { i18n, getAddressFormat, getLayout, getKnownLabel, getHubKind, getHubDimOn, getCategory, getEdgeFlags } = deps;
+  const { i18n, getAddressFormat, getLayout, getKnownLabel, getKnownNote, getHubKind, getHubDimOn, getCategory, getEdgeFlags } = deps;
   const vis = window.vis;
 
   const nodesDS = new vis.DataSet([]); // full graph (mirror of store) + annotation nodes
   const edgesDS = new vis.DataSet([]);
 
   /** @type {DisplayOptions} */
-  const display = { minAmount: 0, hideZero: false, hideSpam: false, minTime: 0, maxTime: 0, spamContracts: new Set(), spamSymbols: new Set() };
+  const display = { minAmount: 0, hideZero: false, hideSpam: false, minTime: 0, maxTime: 0, spamContractsFor: null, spamSymbols: new Set() };
   let visibleNodes = null; // null => show all; Set => only these
   let maxAmount = 0;
   let bundled = false;
@@ -151,11 +153,12 @@ export function createGraphView(container, store, deps) {
   const layout = getLayout ? getLayout() : "force";
   const network = new vis.Network(container, { nodes: nodesView, edges: edgesView }, buildOptions(layout));
 
-  const knownFor = (address) => (getKnownLabel ? getKnownLabel(address) : null);
+  const knownFor = (node) => (getKnownLabel ? getKnownLabel(node.address, node.chainId) : null);
+  const noteFor = (node) => (getKnownNote ? getKnownNote(node.address, node.chainId) : null);
 
   const hubFor = (id) => (getHubKind ? getHubKind(id) : null);
 
-  const catFor = (address) => (getCategory ? getCategory(address) : null);
+  const catFor = (node) => (getCategory ? getCategory(node.address, node.chainId) : null);
   const CAT_ICON = { mixer: "🌀", bridge: "🌉", sanctioned: "⛔" };
 
   const flagsForEdgeView = (edge) => (getEdgeFlags ? getEdgeFlags(edge) : []);
@@ -163,16 +166,18 @@ export function createGraphView(container, store, deps) {
   const RISK_MARK = { high: "⚠", info: "ⓘ" };
 
   function applyNode(node) {
-    const knownLabel = knownFor(node.address);
+    const knownLabel = knownFor(node);
     const visual = labels.nodeVisual(node, { knownLabel });
     const hub = hubFor(node.id); // 'sink' | 'faucet' | null — used for title + (elsewhere) hide filter
     const dimOn = getHubDimOn ? getHubDimOn() : false; // dim-only toggle, decoupled from hide
     const bg = hub && dimOn ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs only when dim-only toggle is on
     const rt = roundTripOn && roundTripSet.has(node.id); // on a cycle -> amber ring
     const onPeel = peelNodes.has(node.id); // on a highlighted peel chain -> violet ring (wins over round-trip)
-    const cat = catFor(node.address);
+    const cat = catFor(node);
     const icon = CAT_ICON[cat] || "";
-    const baseTitle = hub ? `${visual.title} · ${i18n.t("risk." + hub)}` : visual.title;
+    const note = noteFor(node);
+    const hubTitle = hub ? `${visual.title} · ${i18n.t("risk." + hub)}` : visual.title;
+    const baseTitle = note ? `${hubTitle} · ${note}` : hubTitle;
     const more = hasMoreHistory(node);
     const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
@@ -341,7 +346,7 @@ export function createGraphView(container, store, deps) {
     if (opts.hideSpam !== undefined) display.hideSpam = !!opts.hideSpam;
     if (opts.minTime !== undefined) display.minTime = Number(opts.minTime) || 0;
     if (opts.maxTime !== undefined) display.maxTime = Number(opts.maxTime) || 0;
-    if (opts.spamContracts) display.spamContracts = opts.spamContracts;
+    if (opts.spamContractsFor) display.spamContractsFor = opts.spamContractsFor;
     if (opts.spamSymbols) display.spamSymbols = opts.spamSymbols;
     if (opts.isFakeToken) display.isFakeToken = opts.isFakeToken;
     refreshProjection();

@@ -1057,6 +1057,11 @@ const wsEdge = (over) => ({
   ...over,
 });
 const STAR_ONLY = Object.keys(KNOWN["*"] || {}).find((a) => KNOWN["*"][a].category === "sanctioned" && !Object.keys(KNOWN).some((c) => c !== "*" && KNOWN[c][a]));
+const v3Edge = (over) => { const e = wsEdge(over); const chainId = over.chainId || "1"; return { ...e, chainId, key: `${chainId}|${e.key}` }; };
+const v3ws = (nodes, edges) => ({ version: 3, root: ROOT, graph: { nodes, edges } });
+const v3Node = (chainId, address, over = {}) => ({ chainId, address, depth: 1, isRoot: false, alias: null, ...over });
+const ONE_ONLY = Object.keys(KNOWN["1"]).find((x) => KNOWN["1"][x].category === "mixer" && !(KNOWN["*"] || {})[x] && !(KNOWN["56"] || {})[x]);
+const visNode = (id) => window.vis.Network.first.nodes.get().find((n) => n.id === id);
 
 test("detect chain: an address known only on '*' keeps the selector and falls through to the API probe", async () => {
   await knownLoaded(); // else an unloaded dataset would fall through too (false pass)
@@ -1179,28 +1184,115 @@ test("a view refresh fully restyles an edge whose flags appeared after it was dr
   }
 });
 
-test("spam contracts follow the graph chain: '*' hidden everywhere, '137' only on a 137 graph", async () => {
+test("spam contracts follow each edge's chain: '*' hidden everywhere, '137' only on 137 edges", async () => {
   await knownLoaded();
   await until(() => spamLoads > 0);
   await sleep(0);
-  const tok = (hash, contract) => wsEdge({ hash, action: "tokentx", group: "token", color: "#4fd67a", symbol: "SPAMX", tokenContract: contract });
-  const ws = (chainId) => ({
-    version: 2, chainId, root: ROOT,
-    nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: N2, depth: 1, isRoot: false, alias: null }],
-    edges: [tok("0xp1", SPAM_STAR), tok("0xp2", SPAM_137), wsEdge({ hash: "0xp3" })],
-  });
-  const shownOnSpamHidden = async (chainId) => {
-    await loadAsDemo(ws(chainId));
+  const tok = (chainId, hash, contract) => v3Edge({ chainId, hash, action: "tokentx", group: "token", color: "#4fd67a", symbol: "SPAMX", tokenContract: contract });
+  try {
+    await loadAsDemo(v3ws(
+      [v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node("1", N2), v3Node("137", ROOT, { depth: 0, isRoot: true }), v3Node("137", N2)],
+      [tok("137", "0xp2", SPAM_137), tok("1", "0xp4", SPAM_137), tok("1", "0xp1", SPAM_STAR), v3Edge({ chainId: "1", hash: "0xp3" })],
+    ));
     $("hideSpamToggle").checked = true;
     $("hideSpamToggle").dispatchEvent(new window.Event("change"));
-    return window.vis.Network.first.edges.get().map((e) => e.data.hash).sort();
-  };
-  try {
-    expect(await shownOnSpamHidden("137")).toEqual(["0xp3"]);
-    expect(await shownOnSpamHidden("1")).toEqual(["0xp2", "0xp3"]);
+    expect(window.vis.Network.first.edges.get().map((e) => e.data.hash).sort()).toEqual(["0xp3", "0xp4"]);
   } finally {
     $("hideSpamToggle").checked = false;
     $("hideSpamToggle").dispatchEvent(new window.Event("change"));
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+// --- per-record chain lookups (labels, flags, explorer, fake tokens) ---------
+const twinRoots = (chainIds) => chainIds.map((c) => v3Node(c, ROOT, { depth: 0, isRoot: true }));
+const clickNode = (id) => window.vis.Network.first._on.click[0]({ nodes: [id], edges: [] });
+const edgeByHash = (h) => window.vis.Network.first.edges.get().find((e) => e.data.hash === h);
+
+test("a chain-1-only label never reaches its chain-56 twin", async () => {
+  await knownLoaded();
+  expect(ONE_ONLY).toBeTruthy();
+  const label = KNOWN["1"][ONE_ONLY].label;
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "56"]), v3Node("1", ONE_ONLY), v3Node("56", ONE_ONLY)],
+      [v3Edge({ chainId: "1", hash: "0xm1", to: ONE_ONLY }), v3Edge({ chainId: "56", hash: "0xm2", to: ONE_ONLY, symbol: "BNB" })],
+    ));
+    expect(visNode(ID("1", ONE_ONLY)).label).toContain(label);
+    expect(visNode(ID("1", ONE_ONLY)).title).toContain("🌀");
+    expect(visNode(ID("56", ONE_ONLY)).label).not.toContain(label);
+    expect(visNode(ID("56", ONE_ONLY)).title).not.toContain("🌀");
+    clickNode(ID("56", ONE_ONLY));
+    expect($("detailsContent").textContent).toContain(ONE_ONLY); // the 56 node's details rendered
+    expect($("detailsContent").textContent).not.toContain("Source");
+    expect($("detailsContent").textContent).not.toContain("labeled entity");
+    expect(edgeByHash("0xm1").label).toContain("⚠");
+    expect(edgeByHash("0xm2").label).not.toContain("⚠");
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a '*' entry badges both twins and says it is listed for all EVM chains", async () => {
+  await knownLoaded();
+  expect(STAR_ONLY).toBeTruthy();
+  const PHRASE = "listed for all EVM chains (address-level designation)";
+  try {
+    await loadAsDemo(v3ws([...twinRoots(["1", "56"]), v3Node("1", STAR_ONLY), v3Node("56", STAR_ONLY)], []));
+    for (const c of ["1", "56"]) {
+      expect(visNode(ID(c, STAR_ONLY)).title).toContain("⛔");
+      expect(visNode(ID(c, STAR_ONLY)).title).toContain(PHRASE);
+    }
+    $("langToggle").click(); // the tooltip note is re-translated live
+    try { expect(visNode(ID("56", STAR_ONLY)).title).toContain("listée pour toutes les chaînes EVM (désignation au niveau de l'adresse)"); }
+    finally { $("langToggle").click(); }
+    clickNode(ID("56", STAR_ONLY));
+    const source = [...$("detailsContent").querySelectorAll("tr")].find((tr) => tr.firstChild.textContent === "Source");
+    expect(source.textContent).toContain("OFAC SDN list, published");
+    expect(source.textContent).toContain(PHRASE);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("explorer links follow each record's chain; an unknown chain gives no link", async () => {
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "42161", "999999"]), v3Node("999999", N2)],
+      [v3Edge({ chainId: "999999", hash: "0xu1" })],
+    ));
+    clickNode(ID("1", ROOT));
+    expect($("detailsContent").querySelector("a").href).toContain("etherscan.io/address/");
+    clickNode(ID("42161", ROOT));
+    expect($("detailsContent").querySelector("a").href).toContain("arbiscan.io/address/");
+    clickNode(ID("999999", ROOT));
+    expect($("detailsContent").textContent).toContain(ROOT);
+    expect($("detailsContent").querySelector("a")).toBeNull();
+    window.vis.Network.first._on.click[0]({ nodes: [], edges: [edgeByHash("0xu1").id] });
+    expect($("detailsContent").textContent).toContain(N2); // the edge's details rendered
+    expect($("detailsContent").textContent).not.toContain("View tx");
+    expect($("detailsContent").querySelector("a")).toBeNull();
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("imitation USDT is flagged on Ethereum, not on a chain with no canonical USDT", async () => {
+  await knownLoaded();
+  const FAKE = "0x" + "e".repeat(40);
+  const tok = (chainId, hash) => v3Edge({ chainId, hash, action: "tokentx", group: "token", color: "#4fd67a", symbol: "USDT", tokenContract: FAKE });
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "42161"]), v3Node("1", N2), v3Node("42161", N2)],
+      [tok("1", "0xf1"), tok("42161", "0xf3")],
+    ));
+    expect(edgeByHash("0xf1").label).toContain("ⓘ");
+    expect(edgeByHash("0xf3").label).not.toContain("ⓘ");
+  } finally {
     $("resetBtn").click();
     restoreForm();
   }

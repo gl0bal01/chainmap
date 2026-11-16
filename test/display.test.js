@@ -11,7 +11,7 @@ test("edgeAmountNumber parses amountText, bad -> 0", () => {
 });
 
 test("isSpam matches by contract or symbol (lowercased)", () => {
-  const opts = { spamContracts: new Set(["0xabc"]), spamSymbols: new Set(["scam"]) };
+  const opts = { spamContractsFor: () => new Set(["0xabc"]), spamSymbols: new Set(["scam"]) };
   expect(isSpam(edge({ tokenContract: "0xABC" }), opts)).toBe(true);
   expect(isSpam(edge({ symbol: "SCAM" }), opts)).toBe(true);
   expect(isSpam(edge({ symbol: "USDC", tokenContract: "0x1" }), opts)).toBe(false);
@@ -102,4 +102,10 @@ test("bundles are per chain: native ETH X→Y on Ethereum and on Arbitrum are tw
   const mk = (key, chainId) => ({ key, chainId, from: "0xa", to: "0xb", fromId: `${chainId}:0xa`, toId: `${chainId}:0xb`, symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "1" });
   expect(bundleEdges([mk("k1", "1"), mk("k2", "42161")]).map((b) => [b.chainId, b.fromId, b.toId, b.from, b.count]))
     .toEqual([["1", "1:0xa", "1:0xb", "0xa", 1], ["42161", "42161:0xa", "42161:0xb", "0xa", 1]]);
+});
+
+test("isSpam scopes spam contracts to the edge's chain", () => {
+  const spamContractsFor = (c) => new Set(c === "137" ? ["0xd"] : []);
+  expect(isSpam(edge({ chainId: "137", tokenContract: "0xD" }), { spamContractsFor })).toBe(true);
+  expect(isSpam(edge({ chainId: "1", tokenContract: "0xd" }), { spamContractsFor })).toBe(false);
 });

@@ -39,3 +39,13 @@ describe("i18n innerHTML foot-gun (CWE-79)", () => {
     expect(html).not.toMatch(/data-i18n-html/);
   });
 });
+
+describe("single-chain leftovers stay deleted", () => {
+  test("no banned identifiers in src/", async () => {
+    const banned = ["dataChain(", "setNativeSymbol"];
+    for await (const f of new Bun.Glob("**/*.js").scan({ cwd: new URL("../src/", import.meta.url).pathname, absolute: true })) {
+      const text = await Bun.file(f).text();
+      for (const b of banned) expect(text.includes(b), `${f} contains ${b}`).toBe(false);
+    }
+  });
+});

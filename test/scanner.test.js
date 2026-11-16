@@ -4,9 +4,9 @@ import { TX_TYPE_GROUPS } from "../src/config.js";
 import { GraphStore } from "../src/graphStore.js";
 
 // -----------------------------------------------------------------------------
-// Injected fakes. Per the Stage B contract the scanner test must NOT import the
-// real etherscanClient / graphStore / rateLimiter (they build in parallel); it
-// only imports the real config + format (pure contract base).
+// Injected fakes for the client, limiter and (mostly) the store. The real
+// etherscanClient / rateLimiter are never imported; the real GraphStore is used
+// only by the chain-tagging tests, where its id/chain invariants are under test.
 // -----------------------------------------------------------------------------
 
 /** A valid 40-hex address from a single hex char, e.g. addr("a"). */
