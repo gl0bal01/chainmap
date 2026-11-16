@@ -84,7 +84,7 @@ standard tools; A is fragile and B hashes the wrong bytes. No zip library is ven
   - `outcome`: `'ok' | 'retry' | 'error' | 'network'` (`ok` = status 1 or the empty-result message; `retry` = a
     throttle/429/5xx the client will retry; `error` = final API/HTTP error; `network` = no response).
 - `LIMITS.queryLog = 5000` entries (config). Oldest dropped first; `dropped` counts them.
-- `createQueryLog({ limit }) → { add(raw):Promise<void>, entries():QueryEntry[], dropped:number, clear(), load({entries, dropped}) , window():{first,last}|null }`
+- `createQueryLog({ limit }) → { add(raw):Promise<void>, entries():QueryEntry[], dropped:number, unloggedData:boolean, markUnlogged(), clear(), load({entries, dropped, unloggedData}), toJSON(), window():{first,last}|null }` (see ruling 1)
   - `add(raw)` takes the client's hook record `{ at, chainId, action, params, httpStatus, rows, outcome, body? }`
     (`body` = `ArrayBuffer|Uint8Array`), hashes `body` with `sha256Hex`, drops any `apikey` param, builds `url`, pushes.
     Never throws (a hashing failure → `sha256: null`).
@@ -211,4 +211,24 @@ No new host, no CSP change, no new dependency, local-only; workspace stays v3; n
 
 ## Builder-check rulings
 
-(to be filled after the builder check)
+Builder check (sonnet), answered by the lead:
+
+1. **Log vs graph coverage.** The log is a record of *requests*, not a proof that it explains every record in
+   the graph. One flag makes the gap honest: `queryLog.unloggedData:boolean`. main sets it on demo load, on a
+   workspace load whose file has no `queryLog`, and copies it from a file that has one (sanitizer: anything but
+   `false` → `true`, conservative). Reset clears it. When `unloggedData` is true or `dropped > 0`, MANIFEST
+   `retrieval.complete = false`, and CSV line 1 / PNG footer / MANIFEST caveats say part of the graph has no logged
+   retrieval. MANIFEST caveats also state that the log includes probes that added no graph data (estimate, chain
+   detection, check other chains) and that deleting nodes does not remove log entries. No per-edge heuristics.
+   *Cost if wrong:* a reader may still over-read the window for mixed graphs; the flag errs towards "partial".
+2. **PNG vs CSV.** `renderExportCanvas` already draws the **full store** (`store.listNodes()/listEdges()`):
+   filters, bundling and hidden hubs never apply to exports. So `graph.png` and `graph.csv` describe the same
+   graph; MANIFEST `caveats` says so. No change. *Cost if wrong:* none.
+3. **Mocks.** Update every mock to provide `arrayBuffer()`; no `json()` fallback in the client. *Cost if wrong:*
+   none (test-only).
+4. **Params.** `params` = exactly what `buildUrl` sends (it fills every default, so all nine keys are always
+   present). A shared `buildParams` feeds both. The sanitizer accepts only those nine keys (each optional) and
+   rebuilds the url from the present keys in the canonical order. *Cost if wrong:* none.
+5. **Footer vs pixel cap.** The footer band is carved *inside* the computed size: the graph area is
+   `h − band`, so the total never exceeds the guard and `computeExportSize` is unchanged. *Cost if wrong:* a
+   slightly shorter graph area.
