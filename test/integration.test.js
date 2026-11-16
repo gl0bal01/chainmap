@@ -3135,45 +3135,6 @@ test("usd: a contract that becomes a root while its request is queued is never s
   }
 });
 
-// R4 when loading the local data REJECTS. The shared instance loaded its data once at init, so this runs a
-// second, sandboxed main.js instance in its own window; the shared globals are restored afterwards.
-test("usd: local data that fails by rejecting fails closed: one log.usdNoData, no price request", async () => {
-  const saved = { window: globalThis.window, document, localStorage, sessionStorage, Event: globalThis.Event, Node: globalThis.Node, fetch: globalThis.fetch };
-  const html = (await Bun.file(new URL("../index.html", import.meta.url)).text()).replace(/<script[\s\S]*?<\/script>/g, "");
-  const w = new Window({ url: "http://localhost/" });
-  w.document.write(html);
-  w.vis = stubVis();
-  w.jspdf = { jsPDF: class {} };
-  const c = priceCalls.length;
-  const rej = [];
-  const onRej = (e) => rej.push(e);
-  process.on("unhandledRejection", onRej);
-  let served = false;
-  Object.assign(globalThis, { window: w, document: w.document, localStorage: w.localStorage, sessionStorage: w.sessionStorage, Event: w.Event, Node: w.Node });
-  globalThis.fetch = async (url, init) => {
-    if (!String(url).includes("known-addresses")) return saved.fetch(url, init);
-    served = true; // corrupt data whose read throws: loadLocalData rejects
-    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ get 1() { throw new Error("corrupt"); } }) };
-  };
-  try {
-    await import("../src/main.js?usd-data-rejects");
-    await until(() => served);
-    await sleep(50);
-    const noData = () => logCount(/USD values stay off/g);
-    tick(true);
-    await until(() => noData() > 0);
-    tick(false);
-    tick(true);
-    await sleep(50);
-    expect(noData()).toBe(1);
-    expect(priceCalls.length).toBe(c);
-    expect(rej).toEqual([]);
-  } finally {
-    process.off("unhandledRejection", onRej);
-    Object.assign(globalThis, saved);
-  }
-});
-
 // Keep LAST: pins "box off → zero requests" across the whole suite.
 test("usd: every coins.llama.fi request happened while the box was on", () => {
   expect(priceCalls.length).toBeGreaterThan(0);

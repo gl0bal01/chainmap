@@ -216,7 +216,7 @@ Young chains return nothing before their listing date → blank, which is correc
   `priceKeyFor` still returns that key (a later fake/spam/root flag suppresses a cached value), else blank; node rows
   blank. When on, line 1 gains (comma-free) `; usd_value is an estimate (DefiLlama coins.llama.fi price within 1h of
   the transaction) - blank when unknown/unpriced/pending - amounts are exact in tokens; usd priced <k> of <m>
-  priceable transfers (NFT/zero-value/imitation/spam-list/root-contract/unknown-data/unsupported-chain transfers are never priced)`.
+  priceable transfers (NFT/zero-value/imitation/spam-list/unsupported-chain transfers are never priced)`.
   "Priceable" = `priceKeyFor` returns a key; the same definition feeds MANIFEST.
 - `evidence.js`: `buildManifest` input gains `prices`; output `prices` =
   `{ source:"DefiLlama (https://coins.llama.fi)", estimate:true, shown:boolean, note:"USD values are estimates:
