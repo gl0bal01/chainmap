@@ -193,7 +193,7 @@ describe("exportCsv", () => {
     const expectedHeader = [
       "row_type", "address", "alias", "depth", "is_root",
       "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id", "likely_deposit_of", "deposit_evidence",
     ].join(",");
     expect(lines[1]).toBe(expectedHeader);
 
@@ -201,12 +201,12 @@ describe("exportCsv", () => {
     const nodeARow = [
       "node", NODE_A.address, csvEscape(NODE_A.alias), String(NODE_A.depth), "1",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "", "1",
+      "", "", "", "", "", "1", "", "",
     ].join(",");
     const nodeBRow = [
       "node", NODE_B.address, "", String(NODE_B.depth), "0",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "", "1",
+      "", "", "", "", "", "1", "", "",
     ].join(",");
     expect(lines[2]).toBe(nodeARow);
     expect(lines[3]).toBe(nodeBRow);
@@ -218,13 +218,13 @@ describe("exportCsv", () => {
       "edge", "", "", "", "",
       EDGE_1.group, EDGE_1.from, EDGE_1.to, EDGE_1.amountText, EDGE_1.symbol,
       EDGE_1.hash, EDGE_1.blockNumber, csvEscape(formatTimestamp(EDGE_1.timeStamp)),
-      "", "", "", "", "", "1",
+      "", "", "", "", "", "1", "", "",
     ].join(",");
     const edge2Row = [
       "edge", "", "", "", "",
       EDGE_2.group, EDGE_2.from, EDGE_2.to, EDGE_2.amountText, csvEscape(EDGE_2.symbol),
       EDGE_2.hash, EDGE_2.blockNumber, csvEscape(formatTimestamp(EDGE_2.timeStamp)),
-      "", "", "", "", "", "1",
+      "", "", "", "", "", "1", "", "",
     ].join(",");
     expect(lines[4]).toBe(edge1Row);
     expect(lines[5]).toBe(edge2Row);
@@ -258,7 +258,7 @@ describe("buildCsvRows", () => {
     expect(header).toEqual([
       "row_type", "address", "alias", "depth", "is_root",
       "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id", "likely_deposit_of", "deposit_evidence",
     ]);
   });
 
@@ -278,18 +278,59 @@ describe("buildCsvRows", () => {
   test("risk_flags is computed for plain (no-calldata) edges, incl. flag.fakeToken", () => {
     const edge = { group: "token", action: "tokentx", from: "0xa", to: "0xb", amountText: "1", symbol: "USDT", hash: "0xh", blockNumber: "1", timeStamp: "0", hasData: false };
     const rows = buildCsvRows(makeFakeStore([], [edge]), { category: () => null, isFakeToken: () => true });
-    expect(rows.find((r) => r[0] === "edge").at(-2)).toBe("flag.fakeToken");
+    expect(rows.find((r) => r[0] === "edge")[17]).toBe("flag.fakeToken");
   });
 });
 
 test("multi-chain CSV: chain_id on every row, caveat extended on line 1, header still line 2", () => {
   const rows = buildCsvRows(makeFakeStore([{ ...NODE_A, chainId: "1" }, { ...NODE_A, chainId: "42161" }], [{ ...EDGE_1, chainId: "42161" }]), { category: () => null });
   expect(rows[0][0]).toBe(SINGLE_CAVEAT + "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer");
-  expect(rows[1].at(-1)).toBe("chain_id");
-  expect(rows.slice(2).map((r) => r.at(-1))).toEqual(["1", "42161", "42161"]);
+  expect(rows[1][18]).toBe("chain_id");
+  expect(rows.slice(2).map((r) => r[18])).toEqual(["1", "42161", "42161"]);
 });
 test("risk_flags uses each edge's chain", () => {
   const category = (addr, chainId) => (chainId === "1" ? "mixer" : null);
   const rows = buildCsvRows(makeFakeStore([], [{ ...EDGE_1, chainId: "1" }, { ...EDGE_1, key: "k9", chainId: "56" }]), { category });
-  expect(rows.filter((r) => r[0] === "edge").map((r) => [r.at(-2), r.at(-1)])).toEqual([["flag.mixer", "1"], ["", "56"]]);
+  expect(rows.filter((r) => r[0] === "edge").map((r) => [r[17], r[18]])).toEqual([["flag.mixer", "1"], ["", "56"]]);
+});
+
+const MULTI = "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer";
+const DEPOSIT_CAVEAT = "; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet), not an attribution";
+const DEP = {
+  walletId: "1:0xex", wallet: "0xex", label: "Binance 14 (hot wallet)", swept: 9, outgoing: 10,
+  assets: [{ symbol: "ETH", contract: "", sharePct: 100 }, { symbol: "USDT", contract: "0xt", sharePct: 93 }],
+  maxDelaySec: 600, timedSweeps: 9,
+};
+const withId = (n) => ({ ...n, id: `${n.chainId}:${n.address}` });
+
+test("deposit columns: label + evidence on node rows only, caveat on line 1, after chain_id", () => {
+  const a = withId(NODE_A), b = withId(NODE_B);
+  const rows = buildCsvRows(makeFakeStore([a, b], [EDGE_1]), { category: () => null, deposits: new Map([[a.id, DEP]]) });
+  expect(rows[0][0]).toBe(SINGLE_CAVEAT + DEPOSIT_CAVEAT);
+  expect(rows[1].slice(-3)).toEqual(["chain_id", "likely_deposit_of", "deposit_evidence"]);
+  expect(rows[2].slice(-3)).toEqual(["1", "Binance 14 (hot wallet)", "wallet=0xex;swept=9/10;share=ETH:100%,USDT:93%;max_delay_s=600"]);
+  expect(rows[3].slice(-3)).toEqual(["1", "", ""]);
+  expect(rows[4].slice(-3)).toEqual(["1", "", ""]); // edge row
+  const none = buildCsvRows(makeFakeStore([a], []), {
+    category: () => null,
+    deposits: new Map([[a.id, { ...DEP, assets: [DEP.assets[0]], maxDelaySec: null, timedSweeps: 0 }]]),
+  });
+  expect(none[2].at(-1)).toBe("wallet=0xex;swept=9/10;share=ETH:100%;max_delay_s=none");
+});
+
+test("no deposit -> no deposit caveat; twins get independent cells; multi-chain caveat first", () => {
+  expect(buildCsvRows(makeFakeStore([withId(NODE_A)], []), { category: () => null })[0][0]).toBe(SINGLE_CAVEAT);
+  const one = withId(NODE_A), arb = withId({ ...NODE_A, chainId: "42161" });
+  const rows = buildCsvRows(makeFakeStore([one, arb], []), { category: () => null, deposits: new Map([[arb.id, DEP]]) });
+  expect(rows[0][0]).toBe(SINGLE_CAVEAT + MULTI + DEPOSIT_CAVEAT);
+  expect(rows[2].slice(-2)).toEqual(["", ""]);
+  expect(rows[3].at(-2)).toBe("Binance 14 (hot wallet)");
+});
+
+test("exportCsv forwards deps.deposits", () => {
+  const a = withId(NODE_A);
+  exportCsv(makeFakeStore([a], []), { onLog: () => {}, category: () => null, deposits: new Map([[a.id, DEP]]) });
+  const lines = capturedCsvText().split("\n");
+  expect(lines[0]).toBe(csvEscape(SINGLE_CAVEAT + DEPOSIT_CAVEAT)); // caveat has a comma -> quoted
+  expect(lines[2]).toContain("wallet=0xex;swept=9/10");
 });

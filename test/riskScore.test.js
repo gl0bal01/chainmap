@@ -47,3 +47,10 @@ test("no new flags -> unchanged", () => {
   expect(r.reasons).not.toContain("risk.approval");
   expect(r.reasons).not.toContain("risk.sanctioned");
 });
+
+test("deposit adds a context reason but no score", () => {
+  const r = scoreNode({ inDeg: 1, outDeg: 1, hubKind: null, onCycle: false, hasContractCalls: false, known: false, deposit: true });
+  expect(r.score).toBe(0);
+  expect(r.level).toBe("low");
+  expect(r.reasons).toEqual(["risk.deposit"]);
+});

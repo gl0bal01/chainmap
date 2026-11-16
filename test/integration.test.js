@@ -1555,12 +1555,12 @@ test("CSV: chain_id on every row, per-chain flags, multi-chain caveat", async ()
     expect(lines[1].startsWith("row_type,")).toBe(true);
     const data = lines.filter((l) => /^(node|edge),/.test(l));
     expect(data.length).toBe(6);
-    for (const l of data) expect(/,(1|56)$/.test(l)).toBe(true);
+    for (const l of data) expect(/,(1|56),,$/.test(l)).toBe(true);
     const m1 = lines.find((l) => l.includes("0xm1")), m2 = lines.find((l) => l.includes("0xm2"));
     expect(m1).toContain("flag.mixer");
-    expect(m1.endsWith(",1")).toBe(true);
+    expect(m1.endsWith(",1,,")).toBe(true);
     expect(m2).not.toContain("flag.mixer");
-    expect(m2.endsWith(",56")).toBe(true);
+    expect(m2.endsWith(",56,,")).toBe(true);
   } finally {
     $("resetBtn").click();
     restoreForm();
@@ -1910,7 +1910,7 @@ test("chain filter: shown at 2 chains, hides one chain's nodes and edges, store 
     expect(net.edges.get().some((e) => e.id.startsWith("42161|"))).toBe(false);
     expect(net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length).toBe(n1);
     expect(net.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(e1);
-    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161"));
+    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161,,"));
     expect(rows.length).toBe(3);
     URL.createObjectURL = (b) => ((captured = b), "blob:x");
     URL.revokeObjectURL = () => {};
