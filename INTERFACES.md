@@ -162,7 +162,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 
 ## render/interaction.js — vis + DOM (stub → Stage B)
 
-- `attachInteractions(view, store, { container, i18n, onNodeSelect, onEdgeSelect, onAliasEdit, onLog }): { detach() }`
+- `attachInteractions(view, store, { container, i18n, onNodeSelect, onEdgeSelect, onAliasEdit, onDelete, onLog }): { detach() }` — Delete/Backspace calls `onDelete()` (the caller owns the prune: busy guard, selection check, store call).
 - `rotateGraph(network, angleDeg)` — rotate around centroid.
 - `selectHighDegree(network, threshold): string[]`
 

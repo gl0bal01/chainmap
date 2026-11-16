@@ -185,6 +185,11 @@ function applyDisplayOptions() {
     spamSymbols: spam.symbols,
     isFakeToken: isFakeTokenEdge,
   });
+  dropStaleTwinDetail();
+}
+// A twin link is derived: once it is gone (prune, toggle, refresh) its details panel is stale.
+function dropStaleTwinDetail() {
+  if (currentDetail?.kind === "edge" && String(currentDetail.id).startsWith("twin:") && !view.getEdgeData(currentDetail.id)) clearDetails();
 }
 
 // --- scan lifecycle state ---------------------------------------------------
@@ -432,14 +437,17 @@ async function loadOnChain(id, chainId) {
   const before = store.chains();
   store.addNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot });
   const res = await loadOlderFor(newId);
-  if (store.getNode(newId)?.history) {
+  if (res && !res.stopped && !res.errors && res.newEdges === 0) {
+    store.removeNodes([newId]); // fetched fine, nothing there: never keep an isolated node
+    logger.log({ level: "info", key: "log.loadOnChainNone", params: { chain: chainLabel(chainId) } });
+  } else if (store.getNode(newId)?.history) {
     logChainAdded(before, chainId);
   } else {
     store.removeNodes([newId]);
     // Stopped by the user: info, not a failure.
     logger.log({ level: res?.stopped ? "info" : "error", key: "log.loadOnChainEmpty", params: { chain: chainLabel(chainId) } });
   }
-  showNodeDetails(id);
+  rerenderDetails(); // whatever the user selected meanwhile, not a jump back to the source
 }
 
 // Copy this node's alias to same-key twins that have none; never overwrites.
@@ -546,7 +554,7 @@ function buildSearchRecords() {
       kind: "edge",
       id: edge.key,
       title: method || `${edge.symbol} tx`,
-      subtitle: `${shortAddress(edge.from)} → ${shortAddress(edge.to)}`,
+      subtitle: `${shortAddress(edge.from)} → ${shortAddress(edge.to)}${multi ? ` · ${chainLabel(edge.chainId)}` : ""}`,
       text: [method].filter(Boolean).map((s) => s.toLowerCase()),
       hex: [edge.hash].filter(Boolean),
     });
@@ -1111,12 +1119,15 @@ async function runEstimate() {
 // ---------------------------------------------------------------------------
 // Prune / rotate / high-degree / fit / export
 // ---------------------------------------------------------------------------
+// The one prune path (Delete button and Delete/Backspace key).
 function deleteSelectedNodes() {
+  if (scanning) return logger.log({ level: "error", key: "error.busy" }); // the scan would re-add or mis-count them
   const selected = view.network.getSelectedNodes();
   if (!selected.length) return logger.log({ level: "error", key: "error.selectNodesFirst" });
   const { removedNodes } = store.removeNodes(selected);
   logger.log({ level: "info", key: "log.nodesDeleted", params: { n: removedNodes } });
   if (currentDetail && selected.includes(currentDetail.id)) clearDetails();
+  dropStaleTwinDetail();
 }
 
 function wireControls() {
@@ -1280,6 +1291,7 @@ function init() {
     onNodeSelect: showNodeDetails,
     onEdgeSelect: showEdgeDetails,
     onAliasEdit: promptAlias,
+    onDelete: deleteSelectedNodes,
     onLog: (e) => logger.log(e),
   });
 

@@ -1934,3 +1934,158 @@ test("chain filter: shown at 2 chains, hides one chain's nodes and edges, store 
     restoreForm();
   }
 });
+
+// --- final review fixes -----------------------------------------------------
+test("twin edges diff-sync: an unchanged refresh adds/removes none; a locale switch retitles in place", async () => {
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { createGraphView } = await import("../src/render/network.js");
+  const store = new GraphStore();
+  let loc = "en";
+  const view = createGraphView(document.createElement("div"), store, { i18n: { t: (k) => `${loc}:${k}` }, getAddressFormat: () => "short" });
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addNode("42161", ROOT, { depth: 0, isRoot: true });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1", hash: "0x1", tokenDecimal: "18" } });
+  view.setTwins(true);
+  const ds = view.network.edges.ds;
+  const calls = { add: 0, remove: 0 };
+  const isTwin = (x) => String(x?.id ?? x).startsWith("twin:");
+  const { add, remove } = ds;
+  ds.add = function (o) { calls.add += [].concat(o).filter(isTwin).length; return add.call(this, o); };
+  ds.remove = function (o) { calls.remove += [].concat(o).filter(isTwin).length; return remove.call(this, o); };
+  const twin = () => ds.get().filter((e) => e.twin);
+  view.refreshProjection();
+  calls.add = calls.remove = 0;
+  view.refreshProjection();
+  expect(calls).toEqual({ add: 0, remove: 0 });
+  expect(twin().length).toBe(1);
+  loc = "fr";
+  view.refreshProjection();
+  expect(calls).toEqual({ add: 0, remove: 0 });
+  expect(twin()[0]).toMatchObject({ title: "fr:legend.twinKey", label: "fr:details.twinKey" });
+  view.setTwins(false);
+  expect(twin().length).toBe(0);
+});
+
+test("a Load on {chain} that finds no transactions removes the node and says so, at info", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    globalThis.fetch = async (url, init) =>
+      String(url).includes("data/") || !String(url).includes("chainid=42161")
+        ? realFetch(url, init)
+        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "No transactions found", result: "No transactions found" }) };
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    detailBtn("Load on Arbitrum One").click();
+    await waitLoaded();
+    await sleep(0);
+    expect(window.vis.Network.first.nodes.getIds().some((id) => String(id).startsWith("42161:"))).toBe(false);
+    const log = $("logContent").textContent;
+    expect(log).toContain("No transactions found for this address on Arbitrum One; the node was not added.");
+    expect(log).not.toContain("Added Arbitrum One");
+    expect(log).not.toContain("Nothing could be loaded");
+    expect([...$("logContent").children].at(-1).className).not.toBe("err");
+  } finally {
+    globalThis.fetch = realFetch;
+    restoreForm();
+  }
+});
+
+test("Load on {chain} leaves the details panel on whatever the user selected meanwhile", async () => {
+  let release = () => {};
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    release = gate();
+    detailBtn("Load on Arbitrum One").click();
+    clickNode(ID("1", N2));
+    release();
+    await waitLoaded();
+    await sleep(0);
+    expect($("detailsContent").textContent).toContain(N2);
+    expect($("detailsContent").textContent).not.toContain(ROOT);
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("a twin link's details clear once the link is gone (toggle off, prune)", async () => {
+  const net = window.vis.Network.first;
+  const setTwins = (on) => {
+    $("twinToggle").checked = on;
+    $("twinToggle").dispatchEvent(new window.Event("change"));
+  };
+  const showTwin = () => {
+    net._on.click[0]({ nodes: [], edges: [twins()[0].id] });
+    expect($("detailsContent").textContent).toContain("Same-address link");
+  };
+  try {
+    await twoChainScan();
+    showTwin();
+    setTwins(false);
+    expect($("detailsContent").textContent).toBe("Click a node or an arrow in the graph.");
+    setTwins(true);
+    showTwin();
+    net.setSelection({ nodes: [ID("42161", ROOT)] });
+    $("deleteNodesBtn").click();
+    expect($("detailsContent").textContent).toBe("Click a node or an arrow in the graph.");
+  } finally {
+    setTwins(true);
+    net.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("prune is refused while a scan runs (button and Delete key)", async () => {
+  let release = () => {};
+  const net = window.vis.Network.first;
+  try {
+    await freshScan("20");
+    release = gate();
+    $("startBtn").click();
+    await until(() => apiUrls.length && $("startBtn").disabled);
+    net.setSelection({ nodes: [ID("1", N2)] });
+    $("deleteNodesBtn").click();
+    document.activeElement?.blur?.();
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Delete" }));
+    expect(nodeIds()).toContain(ID("1", N2));
+    expect([...$("logContent").children].filter((l) => l.textContent.includes("Busy — wait")).length).toBe(2);
+  } finally {
+    $("stopBtn").click();
+    release();
+    await until(() => !$("startBtn").disabled);
+    net.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("palette edge subtitles name the chain once the graph spans 2 chains", async () => {
+  const S = (a) => a.slice(0, 5) + "…" + a.slice(-4);
+  const subs = () => [...document.querySelectorAll("#paletteResults .palette-item-subtitle")].map((e) => e.textContent);
+  const search = (q) => {
+    $("searchBtn").click();
+    $("paletteInput").value = q;
+    $("paletteInput").dispatchEvent(new window.Event("input"));
+  };
+  const close = () => $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  try {
+    await twoChainScan();
+    search("0xaaa");
+    expect(subs()).toContain(`${S(ROOT)} → ${S(N2)} · Ethereum`);
+    expect(subs()).toContain(`${S(ROOT)} → ${S(N2)} · Arbitrum One`);
+    close();
+    await freshScan("20");
+    search("0xaaa");
+    expect(subs()).toEqual([`${S(ROOT)} → ${S(N2)}`]);
+  } finally {
+    close();
+    restoreForm();
+  }
+});

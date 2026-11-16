@@ -155,7 +155,7 @@ n'existait pas sur Optimism, et un attaquant y a déployé un Safe et pris les j
 > **Dans chainmap :** la même adresse sur deux chaînes donne deux nœuds. Un lien pointillé
 > **même clé** n'est tracé que si l'adresse a signé une transaction normale (`txlist`) sur une
 > chaîne qui n'est pas nativement en abstraction de compte. Les paires sans cet indice
-> apparaissent comme « même adresse seulement — probablement sans rapport » dans la ligne
+> apparaissent comme « même adresse seulement — probablement sans lien » dans la ligne
 > *Autres chaînes* du nœud, et ne sont jamais tracées.
 >
 > **Limite connue :** sur les chaînes OP-stack/Arbitrum, le `txlist` d'Etherscan peut inclure

@@ -58,3 +58,10 @@ test("eoa on one chain makes every pair in a 3-chain group key", () => {
   expect(links.length).toBe(3);
   expect(links.every((l) => l.basis === "key")).toBe(true);
 });
+test("system senders (zero address, OP-stack depositor) are never key evidence", () => {
+  const ZERO = "0x" + "0".repeat(40), DEPOSITOR = "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001";
+  const ev = addressEvidence([ed("1", "txlist", ZERO, Y), ed("10", "txlist", DEPOSITOR, Y)], CH);
+  expect(ev.has(`1:${ZERO}`)).toBe(false);
+  expect(ev.has(`10:${DEPOSITOR}`)).toBe(false);
+  expect(sameAddressLinks([nd("1", ZERO), nd("10", ZERO)], ev)[0].basis).toBe("address");
+});

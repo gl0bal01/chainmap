@@ -28,12 +28,13 @@ function allPositions(network) {
  *   onNodeSelect: (id:string)=>void,
  *   onEdgeSelect: (edgeKey:string)=>void,
  *   onAliasEdit: (id:string)=>void,
+ *   onDelete: ()=>void,   Delete/Backspace: prune the selected nodes (guards + store call live in the caller)
  *   onLog: (entry:{level:'info'|'error', key:string, params?:object})=>void
  * }} deps
  * @returns {{ detach: () => void }}
  */
 export function attachInteractions(view, store, deps) {
-  const { container, onNodeSelect, onEdgeSelect, onAliasEdit, onLog } = deps;
+  const { container, onNodeSelect, onEdgeSelect, onAliasEdit, onDelete, onLog } = deps;
   const network = view.network;
 
   // --- click -> node/edge selection -----------------------------------------
@@ -54,19 +55,13 @@ export function attachInteractions(view, store, deps) {
   }
   network.on("doubleClick", handleDoubleClick);
 
-  // --- Delete/Backspace -> prune selected nodes (through the store) ---------
+  // --- Delete/Backspace -> prune selected nodes (via onDelete) --------------
   function handleKeydown(e) {
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     const tag = document.activeElement && document.activeElement.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     e.preventDefault();
-    const selected = network.getSelectedNodes();
-    if (!selected.length) {
-      onLog({ level: "error", key: "error.selectNodesFirst" });
-      return;
-    }
-    const result = store.removeNodes(selected);
-    onLog({ level: "info", key: "log.nodesDeleted", params: { n: result.removedNodes } });
+    onDelete(); // the caller's one prune path (busy guard, selection check, log, details)
   }
   document.addEventListener("keydown", handleKeydown);
 

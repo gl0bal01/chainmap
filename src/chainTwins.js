@@ -3,6 +3,9 @@ import { nodeId } from "./format.js";
 
 /** Per-node evidence from edges: 'eoa' (signed a top-level tx) beats 'contract'.
  *  Native-AA and unknown chains give no eoa evidence: a "signed" tx there is not key evidence. */
+// System senders show up as a txlist `from`, but no private key signs for them.
+const SYSTEM_SENDERS = new Set(["0x" + "0".repeat(40), "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"]);
+
 export function addressEvidence(edges, chainsConfig) {
   const known = new Set(chainsConfig.map((c) => String(c.id)));
   const aa = new Set(chainsConfig.filter((c) => c.nativeAA).map((c) => String(c.id)));
@@ -14,7 +17,7 @@ export function addressEvidence(edges, chainsConfig) {
     const cid = String(e.chainId);
     if (aa.has(cid)) continue;
     // fail closed: unknown chains may be native-AA, so they never give eoa evidence
-    if (e.action === "txlist") { if (known.has(cid)) mark(e.fromId, "eoa"); }
+    if (e.action === "txlist") { if (known.has(cid) && !SYSTEM_SENDERS.has(e.from)) mark(e.fromId, "eoa"); }
     else if (e.action === "txlistinternal") mark(e.fromId, "contract");
     if (e.tokenContract) mark(nodeId(e.chainId, e.tokenContract), "contract");
   }

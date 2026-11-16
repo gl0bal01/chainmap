@@ -311,27 +311,40 @@ export function createGraphView(container, store, deps) {
   }
 
   // Same-key overlay: derived from the store each time, only basis 'key' is drawn.
+  // Diff-synced: an edge add/remove makes vis re-run the hierarchical layout (dropping
+  // hand-placed positions), so only new/vanished links touch the DataSet; kept ones are
+  // retitled in place (locale switch). Callers rebuild bundles (twins ride along in bundledDS).
+  // ponytail: twin edges still count for hierarchical `sortMethod:"directed"` levels (vis reads
+  // every node edge, physics:false or not), so a twin sits one level right of its lower-chain
+  // twin; drop twins from the view while hierarchical if that ever matters.
   function syncTwins() {
-    edgesDS.remove(edgesDS.getIds().filter((id) => String(id).startsWith("twin:")));
-    twinLinks = [];
-    if (twinsOn && store.chains().length >= 2) {
-      const links = sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS)).filter((l) => l.basis === "key");
-      twinLinks = links;
-      edgesDS.add(
-        links.map((l) => ({
-          id: `twin:${l.a}|${l.b}`, from: l.a, to: l.b, twin: true, data: { twin: true, ...l },
-          label: i18n.t("details.twinKey"), title: i18n.t("legend.twinKey"),
-          dashes: [2, 6], width: 1, color: { color: "#8b93a3" }, font: { color: "#8b93a3" },
-          arrows: { to: { enabled: false } }, physics: false,
-        }))
-      );
+    twinLinks = twinsOn && store.chains().length >= 2
+      ? sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS)).filter((l) => l.basis === "key")
+      : [];
+    const next = new Map(twinLinks.map((l) => [`twin:${l.a}|${l.b}`, l]));
+    const gone = edgesDS.getIds().filter((id) => String(id).startsWith("twin:") && !next.has(id));
+    if (gone.length) edgesDS.remove(gone);
+    const label = i18n.t("details.twinKey");
+    const title = i18n.t("legend.twinKey");
+    const fresh = [];
+    const retitle = [];
+    for (const [id, l] of next) {
+      const cur = edgesDS.get(id);
+      if (!cur) fresh.push({
+        id, from: l.a, to: l.b, twin: true, data: { twin: true, ...l }, label, title,
+        dashes: [2, 6], width: 1, color: { color: "#8b93a3" }, font: { color: "#8b93a3" },
+        arrows: { to: { enabled: false } }, physics: false,
+      });
+      else if (cur.label !== label || cur.title !== title) retitle.push({ id, label, title });
     }
-    if (bundled) rebuildBundles();
+    if (retitle.length) edgesDS.update(retitle);
+    if (fresh.length) edgesDS.add(fresh);
   }
 
   function setTwins(on) {
     twinsOn = !!on;
     syncTwins();
+    if (bundled) rebuildBundles();
   }
 
   function refreshProjection() {
@@ -522,8 +535,8 @@ export function createGraphView(container, store, deps) {
         const edgeIds = network.getConnectedEdges(e.id);
         if (edgeIds.length) edgesDS.remove(edgeIds);
         nodesDS.remove(e.id);
-        if (bundled) rebuildBundles();
         if (twinsOn) syncTwins();
+        if (bundled) rebuildBundles();
         break;
       }
       case "edge:add":
