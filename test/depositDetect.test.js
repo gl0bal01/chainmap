@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { findDeposits, delayParts } from "../src/depositDetect.js";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40);
-const N = A(1), EX = A(2), EX2 = A(3), OTHER = A(4), SRC = A(5), USDT = A(6), NFT = A(7);
+const N = A(1), EX = A(2), EX2 = A(3), OTHER = A(4), SRC = A(5), USDT = A(6), NFT = A(7), SPOOF = A(9);
 const id = (a, c = "1") => `${c}:${a}`;
 const HIST = { txlist: {}, tokentx: {} }; // only the presence of an action matters
 const node = (a, over = {}) => ({ id: id(a, over.chainId || "1"), chainId: "1", address: a, history: HIST, ...over });
@@ -18,9 +18,12 @@ const KNOWN = {
   "1": {
     [EX]: { label: "Binance 14 (hot wallet)", category: "exchange" },
     [EX2]: { label: "Kraken 4", category: "exchange" },
+    [USDT]: { label: "Tether USD", category: "token" },
   },
 };
-const ctx = { known: (a, c) => KNOWN[String(c)]?.[a] || null };
+const known = (a, c) => KNOWN[String(c)]?.[a] || null;
+// Mirrors main.js: a token is trusted only when it is a known "token" entry on the edge's chain.
+const ctx = { known, trustedToken: (contract, c) => known(contract, c)?.category === "token" };
 const run = (nodes, edges, c = ctx) => findDeposits(nodes, edges, c);
 const TOK = { action: "tokentx", symbol: "USDT", tokenContract: USDT };
 const times = (k, f) => Array.from({ length: k }, f);
@@ -104,6 +107,33 @@ describe("findDeposits — each criterion", () => {
   });
 });
 
+describe("findDeposits — trusted asset (criterion 9)", () => {
+  const spoof = { action: "tokentx", symbol: "XYZ", tokenContract: SPOOF }; // unlisted: anyone can emit its Transfer
+
+  test("an unlisted-token-only sweep is never marked", () => {
+    expect(run([node(N)], [edge(N, EX, spoof)]).size).toBe(0);
+    expect(run([node(N)], times(5, () => edge(N, EX, spoof))).size).toBe(0);
+  });
+
+  test("trustedToken decides for tokens, with the edge's chain; absent, only native counts", () => {
+    const calls = [];
+    const yes = { ...ctx, trustedToken: (c, chainId) => (calls.push([c, chainId]), true) };
+    expect(run([node(N)], [edge(N, EX, spoof)], yes).get(id(N)).assets).toEqual([{ symbol: "XYZ", contract: SPOOF, sharePct: 100 }]);
+    expect(calls).toEqual([[SPOOF, "1"]]);
+    expect(run([node(N)], [edge(N, EX, TOK)], { known }).size).toBe(0);
+    expect(run([node(N)], [edge(N, EX)], { known }).size).toBe(1);
+    expect(run([node(N, { history: { ...HIST, txlistinternal: {} } })], [edge(N, EX, { action: "txlistinternal" })], { known }).size).toBe(1);
+  });
+
+  test("native sweep + spoofed token sweep: marked; spoofs still count in the shares", () => {
+    const r = run([node(N)], [edge(N, EX), edge(N, EX, spoof)]);
+    expect(r.get(id(N))).toMatchObject({ swept: 2, outgoing: 2 });
+    expect(r.get(id(N)).assets.map((a) => a.contract)).toEqual(["", SPOOF]);
+    // documented limit: a spoofed transfer elsewhere still dilutes the count share (1 of 2)
+    expect(run([node(N)], [edge(N, EX), edge(N, OTHER, spoof)]).size).toBe(0);
+  });
+});
+
 describe("findDeposits — math", () => {
   test("share is floored: 999 of 1000 shows 99", () => {
     const r = run([node(N)], [...times(9, () => edge(N, EX, { value: "111" })), edge(N, OTHER, { value: "1" })]);
@@ -142,6 +172,27 @@ describe("findDeposits — delay", () => {
     // a zero-value (poisoning) inflow never times a sweep
     r = run([node(N)], [edge(SRC, N, { value: "0", timeStamp: "100" }), edge(N, EX, { timeStamp: "200" })]);
     expect(r.get(id(N))).toMatchObject({ maxDelaySec: null, timedSweeps: 0 });
+  });
+
+  test("inflows use the outflow filter: ignored or unfetched-action inflows never time a sweep", () => {
+    const sweep = edge(N, EX, { timeStamp: "200" });
+    const ignored = edge(SRC, N, { timeStamp: "100" });
+    expect(run([node(N)], [ignored, sweep]).get(id(N))).toMatchObject({ maxDelaySec: 100, timedSweeps: 1 }); // control
+    expect(run([node(N)], [ignored, sweep], { ...ctx, ignoreEdge: (e) => e === ignored }).get(id(N)))
+      .toMatchObject({ maxDelaySec: null, timedSweeps: 0 });
+    const internalIn = edge(SRC, N, { action: "txlistinternal", timeStamp: "100" });
+    expect(run([node(N)], [internalIn, sweep]).get(id(N))).toMatchObject({ maxDelaySec: null, timedSweeps: 0 });
+    expect(run([node(N, { history: { ...HIST, txlistinternal: {} } })], [internalIn, sweep]).get(id(N)))
+      .toMatchObject({ maxDelaySec: 100, timedSweeps: 1 }); // control: fetched -> timed
+  });
+
+  test("only decimal-digit timestamps time a sweep (no Infinity / exponent / overflow / NaN)", () => {
+    for (const ts of ["Infinity", "1e9", "1e2", "9".repeat(400), "-5", " 100", "0x10", "1.5", "NaN"]) {
+      for (const [inT, swT] of [[ts, ts], [ts, "2000"], ["100", ts]]) {
+        const r = run([node(N)], [edge(SRC, N, { timeStamp: inT }), edge(N, EX, { timeStamp: swT })]);
+        expect(r.get(id(N))).toMatchObject({ maxDelaySec: null, timedSweeps: 0 });
+      }
+    }
   });
 });
 

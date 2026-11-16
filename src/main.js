@@ -126,8 +126,10 @@ let hubOn = false;      // whether hub de-emphasis is active
 let depositMap = new Map(); // node id -> DepositEvidence
 const depositCtx = {
   known: (a, chainId) => knownEntry(a, chainId, knownData),
-  // Fake Transfer(from=N) events used for address poisoning must not dilute the evidence.
+  // Imitation / spam-listed fake Transfer(from=N) events are dropped (unknown spoofed tokens can still dilute).
   ignoreEdge: (e) => isFakeTokenEdge(e) || isSpam(e, { spamContractsFor: spam.contractsFor, spamSymbols: spam.symbols }),
+  // A forged token Transfer cannot create a mark alone: only native coin or a known token vouches.
+  trustedToken: (contract, chainId) => knownCategory(contract, chainId, knownData) === "token",
 };
 // Re-applies only nodes whose evidence changed; re-renders an open details panel on one of them.
 function recomputeDeposits() {

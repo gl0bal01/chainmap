@@ -27,17 +27,19 @@ const VALUE_ACTIONS = new Set(["txlist", "txlistinternal", "tokentx"]);
 const units = (v) => (typeof v === "string" && /^\d+$/.test(v) ? BigInt(v) : null);
 /** Asset key: the token contract for ERC-20, "" for native (normal + internal). */
 const assetOf = (e) => (e.action === "tokentx" ? String(e.tokenContract || "").toLowerCase() : "");
-/** UNIX seconds, or null when missing / unparseable. */
+/** UNIX seconds from a decimal-digit timestamp; null otherwise (no Infinity / 1e9 / NaN from workspaces). */
 const secs = (e) => {
-  const t = Number(e.timeStamp);
-  return t > 0 ? t : null;
+  const t = /^\d+$/.test(String(e.timeStamp)) ? Number(e.timeStamp) : 0;
+  return Number.isSafeInteger(t) && t > 0 ? t : null;
 };
 
 /**
  * @param {import('./graphStore.js').NodeRecord[]} nodes
  * @param {import('./graphStore.js').EdgeRecord[]} edges
  * @param {{ known:(address:string, chainId:string)=>(import('./knownAddresses.js').KnownEntry|null),
- *           ignoreEdge?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} ctx
+ *           ignoreEdge?:(edge:import('./graphStore.js').EdgeRecord)=>boolean,
+ *           trustedToken?:(contract:string, chainId:string)=>boolean }} ctx
+ *   trustedToken: may a token sweep vouch for a mark? Absent -> only native sweeps do.
  * @returns {Map<string, DepositEvidence>} node id -> evidence, marked nodes only
  */
 export function findDeposits(nodes, edges, ctx) {
@@ -45,6 +47,7 @@ export function findDeposits(nodes, edges, ctx) {
   const known = ctx && ctx.known;
   if (typeof known !== "function") return out;
   const ignore = (ctx && ctx.ignoreEdge) || (() => false);
+  const trusted = (ctx && ctx.trustedToken) || (() => false);
 
   const outOf = new Map();
   const inOf = new Map();
@@ -65,6 +68,8 @@ export function findDeposits(nodes, edges, ctx) {
     const S = O.filter((e) => known(e.to, e.chainId)?.category === "exchange"); // 4.
     if (!S.length || S.some((e) => e.toId !== S[0].toId)) continue; // 5. one wallet
     if (S.length * 100 < O.length * MIN_SHARE) continue; // 6. count share
+    // 9. any contract can emit Transfer(from=N): a mark needs one native or trusted-token sweep
+    if (!S.some((e) => e.action !== "tokentx" || trusted(assetOf(e), e.chainId))) continue;
 
     const swept = new Set(S);
     const sums = new Map(); // asset -> { symbol, all, swept }
