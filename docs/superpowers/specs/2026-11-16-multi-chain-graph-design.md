@@ -1,6 +1,6 @@
 # Multi-chain graph (follow one wallet across EVM chains) — design
 
-Status: Draft — awaiting owner decisions (written autonomously) · 2026-11-16 · not builder-checked
+Status: Approved — owner accepted every recommendation in "Decisions needed from the owner" (2026-11-16) · builder check pending
 
 ## Intent
 
@@ -597,3 +597,10 @@ not translated.
 
     (b) can miss a real designated EOA that was never seen signing. (a) without
     provenance can mislabel an unrelated contract twin. **Recommend (c).**
+
+## Owner decisions (2026-11-16)
+
+The owner chose to proceed with **every recommendation above** (decisions 1–10 as
+recommended in this section). Where a recommendation above names "v1" vs
+"later", v1 is the scope to build now; "later" items stay out of scope.
+
