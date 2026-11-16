@@ -19,6 +19,7 @@ import { isValidAddress, isFailedTx, shortAddress, nodeId } from "./format.js";
 import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress, isAllChainEntry } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
+import { addressEvidence, sameAddressLinks } from "./chainTwins.js";
 import { classifyHubs } from "./sinkFaucet.js";
 import { findCycleNodes } from "./roundTrips.js";
 import { findPeelChains } from "./peelChain.js";
@@ -362,6 +363,31 @@ function logChainAdded(before, chainId) {
   if (!before.includes(chainId) && n >= 2) logger.log({ level: "info", key: "log.chainAdded", params: { chain: chainLabel(chainId), n } });
 }
 
+// Same-address nodes on other chains, from the links touching `node` (derived, never stored).
+function otherChainsFor(node) {
+  const twins = [];
+  for (const l of sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS))) {
+    const other = l.a === node.id ? l.b : l.b === node.id ? l.a : null;
+    if (other) twins.push({ id: other, chainName: chainLabel(store.getNode(other).chainId), basis: l.basis });
+  }
+  return {
+    twins,
+    canApplyAlias: !!node.alias && twins.some((x) => x.basis === "key" && !store.getNode(x.id).alias),
+    onFocusTwin: (tid) => revealAndFocus({ kind: "node", id: tid }),
+    onApplyAlias: () => applyAliasToTwins(node.id),
+  };
+}
+
+// Copy this node's alias to same-key twins that have none; never overwrites.
+function applyAliasToTwins(id) {
+  const node = store.getNode(id);
+  if (!node || !node.alias) return;
+  const targets = otherChainsFor(node).twins.filter((x) => x.basis === "key" && !store.getNode(x.id).alias);
+  targets.forEach((x) => store.setAlias(x.id, node.alias));
+  logger.log({ level: "info", key: "log.aliasApplied", params: { n: targets.length } });
+  rerenderDetails();
+}
+
 function showNodeDetails(id) {
   const node = store.getNode(id);
   if (!node) return;
@@ -381,6 +407,7 @@ function showNodeDetails(id) {
     onLoadOlder: () => loadOlderFor(id),
     busy: scanning || detecting,
     loadBlocked: unsupportedChain(node.chainId),
+    otherChains: otherChainsFor(node),
   });
 }
 

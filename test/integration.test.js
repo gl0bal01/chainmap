@@ -627,7 +627,8 @@ async function historyEnv() {
     });
     return c;
   };
-  return { render };
+  const renderOther = (otherChains, extra = {}) => render(undefined, { otherChains, ...extra });
+  return { render, renderOther };
 }
 const H = (state, count, action = "txlist", labelKey = "tx.type.normal") => ({ action, labelKey, state, count });
 
@@ -786,6 +787,32 @@ test("node details without history, or with an empty one, render only Rename and
     expect(buttons[0].textContent).toBe("Rename (alias)");
     expect(c.textContent).not.toContain("History");
   }
+});
+
+test("Other chains block lists twins, focuses on click, offers alias apply", async () => {
+  const { renderOther } = await historyEnv();
+  const none = renderOther({ twins: [], canApplyAlias: false, onFocusTwin: () => {}, onApplyAlias: () => {} });
+  expect(none.textContent).toContain("Other chains");
+  expect(none.textContent).toContain("none");
+  expect(none.querySelectorAll("button").length).toBe(1); // Rename only
+  const focused = [];
+  let applied = 0;
+  const oc = (extra) => ({
+    twins: [{ id: ID("42161", ROOT), chainName: "Arbitrum One", basis: "key" }, { id: ID("56", ROOT), chainName: "BNB Chain", basis: "address" }],
+    canApplyAlias: false, onFocusTwin: (id) => focused.push(id), onApplyAlias: () => applied++, ...extra,
+  });
+  const c = renderOther(oc());
+  const btns = [...c.querySelectorAll("button")].map((b) => b.textContent);
+  expect(btns).toContain("Arbitrum One — same key");
+  expect(btns).toContain("BNB Chain — same address only — likely unrelated");
+  expect(btns).not.toContain("Apply alias to same-key twins");
+  c.querySelectorAll("button")[1].click();
+  expect(focused).toEqual([ID("42161", ROOT)]);
+  const a = [...renderOther(oc({ canApplyAlias: true })).querySelectorAll("button")].find((b) => b.textContent === "Apply alias to same-key twins");
+  a.click();
+  expect(applied).toBe(1);
+  const busy = [...renderOther(oc({ canApplyAlias: true }), { busy: true }).querySelectorAll("button")].find((b) => b.textContent === "Apply alias to same-key twins");
+  expect(busy.disabled).toBe(true);
 });
 
 test("blocked note is linked to the load button via aria-describedby", async () => {
@@ -1221,6 +1248,53 @@ test("a '*' entry badges both twins and says it is listed for all EVM chains", a
     expect(source.textContent).toContain(PHRASE);
   } finally {
     $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("Other chains lists same-key and address-only twins and focuses on click", async () => {
+  const net = window.vis.Network.first;
+  net.focus = () => {};
+  net.selectNodes = (n) => net.setSelection({ nodes: n });
+  net.getScale = () => 1;
+  try {
+    await twoChainScan();
+    clickNode(ID("1", ROOT));
+    const btn = (txt) => [...$("detailsContent").querySelectorAll("button")].find((b) => b.textContent === txt);
+    btn("Arbitrum One — same key").click();
+    expect($("detailsContent").querySelector("a").href).toContain("arbiscan.io/address/");
+    clickNode(ID("1", N2));
+    expect(btn("Arbitrum One — same address only — likely unrelated")).toBeTruthy();
+  } finally {
+    delete net.focus;
+    delete net.selectNodes;
+    delete net.getScale;
+    restoreForm();
+  }
+});
+
+test("alias apply targets same-key twins only and never overwrites", async () => {
+  const origPrompt = window.prompt;
+  const btn = (txt) => [...$("detailsContent").querySelectorAll("button")].find((b) => b.textContent === txt);
+  const APPLY = "Apply alias to same-key twins";
+  try {
+    await twoChainScan();
+    window.prompt = () => "Suspect";
+    clickNode(ID("1", ROOT));
+    btn("Rename (alias)").click();
+    btn(APPLY).click();
+    expect(visNode(ID("42161", ROOT)).label.startsWith("Suspect")).toBe(true);
+    window.prompt = () => "Other";
+    clickNode(ID("42161", ROOT));
+    btn("Rename (alias)").click();
+    window.prompt = () => "Suspect2";
+    clickNode(ID("1", ROOT));
+    btn("Rename (alias)").click();
+    expect(btn(APPLY)).toBeUndefined();
+    expect(visNode(ID("42161", ROOT)).label.startsWith("Other")).toBe(true);
+    expect(visNode(ID("42161", N2)).label.startsWith("Suspect")).toBe(false);
+  } finally {
+    window.prompt = origPrompt;
     restoreForm();
   }
 });

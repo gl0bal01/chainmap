@@ -185,6 +185,35 @@ export function renderNodeDetails(container, node, deps) {
       container.appendChild(note);
     }
   }
+
+  const oc = deps.otherChains;
+  if (oc) {
+    const box = document.createElement("div");
+    if (!oc.twins.length) {
+      const em = document.createElement("em");
+      em.textContent = i18n.t("details.none");
+      box.appendChild(em);
+    }
+    for (const tw of oc.twins) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = `${tw.chainName} — ${i18n.t(tw.basis === "key" ? "details.twinKey" : "details.twinAddress")}`;
+      b.addEventListener("click", () => oc.onFocusTwin(tw.id));
+      box.appendChild(b);
+    }
+    if (oc.canApplyAlias) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = i18n.t("details.applyAlias");
+      b.disabled = !!deps.busy;
+      b.addEventListener("click", () => oc.onApplyAlias());
+      box.appendChild(b);
+    }
+    const t2 = document.createElement("table");
+    t2.style.marginTop = "8px";
+    t2.appendChild(detailRow(i18n.t("details.otherChains"), box));
+    container.appendChild(t2);
+  }
 }
 
 /**
