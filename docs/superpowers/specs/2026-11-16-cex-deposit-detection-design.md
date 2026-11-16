@@ -142,7 +142,7 @@ from minutes to weeks; a gate would mostly reject on missing sample data).
   `likely_deposit_of` (wallet label) and `deposit_evidence`
   (`wallet=<addr>;swept=<N>/<M>;share=<SYM>:<pct>%[,…];max_delay_s=<n>|none`). Node
   rows only; edge rows blank. When any row has one, line 1 (caveat) gains
-  `; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet), not an attribution`.
+  `; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet) - not an attribution`.
   Header stays on line 2; existing column positions unchanged.
 
 ### i18n
