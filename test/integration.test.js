@@ -656,15 +656,15 @@ test("load button: older / first / complete states", async () => {
 
 test("blocked load shows the reason and disables the button", async () => {
   const { render } = await historyEnv();
-  const blocked = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  const blocked = render([H("more", 40)], { loadBlocked: { key: "error.unknownChain", params: { id: "999999" } } });
   expect(blocked.querySelectorAll("button")[1].disabled).toBe(true);
-  expect(blocked.textContent).toContain("This graph was built on Ethereum.");
+  expect(blocked.textContent).toContain("Chain 999999 is not supported by this build");
   const busy = render([H("more", 40)], { busy: true });
   expect(busy.querySelectorAll("button")[1].disabled).toBe(true);
-  expect(busy.textContent).not.toContain("This graph was built");
+  expect(busy.textContent).not.toContain("is not supported by this build");
 });
 
-// --- Load older wiring (main.js): chain guard, busy guard, workspace chain ---
+// --- Load older wiring (main.js): node chain, busy guard, workspace chain ---
 const until = async (pred) => {
   for (let i = 0; i < 60 && !pred(); i++) await sleep(50);
 };
@@ -693,25 +693,23 @@ async function freshScan(maxTx) {
   await until(() => /Done/.test($("status").textContent || ""));
   expect($("status").textContent).toContain("Done");
 }
+// freshScan on chain 1, then a second scan of ROOT on Arbitrum into the same graph.
+// Returns the API URLs the second scan issued.
+async function twoChainScan(maxTx = "20") {
+  await freshScan(maxTx); // chain 1
+  const n = apiUrls.length;
+  setChain("42161");
+  $("address").value = ROOT;
+  $("startBtn").click();
+  await until(() => !$("startBtn").disabled);
+  await sleep(0); // let main.js's chain-sync microtask run
+  return apiUrls.slice(n);
+}
 const openRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ID("1", ROOT)], edges: [] });
 const loadBtn = () => $("detailsContent").querySelectorAll("button")[1];
 const txlistUrls = () => apiUrls.filter((u) => new URL(u).searchParams.get("action") === "txlist");
 const lastTxlist = () => new URL(txlistUrls().at(-1)).searchParams;
 const waitLoaded = () => until(() => /Loaded/.test($("status").textContent || ""));
-
-test("scan on another chain into a non-empty graph is refused", async () => {
-  try {
-    await freshScan("20");
-    const n = apiUrls.length;
-    setChain("137");
-    $("startBtn").click();
-    await sleep(50);
-    expect(apiUrls.length).toBe(n); // no request at all, so none with chainid=137
-    expect($("logContent").textContent).toContain("This graph was built on Ethereum");
-  } finally {
-    restoreForm();
-  }
-});
 
 test("load older goes through details with an inclusive endblock, then pages inside the block", async () => {
   try {
@@ -757,25 +755,6 @@ test("double click starts one load", async () => {
   }
 });
 
-test("load refused after switching the chain selector", async () => {
-  try {
-    await freshScan("2");
-    openRoot();
-    expect(loadBtn().disabled).toBe(false);
-    setChain("137");
-    openRoot();
-    const b = loadBtn();
-    expect(b.disabled).toBe(true);
-    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
-    const n = apiUrls.length;
-    b.dispatchEvent(new window.Event("click")); // even if the handler fires, main.js refuses
-    await sleep(50);
-    expect(apiUrls.length).toBe(n);
-  } finally {
-    restoreForm();
-  }
-});
-
 test("saved workspace records the graph's chain, not the selector's", async () => {
   const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
   let captured = null;
@@ -807,10 +786,10 @@ test("node details without history, or with an empty one, render only Rename and
 
 test("blocked note is linked to the load button via aria-describedby", async () => {
   const { render } = await historyEnv();
-  const c = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  const c = render([H("more", 40)], { loadBlocked: { key: "error.unknownChain", params: { id: "999999" } } });
   const id = c.querySelectorAll("button")[1].getAttribute("aria-describedby");
   expect(id).toBeTruthy();
-  expect(c.querySelector("#" + id).textContent).toContain("This graph was built on Ethereum.");
+  expect(c.querySelector("#" + id).textContent).toContain("Chain 999999 is not supported by this build");
   expect(render([H("more", 40)]).querySelectorAll("button")[1].hasAttribute("aria-describedby")).toBe(false);
 });
 
@@ -895,22 +874,6 @@ test("details explorer link stays on the graph's chain after switching the selec
   }
 });
 
-test("demo sets the graph chain: switching the selector blocks its load button", async () => {
-  try {
-    $("resetBtn").click();
-    $("demoBtn").click();
-    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
-    window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
-    expect(loadBtn().disabled).toBe(false); // "Load transactions" — demo has no cursors
-    setChain("137");
-    window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
-    expect(loadBtn().disabled).toBe(true);
-    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
-  } finally {
-    restoreForm();
-  }
-});
-
 test("risk, labels and CSV category stay on the graph's chain after switching the selector", async () => {
   const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
   let captured = null;
@@ -941,7 +904,7 @@ test("risk, labels and CSV category stay on the graph's chain after switching th
     expect(label).toContain("⛔"); // chain-1 category icon (sanctioned)
     setChain("137"); // no chain-137 entry for DEMO_ROOT
     openDemoRoot();
-    expect($("detailsContent").textContent.replace(/This graph was built[^]*$/, "")).toBe(risk.replace(/This graph was built[^]*$/, ""));
+    expect($("detailsContent").textContent).toBe(risk);
     expect(await csv()).toBe(before);
     expect(demoLabel()).toBe(label);
   } finally {
@@ -1334,6 +1297,151 @@ test("CSV: chain_id on every row, per-chain flags, multi-chain caveat", async ()
     expect(m2).not.toContain("flag.mixer");
     expect(m2.endsWith(",56")).toBe(true);
   } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+// --- multi-chain: scans and loads run on any chain into the same graph -------
+test("scan on another chain adds a root on that chain", async () => {
+  try {
+    const second = await twoChainScan();
+    expect(nodeIds()).toEqual(["1", "42161"].flatMap((c) => [ROOT, N2, N4].map((x) => ID(c, x))).sort());
+    expect(window.vis.Network.first.edges.get().filter((e) => e.data.hash === "0xaaa").map((e) => e.id.split("|")[0]).sort()).toEqual(["1", "42161"]);
+    expect(second.length).toBeGreaterThan(0);
+    expect(second.every((u) => new URL(u).searchParams.get("chainid") === "42161")).toBe(true);
+    expect($("status").textContent).toBe("Done — 6 addresses, 4 links");
+    expect($("logContent").textContent).toContain("Added Arbitrum One — graph now spans 2 chains.");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("load older uses the node's chain, never the selector's", async () => {
+  try {
+    await twoChainScan("2");
+    setChain("1");
+    clickNode(ID("42161", ROOT));
+    expect(loadBtn().disabled).toBe(false);
+    loadBtn().click();
+    await waitLoaded();
+    expect(lastTxlist().get("chainid")).toBe("42161");
+    clickNode(ID("1", ROOT));
+    loadBtn().click();
+    await waitLoaded();
+    expect(lastTxlist().get("chainid")).toBe("1");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("switching the selector never relabels or blocks a node", async () => {
+  try {
+    await freshScan("2"); // full batch -> "Load older" (N=20 would leave every type complete, button disabled anyway)
+    const label = visNode(ID("1", ROOT)).label;
+    setChain("137");
+    expect(visNode(ID("1", ROOT)).label).toBe(label);
+    openRoot();
+    expect(loadBtn().disabled).toBe(false);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("unknown-chain node: load disabled with a reason, no request", async () => {
+  try {
+    await loadAsDemo(v3ws([v3Node("999999", ROOT, { depth: 0, isRoot: true })], []));
+    $("apiKey").value = "TESTKEY";
+    clickNode(ID("999999", ROOT));
+    expect(loadBtn().disabled).toBe(true);
+    expect($("detailsContent").textContent).toContain("Chain 999999 is not supported by this build");
+    const n = apiUrls.length;
+    loadBtn().dispatchEvent(new window.Event("click")); // even if the handler fires, main.js refuses
+    await sleep(50);
+    expect(apiUrls.length).toBe(n);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a scan on a chain this build lacks is refused, localized, with no request", async () => {
+  const opt = document.createElement("option");
+  opt.value = "999999";
+  $("chainSelect").appendChild(opt); // e.g. a stale persisted selection
+  try {
+    await freshScan("20");
+    const n = apiUrls.length;
+    setChain("999999");
+    $("startBtn").click();
+    await sleep(50);
+    expect(apiUrls.length).toBe(n);
+    expect($("logContent").textContent).toContain("Chain 999999 is not supported by this build — scan and load are disabled for it.");
+  } finally {
+    opt.remove();
+    restoreForm();
+  }
+});
+
+test("pruning one twin leaves the other chain intact", async () => {
+  try {
+    await twoChainScan();
+    window.vis.Network.first.setSelection({ nodes: [ID("42161", ROOT)] });
+    $("deleteNodesBtn").click();
+    expect(nodeIds()).not.toContain(ID("42161", ROOT));
+    expect(nodeIds()).toContain(ID("1", ROOT));
+    expect(nodeIds()).toContain(ID("42161", N2)); // only the selected id goes
+    expect(window.vis.Network.first.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(2);
+  } finally {
+    window.vis.Network.first.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("Ctrl+Arrow navigates across chains by node id", async () => {
+  const net = window.vis.Network.first;
+  try {
+    await twoChainScan();
+    net.getPositions = () => ({ [ID("1", ROOT)]: { x: 0, y: 0 }, [ID("42161", ROOT)]: { x: 100, y: 0 } });
+    net.focus = () => {};
+    net.getScale = () => 1;
+    net.setSelection({ nodes: [ID("1", ROOT)] });
+    document.activeElement?.blur?.(); // the handler ignores keys while an input has focus
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true }));
+    expect($("detailsContent").querySelector("a").href).toContain("arbiscan.io/address/");
+  } finally {
+    delete net.getPositions;
+    delete net.focus;
+    delete net.getScale;
+    net.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("a two-chain graph with a note round-trips through save and load", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL, prompt: window.prompt };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  const graphIds = () => nodeIds().filter((i) => !i.startsWith("note:"));
+  try {
+    await twoChainScan();
+    window.prompt = () => "note";
+    $("addNoteBtn").click();
+    const before = graphIds();
+    $("saveBtn").click();
+    expect(captured).not.toBeNull();
+    const saved = JSON.parse(await captured.text());
+    expect(saved.version).toBe(3);
+    expect([...new Set(saved.graph.nodes.map((n) => n.chainId))].sort()).toEqual(["1", "42161"]);
+    expect(saved.annotations.length).toBe(1);
+    await loadAsDemo(saved);
+    expect(graphIds()).toEqual(before);
+    expect(nodeIds().filter((i) => i.startsWith("note:")).length).toBe(1);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    window.prompt = orig.prompt;
     $("resetBtn").click();
     restoreForm();
   }

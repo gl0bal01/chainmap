@@ -178,7 +178,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 ## ui.js — DOM view helpers (stub → Stage B)
 
 - `explorer: string|null` in all three renderers — the record's chain host (`main.explorerFor(chainId)`, from `config.CHAINS` only); `null` (unknown chain) omits the Link row. There is no fallback host.
-- `renderNodeDetails(container, node, { i18n, explorer, onRename, risk?, getKnownSource?, history?, pageSize?, onLoadOlder?, busy?, loadBlocked? })` — `history` (`historyState` items + `labelKey`) adds the History row and a Load button that calls `onLoadOlder()`; the button is disabled while `busy`, when `loadBlocked` (`{key, params?}`, shown as a note) is set, or when every selected type is complete.
+- `renderNodeDetails(container, node, { i18n, explorer, onRename, risk?, getKnownSource?, history?, pageSize?, onLoadOlder?, busy?, loadBlocked? })` — `history` (`historyState` items + `labelKey`) adds the History row and a Load button that calls `onLoadOlder()`; the button is disabled while `busy`, when `loadBlocked` (`{key, params?}`, shown as a note) is set, or when every selected type is complete. main.js sets `loadBlocked` only for a node whose chain is not in `config.CHAINS` (`error.unknownChain`); the chain selector never blocks a load (each node loads on its own chain).
 - `renderEdgeDetails(container, edge, { i18n, explorer, getAlias, getKnownLabel?, getCategory?, isFakeToken? })` — the optional deps are absent-safe; `getCategory` and `isFakeToken` feed `flagsForEdge` for the risk-flags row.
 - `createLogger(container, i18n): { log(entry), clear() }`
 - `createStatus(element): { set(text), clear() }`

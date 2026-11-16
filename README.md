@@ -61,8 +61,8 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
 - **Load older** — a node whose last fetch returned a full batch gets a **dashed border**
   (more history available). Select it and use **Load older (+N)** in the details panel to
   page further back by block number; new counterparties are added but not explored
-  automatically. The cursor is saved in the workspace. A graph is single-chain: scanning
-  another chain into a non-empty graph is refused (clear it first).
+  automatically. The cursor is saved in the workspace. A graph can hold several chains:
+  every node and edge keeps its own chain, and the same address on two chains is two nodes.
 - **Three tx families** — normal, internal, and ERC-20/721/1155 token transfers, each a
   colored edge.
 - **Calldata decoding** — 4-byte selectors → human method names + **named** decoded args and

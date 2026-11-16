@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import en from "../src/locales/en.js";
 
 // Static hardening regressions for index.html. These guard the CSP / SRI /
 // referrer decisions made after the 2026-07 security review so a future edit
@@ -42,10 +43,13 @@ describe("i18n innerHTML foot-gun (CWE-79)", () => {
 
 describe("single-chain leftovers stay deleted", () => {
   test("no banned identifiers in src/", async () => {
-    const banned = ["dataChain(", "setNativeSymbol"];
+    const banned = ["dataChain(", "setNativeSymbol", "graphChainId", "chainRefusal", "chainMismatch"];
     for await (const f of new Bun.Glob("**/*.js").scan({ cwd: new URL("../src/", import.meta.url).pathname, absolute: true })) {
       const text = await Bun.file(f).text();
       for (const b of banned) expect(text.includes(b), `${f} contains ${b}`).toBe(false);
     }
+  });
+  test("the single-chain refusal message is gone from the locales", () => {
+    expect("error.chainMismatch" in en).toBe(false);
   });
 });

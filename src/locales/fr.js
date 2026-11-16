@@ -145,7 +145,7 @@ export default {
   "details.loadOlder": "Charger les plus anciennes (+{n})",
   "details.loadFirst": "Charger les transactions (+{n})",
   "details.historyComplete": "Complet pour les types sélectionnés",
-  "error.chainMismatch": "Ce graphe a été construit sur {chain}. Revenez-y, ou videz le graphe d'abord.",
+  "error.unknownChain": "La chaîne {id} n'est pas prise en charge par cette version — scan et chargement désactivés pour elle.",
   "error.workspaceTooNew": "Cet espace de travail a été créé par une version plus récente de chainmap — mettez l'application à jour pour l'ouvrir.",
   "details.rename": "Renommer (alias)",
   "details.bundleType": "Arête regroupée (A→B)",
@@ -216,6 +216,7 @@ export default {
   // --- log messages ---------------------------------------------------------
   "log.scanStart": "Démarrage du scan : {root} | profondeur={depth} | types={types}",
   "log.scanDone": "Scan terminé : {nodes} adresses, {edges} transactions affichées, {calls} appels API.",
+  "log.chainAdded": "{chain} ajoutée — le graphe couvre maintenant {n} chaînes.",
   "log.safetyCap": "Plafond de sécurité atteint ({cap} adresses). Arrêt.",
   "log.stopRequested": "Arrêt demandé par l'utilisateur.",
   "log.rateLimitRetry": "Rate limit atteint ({action}), nouvelle tentative…",

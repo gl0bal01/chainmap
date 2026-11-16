@@ -64,7 +64,7 @@ Frozen module contracts live in `INTERFACES.md`.
 - **Edges dedup on a precise key**: `chainId|action|hash|from|to|contract|tokenID|logIndex` (symbol is display-only) so ERC-1155 / same-symbol-different-contract stay distinct.
 - **Drop failed txs** (`isError==="1"` / `txreceipt_status==="0"`) before drawing edges.
 - **Filters/overlays are a display projection** over the store mirror (vis DataViews) — the store keeps the full graph so CSV/detail stay complete.
-- **Sampling is explicit**: scans fetch the latest N per address (page 1, sort desc, offset N), extendable per node via **Load older** (block cursor on `NodeRecord.history`) — not full history, surfaced in UI + exports. A graph is single-chain (cross-chain scans into a non-empty graph are refused). Never present sampled data as complete.
+- **Sampling is explicit**: scans fetch the latest N per address (page 1, sort desc, offset N), extendable per node via **Load older** (block cursor on `NodeRecord.history`) — not full history, surfaced in UI + exports. A graph can hold several chains: a scan on another chain adds a root on that chain, and Load older uses the node's own chain. Never present sampled data as complete.
 - **i18n**: no hardcoded UI text in logic. Modules emit `{level, key, params}`; `ui`+`i18n` render it. en/fr key sets must stay at parity (a test enforces it).
 - **Security**: strict CSP (script-src 'self', connect-src limited to api.etherscan.io); user/API strings reach the DOM via `textContent`/escaped only; no inline `onclick`.
 - Adding a chain / tx-type / selector = one entry in the relevant table

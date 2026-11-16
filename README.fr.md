@@ -65,8 +65,9 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   reçoit une **bordure en pointillés** (historique supplémentaire disponible). Sélectionnez-le
   et utilisez **Charger les plus anciennes (+N)** dans le panneau de détails pour remonter dans le
   temps par numéro de bloc ; les nouvelles contreparties sont ajoutées mais pas explorées
-  automatiquement. Le curseur est sauvegardé dans l'espace de travail. Un graphe n'a qu'une
-  seule chaîne : scanner une autre chaîne dans un graphe non vide est refusé (videz-le d'abord).
+  automatiquement. Le curseur est sauvegardé dans l'espace de travail. Un graphe peut contenir
+  plusieurs chaînes : chaque nœud et chaque arête garde sa propre chaîne, et une même adresse sur
+  deux chaînes donne deux nœuds.
 - **Trois familles de tx** — normales, internes et transferts de jetons ERC-20/721/1155,
   chacune une arête colorée.
 - **Décodage du calldata** — sélecteurs 4 octets → noms de méthode lisibles + arguments de

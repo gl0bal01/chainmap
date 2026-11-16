@@ -146,7 +146,7 @@ export default {
   "details.loadOlder": "Load older (+{n})",
   "details.loadFirst": "Load transactions (+{n})",
   "details.historyComplete": "Complete for selected types",
-  "error.chainMismatch": "This graph was built on {chain}. Switch back to it, or clear the graph first.",
+  "error.unknownChain": "Chain {id} is not supported by this build — scan and load are disabled for it.",
   "error.workspaceTooNew": "This workspace was made by a newer chainmap — update the app to open it.",
   "details.rename": "Rename (alias)",
   "details.bundleType": "Bundled edge (A→B)",
@@ -217,6 +217,7 @@ export default {
   // --- log messages ---------------------------------------------------------
   "log.scanStart": "Scan started: {root} | depth={depth} | types={types}",
   "log.scanDone": "Scan complete: {nodes} addresses, {edges} transactions shown, {calls} API calls.",
+  "log.chainAdded": "Added {chain} — graph now spans {n} chains.",
   "log.safetyCap": "Safety cap reached ({cap} addresses). Stopping.",
   "log.stopRequested": "Stop requested by the user.",
   "log.rateLimitRetry": "Rate limit hit ({action}), retrying…",

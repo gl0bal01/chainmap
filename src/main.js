@@ -159,9 +159,6 @@ function applyDisplayOptions() {
 
 // --- scan lifecycle state ---------------------------------------------------
 let scanning = false; // a scan OR a load is running (see withBusy) — never both
-// Chain the current graph was built on (scan on an empty graph / workspace / demo);
-// null after reset. Etherscan data from two chains must never mix in one graph.
-let graphChainId = null;
 /** Remember the current details selection so it can be re-rendered on locale change. */
 let currentDetail = null; // { kind:'node'|'edge', id }
 
@@ -177,10 +174,8 @@ function populateChains() {
     sel.appendChild(opt);
   });
   sel.value = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
-  sel.addEventListener("change", () => {
-    localStorage.setItem(STORAGE_KEYS.chainId, sel.value);
-    rerenderDetails(); // load button reflects the chain guard
-  });
+  // The selector is only the chain for the next scan: nodes keep their own chain.
+  sel.addEventListener("change", () => localStorage.setItem(STORAGE_KEYS.chainId, sel.value));
 }
 
 // Bundled local datasets: known-address labels + spam token list. Same-origin
@@ -318,11 +313,20 @@ function wirePanels() {
 // ---------------------------------------------------------------------------
 // Details panel
 // ---------------------------------------------------------------------------
-// Refusal for using `chainId` against the current graph, or null when allowed.
-function chainRefusal(chainId) {
-  return graphChainId && chainId !== graphChainId
-    ? { key: "error.chainMismatch", params: { chain: chainName(graphChainId) } }
-    : null;
+// A chain this build has no entry for (e.g. from a newer workspace): no scan, no load.
+const unsupportedChain = (chainId) => (chainById(chainId) ? null : { key: "error.unknownChain", params: { id: chainId } });
+
+// Why a scan or load on `chainId` can't run now ({key, params?}), or null.
+function loadRefusal(chainId) {
+  if (!$("apiKey").value.trim()) return { key: "error.apiKeyRequired" };
+  if (!formTypes().length) return { key: "error.noTypeSelected" };
+  return unsupportedChain(chainId);
+}
+
+// Log "Added {chain}" when a scan brought a new chain into a multi-chain graph.
+function logChainAdded(before, chainId) {
+  const n = store.chains().length;
+  if (!before.includes(chainId) && n >= 2) logger.log({ level: "info", key: "log.chainAdded", params: { chain: chainName(chainId), n } });
 }
 
 function showNodeDetails(id) {
@@ -343,7 +347,7 @@ function showNodeDetails(id) {
     pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
     onLoadOlder: () => loadOlderFor(id),
     busy: scanning || detecting,
-    loadBlocked: chainRefusal($("chainSelect").value),
+    loadBlocked: unsupportedChain(node.chainId),
   });
 }
 
@@ -544,11 +548,10 @@ async function startScan() {
 
   if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
   if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
-  if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
-  // Roots on the same chain accumulate; another chain needs an empty graph.
-  const refusal = store.stats().nodes > 0 && chainRefusal(chainId);
+  // Roots accumulate on any supported chain: another chain adds a root on that chain.
+  const refusal = loadRefusal(chainId);
   if (refusal) return logger.log({ level: "error", ...refusal });
-  graphChainId = chainId;
+  const before = store.chains();
 
   const client = createEtherscanClient({ apiKey, chainId });
 
@@ -596,6 +599,7 @@ async function startScan() {
     key: "log.scanDone",
     params: { nodes: summary.nodes, edges: summary.edges, calls: summary.apiCalls },
   });
+  logChainAdded(before, chainId);
   status.set(
     summary.planRequired
       ? t("status.planRequired", { chain: chainName(chainId) })
@@ -614,11 +618,7 @@ async function loadOlderFor(id) {
   if (scanning || detecting) return rerenderDetails();
   const apiKey = $("apiKey").value.trim();
   const types = formTypes();
-  const refusal = !apiKey
-    ? { key: "error.apiKeyRequired" }
-    : !types.length
-      ? { key: "error.noTypeSelected" }
-      : chainRefusal($("chainSelect").value);
+  const refusal = loadRefusal(node.chainId);
   if (refusal) {
     logger.log({ level: "error", ...refusal });
     return rerenderDetails();
@@ -656,7 +656,6 @@ async function loadOlderFor(id) {
 
 function resetGraph() {
   if (scanning) return;
-  graphChainId = null;
   store.reset(); // view clears via 'reset' event
   logger.clear();
   status.clear();
@@ -864,7 +863,7 @@ function saveWorkspace() {
 }
 
 // Returns false (and logs) when refused: a scan/load in flight would keep writing
-// into the replaced graph — mixed chains, mis-credited counts. Checked here, at
+// into the replaced graph — stray records, mis-credited counts. Checked here, at
 // apply time, because demo/file loads resolve asynchronously after the click.
 function applyWorkspace(ws) {
   if (scanning) {
@@ -872,10 +871,9 @@ function applyWorkspace(ws) {
     return false;
   }
   store.loadSnapshot(ws.nodes, ws.edges);
-  // A single-chain graph drives the selector; the graph chain follows its records.
+  // A single-chain graph drives the selector (the chain for the next scan).
   const cs = store.chains();
-  if (cs.length === 1 && CHAINS.some((c) => String(c.id) === cs[0])) $("chainSelect").value = cs[0];
-  graphChainId = cs[0] || $("chainSelect").value;
+  if (cs.length === 1 && chainById(cs[0])) $("chainSelect").value = cs[0];
   const f = ws.filters || {};
   $("minAmount").value = f.minAmount || 0;
   $("hideZeroToggle").checked = !!f.hideZero;
