@@ -310,7 +310,7 @@ hidden or highlighted on screen.
     the sampling-caveat line, header, then one row per node/edge. `CSV_HEADER` gained five
     trailing edge-only columns: `method`, `method_sig`, `real_recipient`, `decoded_amount`,
     `risk_flags` (semicolon-joined `flagsForEdge` keys); node rows leave them blank.
-    The very last column is `chain_id` (`n.chainId` / `e.chainId`) on every row. Line 1 is the
+    `chain_id` (`n.chainId` / `e.chainId`) is on every row; the two deposit columns follow it (see "Exchange deposit detection"). Line 1 is the
     sampling caveat; when node rows span >= 2 distinct `chainId`s it is extended with
     `; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer`. Header stays on line 2.
     `exportCsv(store, deps)` now builds its rows via `buildCsvRows` and accepts an optional
@@ -405,10 +405,34 @@ licenses are documented in `data/README.md` (not repeated here).
 - `ui.renderTwinDetails(container, {address, chains:[A,B]}, {i18n})`. Workspace `filters.showTwins` kept only if boolean.
 
 ## Multi-chain graph (Phase 2 summary)
-- **Ids/records:** node id `chainId:address`; every NodeRecord/EdgeRecord carries `chainId`; edge keys are `chainId|…`. Workspace v3 = `{version:3, graph:{nodes,edges}, …}` with no top-level chain (v1/v2 migrate on load). CSV gains `chain_id`.
+- **Ids/records:** node id `chainId:address`; every NodeRecord/EdgeRecord carries `chainId`; edge keys are `chainId|…`. Workspace v3 = `{version:3, graph:{nodes,edges}, …}` with no top-level chain (v1/v2 migrate on load). CSV gains `chain_id`; the deposit columns follow it (see "Exchange deposit detection").
 - **chainTwins.js** (pure): `addressEvidence(edges, CHAINS)`, `sameAddressLinks(nodes, evidence)`; `basis:'key'` only with txlist-signer evidence on a known non-`nativeAA` chain.
 - **View twins:** `GraphView.setTwins(on)` / `getTwinLinks()`; dotted `twin:` vis edges (never stored, never CSV); `filters.showTwins`; legend `legendTwinKey`; chain filter `filters.hiddenChains`.
 - **ui:** `otherChains` row (same key / "same address only") with twin focus and conservative alias apply; `renderTwinDetails(container, {address, chains}, {i18n})`.
 - **export:** `renderExportCanvas`/`exportPng`/`exportPdf` accept `twinLinks`, `twinLabel`.
 - **Details actions:** "Check other chains" probe (Stop discards partial results) and "Load on {chain}" (one page, mainnet-first picker, no alias copy).
 - **Known limitation:** OP-stack/Arbitrum `txlist` may include aliased L1→L2 deposit senders, so "same key" is a signal, not proof. Not in this version: color-by-chain, drawing address-only links.
+
+## Exchange deposit detection (P4)
+
+Heuristic: an address whose sampled outflow went nearly entirely to one known exchange wallet
+is a likely deposit address. A display projection, never stored, never in workspaces.
+
+- **depositDetect.js** — new, pure, DOM-free:
+  - `findDeposits(nodes, edges, ctx:{known(address, chainId)→KnownEntry|null, ignoreEdge?(edge)→boolean}): Map<nodeId, DepositEvidence>`
+  - `DepositEvidence = { walletId, wallet, label, swept, outgoing, assets:[{symbol, contract, sharePct}], maxDelaySec:number|null, timedSweeps }` (`contract ""` = native; `maxDelaySec` null = no prior inflow in the sample).
+  - `delayParts(sec) → { key:'duration.m'|'duration.h'|'duration.d', params:{n} }`
+  - Criteria (all must hold), constants in the module:
+    1. Node's `history` has both `txlist` and `tokentx` (own transactions fetched).
+    2. Node is not a known entity on its chain.
+    3. Outgoing value transfers: from the node, action txlist/txlistinternal/tokentx present in its `history`, `BigInt(value) > 0n`, not `ignoreEdge`; NFTs ignored.
+    4. At least one outgoing edge goes to an address with category `exchange` on the edge's chain.
+    5. All such exchange-bound edges go to the same wallet.
+    6. Count share: `|S| * 100 >= |O| * 90`.
+    7. Value share per swept asset (BigInt, raw units): `sum(S_a) * 100n >= sum(O_a) * 90n`; `sharePct` is the floored integer percent.
+  - Delay (evidence only): sweep `timeStamp` minus the latest same-asset inflow (`<=`) in the store, same filter as outflows (fetched action, value > 0, not imitation/spam). Chains never mix.
+- **riskScore.js** — `RiskInput.deposit:boolean` adds the context reason `risk.deposit` (no score).
+- **render/network.js** — `createGraphView` dep `getDeposit?(id)→DepositEvidence|null` (label line + tooltip); `GraphView.refreshNodes(ids)` re-applies only the given nodes.
+- **ui.js** — `renderNodeDetails` dep `deposit?: DepositEvidence|null` renders the "Exchange deposit" row (textContent only).
+- **render/export.js** — `buildCsvRows` ctx / `exportCsv` deps `deposits?: Map<nodeId, DepositEvidence>`. Columns now end `…, chain_id, likely_deposit_of, deposit_evidence`; node rows only, edge rows blank. Evidence format: `wallet=<addr>;swept=<N>/<M>;share=<SYM>:<pct>%[,…];max_delay_s=<n>|none`. When any row has one, line 1 gains `; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet) - not an attribution`.
+- **main.js** — `depositMap` is recomputed by one coalesced store subscription (at most once per macrotask) and after known/spam data loads; only nodes whose status changed are refreshed. Never stored, never in workspace files (workspace stays v3).

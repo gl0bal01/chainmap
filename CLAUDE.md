@@ -21,7 +21,7 @@ python3 -m http.server 8000   # open http://localhost:8000/
 Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 
 ```bash
-bun test        # 562 tests
+bun test        # 593 tests
 ```
 
 `vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
@@ -44,6 +44,7 @@ DOM-free, Node-testable modules (pure logic; the heart of the app):
 - `display.js` — filters, amount-weighted width, edge bundling, age color (all pure).
 - `history.js` — per-node "Load older" block-cursor math (`nextRequest`/`advance`/`historyState`/`sanitizeHistory`).
 - `chainTwins.js` — same-address cross-chain pairs + key evidence.
+- `depositDetect.js` — `findDeposits` exchange-deposit heuristic, `delayParts`.
 - `roundTrips.js` — Tarjan SCC cycle detection. `sinkFaucet.js` — hub classification.
 - `selectors.js` + `abiDecode.js` — 4-byte method selectors + ABI head decoder.
 - `riskScore.js` — explainable per-node risk. `blockchainDetect.js` — chain-by-format detection.
@@ -73,7 +74,8 @@ Frozen module contracts live in `INTERFACES.md`.
   `SELECTORS` (signature) and, if its leading static args are worth naming, a matching
   entry in `SELECTOR_PARAMS` (param names, in `selectors.js`) — `abiDecode.summarizeCall`
   and the CSV `decoded_amount`/`real_recipient` columns depend on those names being present.
-- **Risk flags** (`riskFlags.js`), **peel-chain** detection (`peelChain.js`), and **hide
+- **Risk flags** (`riskFlags.js`), **peel-chain** detection (`peelChain.js`), the
+  **exchange-deposit mark** (`depositDetect.findDeposits`), and **hide
   faucets/sinks** (`sinkFaucet.shouldHideNode`) are display projections over the store
   mirror, same as filters/bundling — they never mutate `graphStore`, so CSV/detail always
   reflect the full graph regardless of what's hidden or highlighted on screen.

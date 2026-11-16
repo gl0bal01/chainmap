@@ -191,8 +191,53 @@ motifs que recherchent les enquêteurs :
 - **Score de risque par nœud** — un chiffre de triage *explicable* combinant ce qui précède
   (sur un cycle, hub, degré élevé, appels de contrat, entité connue). Cliquez un nœud pour
   voir le score **et toutes les raisons** — aucune boîte noire.
+- **Adresses de dépôt d'une plateforme d'échange** — voir la sous-section ci-dessous.
 
 ![superpositions d'enquête : anneaux de cycle + arêtes pondérées + légende](img/overlays.png)
+
+### Adresses de dépôt d'une plateforme d'échange
+
+Les plateformes d'échange centralisées donnent à chaque client une **adresse de dépôt
+unique**. Ce que le client y envoie est ensuite **balayé** (transféré, en général vite et
+presque en totalité) vers l'un des portefeuilles chauds de la plateforme. Une adresse dont les
+sorties vont presque toutes vers **un seul portefeuille connu** d'une plateforme est donc
+probablement une adresse de dépôt de celle-ci : c'est la piste à porter auprès de la
+plateforme dans une demande de conformité.
+
+chainmap marque une telle adresse « dépôt probable → <portefeuille> » quand tout ceci est vrai :
+
+- **Ses propres transactions ont été récupérées**, natives comme jetons. Sinon ses sorties
+  dans le graphe ne sont que ce que les requêtes d'autres nœuds ont laissé voir, et elle n'est
+  jamais jugée.
+- Elle n'est pas elle-même une entité connue, et elle a envoyé de la valeur à **un seul**
+  portefeuille connu de plateforme.
+- **La règle 90/90 :** au moins 90 % de ses transferts sortants (en nombre) sont allés à ce
+  portefeuille et, pour chaque actif balayé, au moins 90 % de la valeur (BigInt sur les unités
+  de base, pourcentage arrondi à l'inférieur : 99,9 % n'apparaît jamais comme 100 %). Les
+  jetons imitation et spam sont ignorés pour que des transferts d'empoisonnement ne diluent pas
+  l'indice.
+
+Le panneau de détails montre les indices : « N transferts sortants sur M », la part par actif
+et une **ligne de délai** (« balayé moins de 10 minutes après la dernière entrée »). Le délai
+utilise le même filtre que les sorties (action récupérée, valeur > 0, ni imitation ni spam) et
+il est affiché, pas exigé : les politiques de balayage vont de quelques minutes à plusieurs
+semaines, et l'entrée est souvent hors de l'échantillon.
+
+Limites, à lire avant de se fier à une marque :
+
+- Tout repose sur des **données échantillonnées** ; l'indice vaut ce que vaut la récupération
+  des N dernières transactions.
+- **1 sur 1 suffit.** Une adresse de dépôt ne sert souvent qu'une fois ; le compte est affiché
+  pour que vous le pesiez.
+- Seuls les portefeuilles de `data/` sont reconnus ; les autres plateformes restent invisibles.
+- Un flux réparti entre deux portefeuilles de plateforme reste non marqué (cela pourrait être
+  deux plateformes).
+- Le jugement se fait **par chaîne** ; la même adresse sur deux chaînes est jugée deux fois,
+  indépendamment.
+- C'est une **piste, pas une preuve de propriété** : vérifiez auprès de la plateforme.
+
+Exemple : dans la démo, `0xdec0…0001` est alimentée par la racine puis balayée vers Binance 14
+dix minutes plus tard ; elle est donc marquée (données illustratives).
 
 ---
 

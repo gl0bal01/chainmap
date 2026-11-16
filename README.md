@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **562 unit/integration tests** on the DOM-free core.
+- **593 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -84,6 +84,12 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   forwarding chains where value hops through throwaway addresses), color-by-age,
   known-address labels (see below), mixer/bridge/sanctioned tagging (🌀/🌉/⛔ badges), and an
   *explainable* per-node risk score.
+- **Likely exchange deposit addresses** (🏦) — an address whose sampled outflow went almost
+  entirely (>= 90 % of transfers and of each swept asset's value) to one known exchange hot
+  wallet is marked "likely deposit → <wallet>", with its evidence in the details panel and in
+  the CSV (`likely_deposit_of`, `deposit_evidence`). A heuristic lead for a compliance request,
+  never an attribution. Only addresses whose own transactions were fetched are judged, and only
+  wallets listed in `data/` are recognized.
 - **Sourced known-address base** — ~580 labels (bridges, routers, mixers, canonical tokens,
   OFAC-sanctioned addresses, a few exchange hot wallets) generated from the official OFAC SDN
   list (sanctions and delistings as of the last data rebuild; the OFAC publish date is shown in
@@ -171,7 +177,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 562 unit + integration tests
+bun test        # 593 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:
