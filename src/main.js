@@ -26,7 +26,8 @@ import { findPeelChains } from "./peelChain.js";
 import { scoreNode } from "./riskScore.js";
 import { flagsForEdge } from "./riskFlags.js";
 import { buildCanonicalIndex, isFakeToken } from "./fakeToken.js";
-import { parseSpamList } from "./display.js";
+import { parseSpamList, isSpam } from "./display.js";
+import { findDeposits } from "./depositDetect.js";
 import { detectAddress } from "./blockchainDetect.js";
 import { rankChainActivity, probeChains } from "./chainProbe.js";
 import { methodName } from "./selectors.js";
@@ -121,6 +122,24 @@ const flagCtx = { category: (a, chainId) => knownCategory(a, chainId, knownData)
 let hubMap = new Map(); // node id -> 'sink' | 'faucet'
 let hubOn = false;      // whether hub de-emphasis is active
 
+// Exchange deposit heuristic: a derived display projection, never stored, never in workspaces.
+let depositMap = new Map(); // node id -> DepositEvidence
+const depositCtx = {
+  known: (a, chainId) => knownEntry(a, chainId, knownData),
+  // Fake Transfer(from=N) events used for address poisoning must not dilute the evidence.
+  ignoreEdge: (e) => isFakeTokenEdge(e) || isSpam(e, { spamContractsFor: spam.contractsFor, spamSymbols: spam.symbols }),
+};
+// Re-applies only nodes whose evidence changed; re-renders an open details panel on one of them.
+function recomputeDeposits() {
+  const prev = depositMap;
+  depositMap = findDeposits(store.listNodes(), store.listEdges(), depositCtx);
+  const changed = [...new Set([...prev.keys(), ...depositMap.keys()])]
+    .filter((id) => JSON.stringify(prev.get(id)) !== JSON.stringify(depositMap.get(id)));
+  if (!changed.length) return;
+  view.refreshNodes(changed);
+  if (currentDetail?.kind === "node" && changed.includes(currentDetail.id)) rerenderDetails();
+}
+
 const dateToEpoch = (v) => {
   if (!v) return 0;
   const t = Date.parse(v);
@@ -166,6 +185,7 @@ function computeRisk(id) {
     inDeg: inC.size,
     outDeg: outC.size,
     hubKind: hubMap.get(id) || null,
+    deposit: depositMap.has(id),
     onCycle: cyc.has(id),
     hasContractCalls: hasCall,
     known: !!knownLabel(address, chainId, knownData),
@@ -229,6 +249,7 @@ async function loadLocalData() {
   } catch {
     /* spam list optional */
   }
+  if (view) recomputeDeposits(); // known + spam data feed the heuristic
   if (view) applyDisplayOptions(); // re-project: spam sets + edge flags (known data, canonical index)
 }
 
@@ -470,6 +491,7 @@ function showNodeDetails(id) {
     explorer: explorerFor(node.chainId),
     onRename: promptAlias,
     risk: computeRisk(id),
+    deposit: depositMap.get(id) || null,
     getKnownSource: (a) => {
       const source = knownEntry(a, node.chainId, knownData)?.source || null;
       return source && isAllChainEntry(a, node.chainId, knownData) ? `${source} — ${t("details.allChainsListing")}` : source;
@@ -1162,7 +1184,7 @@ function wireControls() {
     })
   );
   $("exportCsvBtn").addEventListener("click", () =>
-    exportCsv(store, { onLog, ...flagCtx })
+    exportCsv(store, { onLog, ...flagCtx, deposits: depositMap })
   );
 
   // Noise-reduction filters (live display projection; store is untouched).
@@ -1263,6 +1285,7 @@ function init() {
     getHubDimOn: () => hubOn,
     getCategory: (a, c) => knownCategory(a, c, knownData),
     getEdgeFlags: (edge) => flagsForEdge(edge, flagCtx),
+    getDeposit: (id) => depositMap.get(id) || null,
   });
   // Chain tags / legend row depend on the distinct chain set: resync only when it changes.
   let lastChains = store.chains().join(",");
@@ -1280,6 +1303,12 @@ function init() {
       lastChains = now;
       syncChainUi();
     });
+  });
+  let depositQueued = false;
+  store.subscribe((e) => {
+    if (e.type === "alias:set" || depositQueued) return;
+    depositQueued = true;
+    setTimeout(() => { depositQueued = false; recomputeDeposits(); }, 0);
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));
