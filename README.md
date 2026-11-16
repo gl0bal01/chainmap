@@ -13,10 +13,11 @@ layers investigator tooling on top: filters, edge bundling, contract-call decodi
 detection, sink/faucet hubs, and per-node risk scoring.
 
 - **Fully client-side** — no backend, no build step, no telemetry.
-- **Your API key and data stay in your browser.** The only site ever contacted is
-  `api.etherscan.io`, enforced by a strict Content-Security-Policy.
+- **Your API key and data stay in your browser.** The only site contacted is
+  `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) only while you tick the opt-in
+  **Show USD values** box — enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **679 unit/integration tests** on the DOM-free core.
+- **795 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -123,6 +124,13 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   selects it and auto-reveals it if hidden by a filter/hub-hide. The button makes search
   reachable on **mobile / touch**, where there's no keyboard shortcut. Ctrl/Cmd+Arrow jumps
   selection to the nearest node in that direction.
+- **Historical USD values (opt-in)** — tick **Show USD values** (off at every page load,
+  never saved) to get an *estimate* of each transfer's USD value in the edge details panel and
+  in a last CSV column `usd_value`: DefiLlama's price within 1 h of the transaction × the exact
+  token amount (BigInt). Unknown, pending or unpriced is blank, never `0`. NFTs, zero-value,
+  imitation-token, spam-list and investigated-contract transfers, testnets and unsupported
+  chains are never priced. Every price request is in the query log. See
+  [LEARN §11](docs/LEARN.md#usd-estimates).
 - **Honest by design** — big-integer amounts (never floating point), failed txs dropped,
   and sampling surfaced everywhere. The sampling caveat applies to every feature above:
   overlays, flags, and hub/peel-chain detection only ever see the sampled graph, never full
@@ -167,10 +175,13 @@ frozen module contracts.
 ## Privacy, security & ethics
 
 - **Nothing leaves your browser** except calls to `api.etherscan.io` — no backend, proxy,
-  analytics, or third-party beacons. Verify it in DevTools → Network.
+  analytics, or third-party beacons. The one exception is opt-in: only while **Show USD
+  values** is ticked, `coins.llama.fi` (DefiLlama) receives token contract ids (or native-coin
+  ids) and hour-rounded times, never the addresses you investigate, a transaction hash or your
+  API key. Verify it in DevTools → Network.
 - **Vendored libraries** (`vis-network`, `jsPDF`) — no CDN — pinned with **Subresource
   Integrity**. A strict **CSP** limits `script-src` to `'self'` and `connect-src` to the
-  Etherscan API.
+  Etherscan API and `coins.llama.fi`.
 - **The API key is never written to any export, log or filename.** The query log keeps only
   the request parameters without the key and a SHA-256 of each response, never response bodies.
 - **No untrusted string reaches `innerHTML`** — aliases and API token symbols are rendered
@@ -187,7 +198,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 679 unit + integration tests
+bun test        # 795 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:

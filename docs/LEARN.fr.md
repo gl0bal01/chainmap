@@ -318,6 +318,101 @@ l'empreinte du zip doit redonner la même valeur.
   de même clé sont des pistes à corroborer. Les libellés connus viennent d'un instantané
   daté, consigné dans le manifeste.
 
+### Estimations en USD
+
+« Combien cela valait-il ? » n'est pas la même question que « combien était-ce ? ». chainmap peut
+y répondre par une **estimation**, mais seulement si vous le demandez : cochez **Afficher les
+valeurs en USD** dans le panneau Enquête. La case est **décochée à chaque chargement de la
+page** et n'est jamais enregistrée (ni dans le navigateur, ni dans les espaces de travail).
+Tant qu'elle est décochée, chainmap ne fait **aucune** requête au fournisseur de prix : ni au
+chargement, ni lors d'un scan, de la démo, du chargement d'un espace de travail, du panneau de
+détails ou d'un export.
+
+**Ce qui est envoyé, et ce qui ne l'est jamais.** Une fois la case cochée, chainmap interroge
+l'API gratuite de prix de DefiLlama (`coins.llama.fi`, sans clé) pour obtenir des prix
+historiques, par lots, dans une file à part (1 requête par seconde, indépendante de votre quota
+Etherscan). Une requête ne contient que :
+
+- des **identifiants de monnaie** : `<nom de la chaîne>:<contrat du jeton>` (par exemple
+  `ethereum:0xa0b8…`) ou un identifiant de monnaie native (`coingecko:ethereum`), en minuscules ;
+- des **heures Unix arrondies à l'heure** ;
+- `searchWidth=30m`.
+
+Elle ne contient jamais une adresse examinée (expéditeur, destinataire ou racine), un hash de
+transaction, votre clé Etherscan ni du texte libre, et elle n'envoie ni cookie ni référent. Comme
+toute requête web, elle montre tout de même votre adresse IP à DefiLlama, et les contrats de
+jetons lui indiquent quels actifs vous regardez. Un contrat de jeton qui est une **racine sur
+n'importe quelle chaîne** de votre graphe n'est jamais envoyé (vérifié à la construction de la
+requête, puis juste avant son envoi). La requête est aussi consignée dans votre journal des
+requêtes (voir plus bas).
+
+**Le créneau à l'heure la plus proche.** L'heure de chaque transaction est arrondie à
+**l'heure la plus proche** (son créneau) et l'API est interrogée pour le prix à **±30 minutes**
+de cette heure. Les deux écarts s'additionnent : le prix retenu est à **moins d'1 heure** de la
+transaction. Le panneau de détails affiche l'heure propre du point de données (UTC), pour voir
+à quel point il est réellement proche. Pour un actif stable, c'est sans importance ; pour un
+jeton volatil, cela peut compter.
+
+**La règle de confiance.** DefiLlama associe une `confidence` à la plupart des points de données
+mais ne documente aucun seuil. Le seuil de 0,9 est **la règle propre à chainmap** : un point dont
+la confiance est présente et inférieure à 0,9 est traité comme inconnu. Un point **sans**
+confiance (les points anciens en manquent souvent) est accepté, et le panneau de détails
+affiche la confiance « — ».
+
+**Ce qui n'est jamais valorisé.** Ces transferts n'ont aucun prix, et le panneau de détails en
+donne la raison (« non valorisé (...) ») :
+
+- les **NFT** (ERC-721 / ERC-1155) ;
+- les transferts de **valeur nulle** ;
+- les **faux jetons** et les jetons de la **liste de spam** : un faux « USDT » ne reçoit jamais
+  le prix du vrai USDT, car la valorisation passe par le contrat, jamais par le symbole ;
+- les jetons dont le contrat est une **racine** de votre graphe (une adresse examinée) ;
+- les chaînes que DefiLlama ne couvre pas, les **testnets**, et quelques lacunes : la **monnaie
+  native de Fraxtal** (son jeton de gaz a changé à une date contestée, et les deux prix diffèrent
+  d'environ 1000 fois) et les **jetons de MemeCore** (aucun nom de chaîne chez DefiLlama ;
+  seule sa monnaie native est valorisée) ;
+- les transferts dont le montant, les décimales ou l'heure sont inconnus ;
+- les **arêtes regroupées** (un total A→B n'est pas une transaction) : dégroupez pour voir les
+  valeurs par transfert.
+
+Un prix inconnu, en attente, en échec ou de confiance insuffisante est affiché comme tel et
+laissé **vide dans le CSV, jamais `0`**. Un montant positif valant moins d'un centime s'affiche
+« < 0.01 ».
+
+**Échec fermé.** Les contrôles faux jeton et spam reposent sur les données intégrées
+d'adresses connues et sur la liste de spam. Si l'une des deux n'a pas pu être chargée, chainmap
+ne demande **aucun** prix pendant toute la session et écrit une seule ligne d'erreur dans le
+journal de l'appli. Une requête qui échoue est traitée sobrement : un 429 ou un 5xx est retenté
+jusqu'à 3 fois (en respectant `Retry-After`) ; un délai dépassé, une erreur réseau ou tout autre
+4xx n'est pas retenté et le transfert affiche « échec de la requête de prix ». Il est redemandé
+au prochain changement du graphe ou quand la case est recochée. Un échec de prix ne ralentit ni n'arrête jamais un scan.
+
+**Preuves.** Chaque requête de prix est une entrée du **journal des requêtes** (source DefiLlama,
+action `batchHistorical`, paramètres `coins` et `searchWidth`, statut, lignes, SHA-256 du
+corps), consignée **avant** que sa valeur puisse apparaître à l'écran. Dans le panneau, la
+colonne d'adresse indique le nombre de monnaies de la requête. Les entrées restent après
+décochage de la case, et sont effacées avec le reste du journal lors d'une réinitialisation, du
+chargement d'un espace de travail ou de la démo. Dans le CSV, `usd_value` est la
+**dernière** colonne, et la ligne 1 indique que les valeurs sont des estimations et combien de
+transferts valorisables ont reçu un prix. Dans le dossier de preuves, `MANIFEST.json` reçoit un
+bloc `prices` (source, `estimate: true`, USD affiché ou non, nombre de requêtes, transferts
+valorisés et valorisables), et la mise en garde USD s'ajoute à ses mises en garde. Les
+PNG/PDF n'affichent aucun USD.
+
+**Limites. C'est une estimation, pas un fait.**
+
+- Le prix est celui de DefiLlama, à moins d'1 heure de la transaction. Ce n'est pas le prix
+  obtenu par l'expéditeur ou le destinataire, et une valeur n'est rien d'autre qu'un montant
+  multiplié par un prix.
+- Les **jetons de longue traîne** ont peu de données de prix : beaucoup de transferts resteront
+  vides. Les **chaînes et jetons récents** n'ont rien avant leur référencement, donc leurs
+  premiers transferts sont vides, ce qui est la bonne réponse.
+- La **monnaie native de Polygon** est passée de MATIC à POL le 2024-09-10 (Unix 1725926400) ;
+  chainmap utilise la monnaie correspondante de chaque côté de cette date.
+- DefiLlama est un tiers : ses données peuvent être révisées, et chainmap ne peut pas s'en
+  porter garant. Recoupez avec une seconde source tout ce qui compte (pièce de procédure,
+  rapport).
+
 ---
 
 ## Travaux pratiques

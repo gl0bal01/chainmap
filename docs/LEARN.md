@@ -279,6 +279,87 @@ third party: later, hashing the zip again must give the same value.
   marks, likely-deposit marks (also drawn in the PNG/PDF) and same-key links are leads to
   corroborate. Known labels come from a dated snapshot, recorded in the manifest.
 
+### USD estimates
+
+"How much was that worth?" is a different question from "how much was it?". chainmap can
+answer it with an **estimate**, but only if you ask: tick **Show USD values** in the
+Investigate panel. The box is **off every time the page loads** and is never saved (not in
+the browser, not in workspaces). While it is off, chainmap makes **no** request to the price
+provider: not at load, not on a scan, the demo, a workspace load, the details panel or an export.
+
+**What is sent, and what never is.** Once ticked, chainmap asks DefiLlama's free coins API
+(`coins.llama.fi`, no key) for historical prices, in batches, on a queue of its own (1
+request per second, separate from your Etherscan quota). A request contains only:
+
+- **coin ids**: `<chain slug>:<token contract>` (for example `ethereum:0xa0b8…`) or a native
+  coin id (`coingecko:ethereum`), lowercase;
+- **hour-rounded Unix times**;
+- `searchWidth=30m`.
+
+It never contains an investigated address (any sender, receiver or root), a transaction hash,
+your Etherscan key or any free text, and the request carries no cookies and no referrer. Like
+any web request, it still shows DefiLlama your IP address, and the token contracts tell it
+which assets you are looking at. A token contract that is a **root on any chain** of your graph
+is never sent (checked when the request is built and again just before it leaves). The
+request is also recorded in your query log (see below).
+
+**The nearest-hour bucket.** Each transaction time is rounded to the **nearest hour** (its
+bucket) and the API is asked for the price within **±30 minutes** of that hour. The two
+errors add up: the price used is within **1 hour** of the transaction. The details panel
+shows the data point's own time (UTC), so you can see how close it really is. For a stable
+asset that hardly matters; for a volatile token on a quiet day it can.
+
+**The confidence rule.** DefiLlama attaches a `confidence` to most data points but documents
+no threshold. The 0.9 cut-off is **chainmap's own rule**: a point whose confidence is present
+and below 0.9 is treated as unknown. A point with **no** confidence (older points often lack
+it) is accepted, and the details panel shows the confidence as "—".
+
+**What is never priced.** These transfers get no price, and the details panel says why
+("not priced (...)"):
+
+- **NFTs** (ERC-721 / ERC-1155);
+- **zero-value** transfers;
+- **imitation tokens** and tokens on the **spam list**: a fake "USDT" is never given the real
+  USDT's price, because pricing goes by contract, never by symbol;
+- tokens whose contract is a **root** of your graph (an investigated address);
+- chains DefiLlama does not cover, **testnets**, and a few gaps: the **native coin of
+  Fraxtal** (its gas token changed on a disputed date, and the two prices differ about
+  1000x) and **tokens on MemeCore** (no DefiLlama chain slug; only its native coin is priced);
+- transfers whose amount, decimals or time are unknown;
+- **bundled edges** (an A→B total is not a transaction): unbundle to see per-transfer values.
+
+An unknown, pending, failed or low-confidence price is shown as such and left **blank in the
+CSV, never `0`**. A positive amount worth under a cent shows as "< 0.01".
+
+**Fail closed.** The imitation and spam checks need the bundled known-address data and the
+spam list. If either failed to load, chainmap requests **no** price for the whole session
+and writes one error line in the app log. A request that fails is handled quietly: a 429 or
+5xx is retried up to 3 times (honouring `Retry-After`); a timeout, a network error or any
+other 4xx is not retried and the transfer shows "price request failed". It is asked again
+the next time the graph changes or the box is ticked again. A price failure never slows or stops a scan.
+
+**Evidence.** Every price request is an entry in the **query log** (source DefiLlama, action
+`batchHistorical`, the `coins` and `searchWidth` parameters, status, rows, SHA-256 of the
+body), and it is logged **before** its value can appear on screen. In the panel, the address
+column shows how many coins the request carried. Entries stay after you untick the box, and
+they are cleared with the rest of the log on Reset, workspace load or demo. In the
+CSV, `usd_value` is the **last** column, and line 1 says the values are estimates and how many
+of the priceable transfers were priced. In the evidence bundle, `MANIFEST.json` gets a
+`prices` block (source, `estimate: true`, whether USD was shown, the number of queries, priced
+and priceable transfers), and the USD caveat is added to its caveats. The PNG/PDF show no USD.
+
+**Limits. It is an estimate, not a fact.**
+
+- The price is DefiLlama's, within 1 hour of the transaction. It is not the price the sender
+  or receiver got, and a value is an amount times a price, nothing more.
+- **Long-tail tokens** have sparse price data: many transfers will stay blank. **Young chains
+  and tokens** have nothing before their listing, so early transfers are blank, which is the
+  correct answer.
+- **Polygon's native coin** changed from MATIC to POL on 2024-09-10 (Unix 1725926400);
+  chainmap uses the matching coin on each side of that date.
+- DefiLlama is a third party: its data can be revised, and chainmap cannot vouch for it.
+  Cross-check anything that matters (a court filing, a report) against a second source.
+
 ---
 
 ## Hands-on labs
