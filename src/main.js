@@ -43,6 +43,7 @@ import {
   renderEdgeDetails,
   renderBundleDetails,
   createLogger,
+  renderChainFilter,
   createStatus,
   createRequestIndicator,
 } from "./ui.js";
@@ -59,9 +60,27 @@ const explorerFor = (id) => chainById(id)?.explorer || null;
 const chainLabel = (id) => chainById(id)?.name || t("chain.unknown", { id });
 // Chain tag on labels: only once the graph spans 2+ chains; an unknown chain is always tagged.
 const getChainTag = (id) => (chainById(id) ? (store.chains().length >= 2 ? chainLabel(id) : null) : chainLabel(id));
+// Chains hidden by the Filters card (display projection only; the store keeps them).
+let hiddenChains = new Set();
+function refreshChainFilter() {
+  const cs = store.chains();
+  $("chainFilter").hidden = cs.length < 2;
+  renderChainFilter($("chainFilterList"), {
+    chains: cs.map((chainId) => ({ chainId, name: chainLabel(chainId) })),
+    hidden: hiddenChains,
+    onToggle: (chainId, visible) => {
+      if (visible) hiddenChains.delete(chainId);
+      else hiddenChains.add(chainId);
+      applyDisplayOptions();
+    },
+  });
+}
 function syncChainUi() {
-  view.refreshProjection();
-  $("legendChainTag").hidden = store.chains().length < 2;
+  const cs = store.chains();
+  hiddenChains = cs.length < 2 ? new Set() : new Set([...hiddenChains].filter((c) => cs.includes(c)));
+  $("legendChainTag").hidden = cs.length < 2;
+  refreshChainFilter();
+  applyDisplayOptions(); // also refreshes the projection
 }
 // Tx types ticked in the scan form (what a scan or a load fetches).
 const formTypes = () =>
@@ -157,6 +176,7 @@ function applyDisplayOptions() {
     hideSpam: $("hideSpamToggle").checked,
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
+    hiddenChains,
     spamContractsFor: spam.contractsFor,
     spamSymbols: spam.symbols,
     isFakeToken: isFakeTokenEdge,
@@ -442,6 +462,13 @@ function buildSearchRecords() {
 // is already visible.
 function revealNode(id) {
   if (view.hasRenderedNode(id)) return;
+
+  const chain = store.getNode(id)?.chainId;
+  if (hiddenChains.delete(chain)) {
+    refreshChainFilter();
+    applyDisplayOptions();
+    if (view.hasRenderedNode(id)) return;
+  }
 
   // Only the toggle matching THIS node's own hub kind can be hiding it — clearing
   // the other one too would be a no-op for this reveal and surprise the user by
@@ -854,6 +881,7 @@ function currentFilters() {
     bundle: $("bundleToggle").checked,
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
+    hiddenChains: [...hiddenChains],
   };
 }
 
@@ -892,6 +920,8 @@ function applyWorkspace(ws) {
   $("bundleToggle").checked = !!f.bundle;
   $("dateFrom").value = epochToLocal(f.minTime);
   $("dateTo").value = epochToLocal(f.maxTime);
+  hiddenChains = new Set((f.hiddenChains || []).filter((c) => cs.length >= 2 && cs.includes(c)));
+  refreshChainFilter();
   if (ws.layout) {
     $("layoutSelect").value = ws.layout;
     view.setLayout(ws.layout);

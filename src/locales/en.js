@@ -41,6 +41,7 @@ export default {
   "filters.label": "Noise reduction:",
   "filters.minAmount.label": "Min amount (per transfer)",
   "filters.hideZero": "Hide zero-value",
+  "filters.chains": "Chains",
   "filters.hideSpam": "Hide known spam tokens",
   "filters.bundle": "Bundle edges (A→B)",
   "filters.dateFrom": "From (date)",

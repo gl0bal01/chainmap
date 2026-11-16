@@ -384,3 +384,9 @@ licenses are documented in `data/README.md` (not repeated here).
   Driven by `bun run data:build [--ofac <sdn.xml>] [--verify-sources]`, which merges OFAC SDN +
   superchain registry (main HEAD at build time; SHA recorded in each `source`) +
   `data/sources/curated.json` into `data/known-addresses.json`.
+
+### Chain filter (multi-chain Task 6)
+- `display.passesFilters(edge, { hiddenChains?: Set<string> })` is false when `hiddenChains.has(edge.chainId)`; `filtersActive` is true when `hiddenChains.size > 0`. `DisplayOptions.hiddenChains` also hides node items by `chainId` (roots included); node DataSet items carry `chainId`.
+- `ui.renderChainFilter(container, { chains:[{chainId,name}], hidden:Set, onToggle(chainId, visible) })` renders `<label class="field check"><input type="checkbox" data-chain>` per chain (checked = visible; names via `textContent`).
+- Workspace `filters.hiddenChains`: array of `parseChainId`-valid strings; other items dropped, a non-array removed. main restores only chains present at 2+ chains.
+- DOM ids: `chainFilter` (hidden below 2 chains), `chainFilterList`. i18n `filters.chains` (en+fr). `revealNode` re-shows a hidden chain first.

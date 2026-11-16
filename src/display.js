@@ -74,7 +74,7 @@ export function parseSpamList(raw) {
  * predicate flags (imitation tokens).
  * @param {import('./graphStore.js').EdgeRecord} edge
  * @param {{ minAmount?:number, hideZero?:boolean, hideSpam?:boolean,
- *           minTime?:number, maxTime?:number,
+ *           minTime?:number, maxTime?:number, hiddenChains?:Set<string>,
  *           spamContractsFor?:(chainId:string)=>Set<string>, spamSymbols?:Set<string>,
  *           isFakeToken?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} opts
  * @returns {boolean}
@@ -82,6 +82,7 @@ export function parseSpamList(raw) {
 export function passesFilters(edge, opts) {
   const o = opts || {};
   const amount = edgeAmountNumber(edge);
+  if (o.hiddenChains && o.hiddenChains.has(edge.chainId)) return false;
   if (o.hideZero && amount === 0) return false;
   if (o.minAmount > 0 && amount < o.minAmount) return false;
   if (o.hideSpam && (isSpam(edge, o) || (o.isFakeToken && o.isFakeToken(edge)))) return false;
@@ -101,7 +102,7 @@ export function passesFilters(edge, opts) {
  */
 export function filtersActive(opts) {
   const o = opts || {};
-  return Boolean((o.minAmount && o.minAmount > 0) || o.hideZero || o.hideSpam || o.minTime || o.maxTime);
+  return Boolean((o.minAmount && o.minAmount > 0) || o.hideZero || o.hideSpam || (o.hiddenChains && o.hiddenChains.size > 0) || o.minTime || o.maxTime);
 }
 
 /**

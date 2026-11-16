@@ -41,6 +41,7 @@ export default {
   "filters.label": "Réduction du bruit :",
   "filters.minAmount.label": "Montant min. (par transfert)",
   "filters.hideZero": "Masquer valeur nulle",
+  "filters.chains": "Chaînes",
   "filters.hideSpam": "Masquer tokens spam connus",
   "filters.bundle": "Regrouper les arêtes (A→B)",
   "filters.dateFrom": "Du (date)",

@@ -109,3 +109,11 @@ test("isSpam scopes spam contracts to the edge's chain", () => {
   expect(isSpam(edge({ chainId: "137", tokenContract: "0xD" }), { spamContractsFor })).toBe(true);
   expect(isSpam(edge({ chainId: "1", tokenContract: "0xd" }), { spamContractsFor })).toBe(false);
 });
+
+test("hiddenChains hides that chain's edges only and engages filtersActive", () => {
+  const hiddenChains = new Set(["42161"]);
+  expect(passesFilters(edge({ chainId: "42161" }), { hiddenChains })).toBe(false);
+  expect(passesFilters(edge({ chainId: "1" }), { hiddenChains })).toBe(true);
+  expect(filtersActive({ hiddenChains })).toBe(true);
+  expect(filtersActive({ hiddenChains: new Set() })).toBe(false);
+});

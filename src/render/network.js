@@ -118,7 +118,7 @@ export function createGraphView(container, store, deps) {
   const edgesDS = new vis.DataSet([]);
 
   /** @type {DisplayOptions} */
-  const display = { minAmount: 0, hideZero: false, hideSpam: false, minTime: 0, maxTime: 0, spamContractsFor: null, spamSymbols: new Set() };
+  const display = { minAmount: 0, hideZero: false, hideSpam: false, hiddenChains: new Set(), minTime: 0, maxTime: 0, spamContractsFor: null, spamSymbols: new Set() };
   let visibleNodes = null; // null => show all; Set => only these
   let maxAmount = 0;
   let bundled = false;
@@ -143,6 +143,7 @@ export function createGraphView(container, store, deps) {
   const nodesView = new vis.DataView(nodesDS, {
     filter: (n) => {
       if (n.group === "annotation") return true;
+      if (display.hiddenChains.has(n.chainId)) return false; // roots included
       if (!(visibleNodes === null || visibleNodes.has(n.id))) return false;
       // Node DataSet items only carry `.id` (the node id, chainId:address) —
       // applyNode() never sets a separate `.address` field — so look hub kind up by id.
@@ -189,6 +190,7 @@ export function createGraphView(container, store, deps) {
     const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
       id: node.id,
+      chainId: node.chainId,
       label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel, chainTag }),
       color: ringColor ? { background: bg, border: ringColor } : more ? { background: bg, border: MORE_BORDER } : bg,
       borderWidth: ringColor ? 3 : more ? 2 : 1,
@@ -352,6 +354,7 @@ export function createGraphView(container, store, deps) {
     if (opts.minAmount !== undefined) display.minAmount = Number(opts.minAmount) || 0;
     if (opts.hideZero !== undefined) display.hideZero = !!opts.hideZero;
     if (opts.hideSpam !== undefined) display.hideSpam = !!opts.hideSpam;
+    if (opts.hiddenChains) display.hiddenChains = new Set(opts.hiddenChains);
     if (opts.minTime !== undefined) display.minTime = Number(opts.minTime) || 0;
     if (opts.maxTime !== undefined) display.maxTime = Number(opts.maxTime) || 0;
     if (opts.spamContractsFor) display.spamContractsFor = opts.spamContractsFor;

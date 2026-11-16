@@ -192,6 +192,9 @@ export function parseWorkspace(json, opts) {
     obj.filters && typeof obj.filters === "object" && !Array.isArray(obj.filters)
       ? { ...obj.filters }
       : {};
+  if (Array.isArray(filters.hiddenChains)) {
+    filters.hiddenChains = filters.hiddenChains.map((c) => parseChainId(c)).filter((c) => c != null);
+  } else delete filters.hiddenChains;
   const annotations = Array.isArray(obj.annotations) ? [...obj.annotations] : [];
 
   return {

@@ -87,7 +87,10 @@ function stubVis() {
   }
   class FakeDataView {
     constructor(ds, opts) { this.ds = ds; this.filter = (opts && opts.filter) || (() => true); }
-    get() { return this.ds.get().filter(this.filter); }
+    get(id) {
+      if (id !== undefined) { const it = this.ds.get(id); return it && this.filter(it) ? it : null; }
+      return this.ds.get().filter(this.filter);
+    }
     getIds() { return this.get().map((i) => i.id); }
     refresh() {}
     get length() { return this.get().length; }
@@ -1457,6 +1460,7 @@ test("a legacy v2 workspace renders exactly as before", async () => {
     expect(net.nodes.get().filter((n) => !String(n.id).startsWith("note:") && n.label.includes("\nEthereum")).length).toBe(0);
     expect(net.edges.get().filter((e) => String(e.title).includes(" · Ethereum")).length).toBe(0);
     expect($("legendChainTag").hidden).toBe(true);
+    expect($("chainFilter").hidden).toBe(true);
   } finally {
     $("resetBtn").click();
     restoreForm();
@@ -1534,6 +1538,48 @@ test("PNG export uses node ids and the chain line", async () => {
     expect(byId[ID("42161", ROOT)].endsWith("\nArbitrum One")).toBe(true);
     for (const e of net.edges.get()) expect(e.from).toMatch(/^\d+:0x/), expect(e.to).toMatch(/^\d+:0x/);
   } finally {
+    restoreForm();
+  }
+});
+
+test("chain filter: shown at 2 chains, hides one chain's nodes and edges, store untouched, saved", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  try {
+    await twoChainScan();
+    expect($("chainFilter").hidden).toBe(false);
+    expect($("chainFilterList").querySelectorAll("input[type=checkbox]").length).toBe(2);
+    const net = window.vis.Network.first;
+    const n1 = net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length;
+    const e1 = net.edges.get().filter((e) => e.id.startsWith("1|")).length;
+    const box = $("chainFilterList").querySelector('[data-chain="42161"]');
+    box.checked = false;
+    box.dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(net.nodes.get().some((n) => String(n.id).startsWith("42161:"))).toBe(false);
+    expect(net.edges.get().some((e) => e.id.startsWith("42161|"))).toBe(false);
+    expect(net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length).toBe(n1);
+    expect(net.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(e1);
+    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161"));
+    expect(rows.length).toBe(3);
+    URL.createObjectURL = (b) => ((captured = b), "blob:x");
+    URL.revokeObjectURL = () => {};
+    $("saveBtn").click();
+    const saved = JSON.parse(await captured.text());
+    expect(saved.filters.hiddenChains).toEqual(["42161"]);
+    await loadAsDemo(saved);
+    expect($("chainFilterList").querySelector('[data-chain="42161"]').checked).toBe(false);
+    $("searchBtn").click();
+    $("paletteInput").value = ROOT;
+    $("paletteInput").dispatchEvent(new window.Event("input"));
+    const item = [...document.querySelectorAll("#paletteResults .palette-item")].find((e) => e.textContent.includes("Arbitrum"));
+    item.click();
+    expect($("chainFilterList").querySelector('[data-chain="42161"]').checked).toBe(true);
+    expect(window.vis.Network.first.nodes.get().some((n) => n.id === ID("42161", ROOT))).toBe(true);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    $("resetBtn").click();
     restoreForm();
   }
 });

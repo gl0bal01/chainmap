@@ -359,6 +359,30 @@ export function renderBundleDetails(container, bundle, deps) {
 }
 
 /**
+ * Chain visibility checkboxes (checked = visible); names via textContent.
+ * @param {HTMLElement} container
+ * @param {{ chains:Array<{chainId:string,name:string}>, hidden:Set<string>,
+ *           onToggle:(chainId:string, visible:boolean)=>void }} deps
+ */
+export function renderChainFilter(container, { chains, hidden, onToggle }) {
+  container.replaceChildren(
+    ...chains.map(({ chainId, name }) => {
+      const label = document.createElement("label");
+      label.className = "field check";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.chain = chainId;
+      input.checked = !hidden.has(chainId);
+      input.addEventListener("change", () => onToggle(chainId, input.checked));
+      const span = document.createElement("span");
+      span.textContent = name;
+      label.append(input, " ", span);
+      return label;
+    }),
+  );
+}
+
+/**
  * Create a logger bound to the #logContent element. Messages are localized keys
  * resolved via i18n and appended as textContent lines (timestamped).
  * @param {HTMLElement} container

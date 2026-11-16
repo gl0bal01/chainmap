@@ -381,3 +381,9 @@ describe("workspace v3 + v2 migration", () => {
     }
   });
 });
+
+test("filters.hiddenChains keeps decimal chain ids only", () => {
+  const f = (hiddenChains) => parseWorkspace({ chainId: "1", nodes: [], edges: [], filters: { hiddenChains } }).data.filters;
+  expect(f(["1", 42161, "eth", null]).hiddenChains).toEqual(["1", "42161"]);
+  expect("hiddenChains" in f("1")).toBe(false);
+});
