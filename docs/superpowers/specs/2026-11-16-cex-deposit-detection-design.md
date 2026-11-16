@@ -79,17 +79,20 @@ DepositEvidence = {
   swept, outgoing,                  // N of M outgoing value transfers
   assets: [{ symbol, contract, sharePct }],  // per swept asset; contract "" = native
   maxDelaySec: number|null,         // see delay; null = no prior inflow seen
+  timedSweeps: number,              // sweeps that had a prior same-asset inflow in the store
 }
 delayParts(sec) → { key:'duration.m'|'duration.h'|'duration.d', params:{n} }
 ```
 
 Criteria for node `N` (all must hold; constants in the module, conservative):
 
-1. **Fetched:** `N.history` is present (its own transactions were fetched by a scan or
-   a load). Unfetched nodes are never judged.
+1. **Fetched:** `N.history` has entries for **both** `txlist` and `tokentx` (its own
+   native and token transactions were fetched by a scan or a load). Otherwise N is never
+   judged. Evidence uses only actions N itself fetched (see 3).
 2. **Not a known entity:** `ctx.known(N.address, N.chainId)` is null.
 3. **Outgoing value transfers** `O` = edges with `fromId === N.id`, `toId !== N.id`,
-   action in `txlist` / `txlistinternal` / `tokentx` (NFT edges ignored),
+   action in `txlist` / `txlistinternal` / `tokentx` **and present in `N.history`**
+   (NFT edges ignored; an internal edge counts only if N fetched `txlistinternal`),
    `BigInt(value) > 0n` (unparseable → skipped), and not `ctx.ignoreEdge(edge)`
    (main passes imitation-token + spam-list edges: fake `Transfer(from=N)` events used
    for address poisoning must not dilute the evidence).
@@ -116,7 +119,8 @@ from minutes to weeks; a gate would mostly reject on missing sample data).
 - Node label line + tooltip: `🏦 likely deposit → {label}` (tooltip adds "(heuristic)").
 - Details row **"Exchange deposit"**: "Likely deposit address of {label} (heuristic)",
   then "Forwarded {swept} of {outgoing} outgoing transfers to it", one line per asset
-  "{pct}% of the {symbol} outflow", then "Swept within {delay} of the latest inflow" or
+  "{pct}% of the {symbol} outflow", then "Swept within {delay} of the latest inflow
+  ({timed} of {swept} sweeps timed)" or
   "No inflow seen before the sweep in the sampled data", then "Based only on the
   sampled transactions; verify with the exchange." Wallet label/symbol via textContent.
 - Risk row: context reason `risk.deposit` "likely exchange deposit address" (score +0,
@@ -179,4 +183,31 @@ bridges belong to later projects.)
 
 ## Builder-check rulings
 
-(filled after the builder check)
+Builder check (sonnet, fresh) raised 8 questions; rulings (spec text above updated):
+
+1. **"Fetched" per action.** N is judged only if `history` has `txlist` AND `tokentx`;
+   `O` uses only actions N fetched (internal edges only if `txlistinternal` fetched).
+   Why: a node with only native txs fetched could hide its token outflows. Cost if
+   wrong: scans with "Token transfers" unchecked never detect (false negatives only).
+2. **Partial pages and 1-of-1.** A `done:false` (latest-N) fetch is accepted; the
+   wording says "sampled". One outflow of one (1/1) qualifies, deliberately: deposit
+   addresses are often used once, and customers do not send to hot wallets directly.
+   The count "1 of 1" is shown so the reader weighs it. Cost if wrong: a rare one-off
+   direct transfer to a hot wallet gets a "likely" mark with visible 1/1 evidence.
+3. **`ignoreEdge`** = existing predicates, no new code: `isFakeTokenEdge(e)` (main.js,
+   `fakeToken.isFakeToken`) `|| display.isSpam(e, { spamContractsFor: spam.contractsFor,
+   spamSymbols: spam.symbols })`. Cost if wrong: none beyond fewer dilutions.
+4. **Chain scope.** `S` membership is `ctx.known(edge.to, edge.chainId)?.category ===
+   "exchange"`; the label is W's own entry on that chain. Twins never share evidence.
+5. **Delay.** Equal timestamps count as "prior" (`<=`); only same-asset inflows (a gas
+   top-up never times a token sweep); `maxDelaySec` over timed sweeps only; the mixed
+   case is shown as "({timed} of {swept} sweeps timed)" (`timedSweeps` added).
+6. **Recompute.** Builder may use one coalesced store subscription (at most one
+   recompute per macrotask) plus an explicit recompute after known-address data loads;
+   only nodes whose deposit status changed are re-applied in the view. Must be proven
+   non-stale after scan end, prune, workspace/demo load and reset (integration test).
+7. **Demo.** Node/edge counts may change; update the tests that count them. Chain 1,
+   Binance 14 (`0x28c6c06298d514db089934071355e5743bf21d60`, chain-1 entry) is correct.
+   The demo nodes gain `history` only where needed (the deposit node).
+8. **CSV.** One node row per `chainId:address` (store nodes); the map is keyed by node
+   id, so twins get independent cells.
