@@ -182,11 +182,11 @@ function usdCtx() {
 // Re-checked by the service just before each request (a contract that became a root since is dropped).
 const usdAllowed = (coin) => coin.startsWith("coingecko:") || !rootAddrs().has(coin.slice(coin.indexOf(":") + 1));
 // The one valuation for details, CSV and MANIFEST; undefined while USD is not shown.
+// Every consumer calls it synchronously (details render, CSV / bundle click), so it reads one epoch's cache.
 function usdFn() {
   if (!usdActive()) return undefined;
   const ctx = usdCtx();
-  const svc = prices; // this epoch's cache, whatever happens after the caller read it
-  return (e) => usdForEdge(e, ctx, (c, ts) => svc.get(c, ts));
+  return (e) => usdForEdge(e, ctx, (c, ts) => prices.get(c, ts));
 }
 function makePrices() {
   const epoch = queryLog.epoch;
@@ -1505,9 +1505,12 @@ function init() {
     depositQueued = true;
     setTimeout(() => { depositQueued = false; recomputeDeposits(); }, 0);
   });
-  let usdQueued = false; // new edges while USD is on: want their prices (coalesced)
+  // While USD is on, want the keys a graph change made priceable: new edges, or a root removed /
+  // nodes updated (isRoot), which can turn a "root" skip into a key. Coalesced to one macrotask.
+  let usdQueued = false;
+  const usdEvents = new Set(["edge:add", "node:remove", "node:update"]);
   store.subscribe((e) => {
-    if (e.type !== "edge:add" || usdQueued) return;
+    if (!usdEvents.has(e.type) || usdQueued) return;
     usdQueued = true;
     setTimeout(() => { usdQueued = false; wantAll(); }, 0);
   });

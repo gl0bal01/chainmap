@@ -1292,13 +1292,13 @@ test("detect chain: a curated chain-1 address selects Ethereum with no API call"
   }
 });
 
-async function loadAsDemo(ws, done = /Demo workspace loaded/) {
+async function loadAsDemo(ws, done = /Demo workspace loaded/, reset = true) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (u, init) => (String(u).includes("demo-workspace")
     ? { ok: true, status: 200, headers: { get: () => null }, json: async () => ws }
     : realFetch(u, init));
   try {
-    $("resetBtn").click();
+    if (reset) $("resetBtn").click();
     $("demoBtn").click();
     await until(() => done.test($("logContent").textContent || ""));
   } finally {
@@ -2810,6 +2810,17 @@ async function tickAndDrain() {
   expect(usdDone()).toBe(n + 1);
   return priceCalls.slice(c);
 }
+// DefiLlama rows of the open query-log panel, as cell texts.
+const QL_OUTCOME = 8;
+const openQueryLogPanel = () => {
+  $("queryLogPanel").open = true;
+  $("queryLogPanel").dispatchEvent(new window.Event("toggle"));
+};
+const priceRows = () => [...$("queryLogContent").querySelectorAll("tbody tr")]
+  .map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent))
+  .filter((cells) => cells[1] === "DefiLlama");
+const bundleManifest = async () =>
+  JSON.parse(dec(readZip(await withDownloads(bundleBytes)).find((f) => f.name === "MANIFEST.json").bytes));
 const usdRestore = (release = () => {}) => {
   release();
   tick(false);
@@ -2827,7 +2838,7 @@ test("usd: box off by default — scan, details, CSV, bundle, workspace load and
     await freshScan("20");
     const scanDetails = openEdge("0xaaa");
     const scanCsv = await captureCsv();
-    await withDownloads(bundleBytes);
+    expect((await bundleManifest()).prices).toBeNull(); // never ticked, no price entry in the log
     await dropWorkspace(JSON.stringify(usdWs()));
     const wsDetails = openEdge(USD_E.native.hash);
     const wsCsv = await captureCsv();
@@ -2934,10 +2945,7 @@ test("usd: store untouched by pricing", async () => {
 
 test("usd: untick mid-request aborts and never shows; re-tick re-requests only reverted pairs", async () => {
   let release = () => {};
-  const outcome = 8; // query-log panel column
-  const priceRows = () => [...$("queryLogContent").querySelectorAll("tbody tr")]
-    .map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent))
-    .filter((cells) => cells[1] === "DefiLlama");
+  const outcome = QL_OUTCOME;
   try {
     await usdLoad();
     const done = new Set((await tickAndDrain()).flatMap(pairsOf)); // ok/none from here on
@@ -2953,8 +2961,7 @@ test("usd: untick mid-request aborts and never shows; re-tick re-requests only r
     expect(edgeByHash("0xaaa")).toBeTruthy();
     expect(priceCalls.length).toBe(c0);
 
-    $("queryLogPanel").open = true;
-    $("queryLogPanel").dispatchEvent(new window.Event("toggle"));
+    openQueryLogPanel();
     expect(openEdge(USD_E.native.hash)).not.toContain(EN["usd.label"]);
     release = holdPrices();
     tick(true);
@@ -2978,6 +2985,12 @@ test("usd: untick mid-request aborts and never shows; re-tick re-requests only r
       expect(reverted.has(p)).toBe(true);
     }
     expect(openEdge("0xaaa")).toContain("≈ 2,000.00 USD");
+    // On → off: the log keeps the price requests, so MANIFEST still says so, with nothing shown.
+    tick(false);
+    const m = await bundleManifest();
+    expect(m.prices).toMatchObject({ shown: false, priced: null, priceable: null, queries: priceRows().length });
+    expect(m.prices.queries).toBeGreaterThan(0);
+    expect(m.caveats).not.toContain(USD_CAVEAT);
   } finally {
     usdRestore(release);
   }
@@ -3006,7 +3019,7 @@ test("usd: workspace load while on clears the cache and logs only in the new epo
   }
 });
 
-test("usd: non-root node contract is sent; it becomes unsendable once a root", async () => {
+test("usd: non-root node contract is sent; unsendable once a root; requested again once that root is deleted", async () => {
   try {
     await usdLoad();
     const calls = await tickAndDrain();
@@ -3018,6 +3031,13 @@ test("usd: non-root node contract is sent; it becomes unsendable once a root", a
     expect(priceCalls.length).toBeGreaterThan(c1);
     for (const c of priceCalls.slice(c1)) expect(c.url.toLowerCase()).not.toContain(N3);
     expect(openEdge(USD_E.tok.hash)).toContain(EN["usd.skip.root"]);
+    // Pruning the 137 root makes the token priceable again: it is requested, never left "fetching…".
+    const n2 = usdDone(), c2 = priceCalls.length;
+    window.vis.Network.first.setSelection({ nodes: [ID("137", N3)] });
+    $("deleteNodesBtn").click();
+    await until(() => usdDone() > n2);
+    expect(priceCalls.slice(c2).some((c) => Object.hasOwn(coinsOf(c), "ethereum:" + N3))).toBe(true);
+    expect(openEdge(USD_E.tok.hash)).toContain("≈ 5.00 USD");
   } finally {
     usdRestore();
   }
@@ -3037,6 +3057,81 @@ test("usd: never persisted", async () => {
     expect(ql.entries.some((e) => e.source === "defillama")).toBe(true);
   } finally {
     usdRestore();
+  }
+});
+
+test("usd: reset, workspace and demo with the box on renew the price epoch; scanned edges are requested", async () => {
+  const ethScan = "coingecko:ethereum@" + Math.round(1700000000 / 3600) * 3600; // the canned 1 ETH transfer's pair
+  // `resets`: the action clicks Reset, which clears the logger.
+  const drained = async (action, resets = false) => {
+    const n = resets ? 0 : usdDone(), c = priceCalls.length;
+    await action();
+    await until(() => usdDone() > n);
+    expect(usdDone()).toBe(n + 1);
+    return priceCalls.slice(c);
+  };
+  try {
+    await knownLoaded();
+    await until(() => spamLoads > 0);
+    openQueryLogPanel();
+    tick(true);
+    // A scan with the box on: its edges are requested as they land (freshScan resets first, box on).
+    const first = await drained(() => freshScan("20"), true);
+    expect(first.flatMap(pairsOf)).toContain(ethScan);
+    expect(priceRows().length).toBe(first.length);
+    // Reset + the same scan: the pair is requested again (the cache went with the epoch), logged in the new one.
+    const second = await drained(() => freshScan("20"), true);
+    expect(second.flatMap(pairsOf)).toContain(ethScan);
+    expect(priceRows().length).toBe(second.length);
+    expect(openEdge("0xaaa")).toContain("≈ 2,000.00 USD");
+    // Workspace load, then the same graph as a demo with no reset in between: the demo alone renews the epoch.
+    const ws = await drained(() => dropWorkspace(JSON.stringify(usdWs())));
+    expect(priceRows().length).toBe(ws.length);
+    expect(logCount(/Demo workspace loaded/g)).toBe(0);
+    const demo = await drained(() => loadAsDemo(usdWs(), undefined, false));
+    expect(demo.flatMap(pairsOf).sort()).toEqual(ws.flatMap(pairsOf).sort());
+    expect(priceRows().length).toBe(demo.length);
+    expect(qlogTitle()).toBe(`Query log (${demo.length})`);
+    expect(openEdge(USD_E.native.hash)).toContain("≈ 2,000.00 USD");
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: a contract that becomes a root while its request is queued is never sent (allowed re-check)", async () => {
+  let release = () => {};
+  const cannedTok = CANNED.tokentx;
+  try {
+    await usdLoad(v3ws([v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node("1", N2), v3Node("1", N3)], [USD_E.native]));
+    release = holdPrices();
+    const c0 = priceCalls.length;
+    tick(true);
+    await until(() => priceCalls.length > c0); // request 1 (native) held in flight
+    expect(priceCalls.length).toBe(c0 + 1);
+    // A same-epoch scan adds a FOO transfer of contract N3: its pair goes pending, queued behind request 1.
+    CANNED.tokentx = [{ from: ROOT, to: N2, value: "5000000", hash: "0xn3tok", tokenSymbol: "FOO", tokenDecimal: "6", contractAddress: N3, timeStamp: "1700000002", blockNumber: "102" }];
+    $("apiKey").value = "TESTKEY";
+    $("address").value = ROOT;
+    $("depth").value = "1";
+    $("startBtn").click();
+    await until(() => !$("startBtn").disabled && edgeByHash("0xn3tok"));
+    await until(() => openEdge("0xn3tok").includes(EN["usd.pending"]));
+    expect(openEdge("0xn3tok")).toContain(EN["usd.pending"]);
+    expect(priceCalls.length).toBe(c0 + 1);
+    // N3 is scanned as a root before its queued request is sent.
+    $("address").value = N3;
+    $("startBtn").click();
+    await until(() => !$("startBtn").disabled);
+    expect(openEdge("0xn3tok")).toContain(EN["usd.skip.root"]);
+    const n = usdDone();
+    release();
+    await until(() => usdDone() > n);
+    expect(usdDone()).toBe(n + 1);
+    expect(priceCalls.length).toBeGreaterThan(c0 + 1); // the queued request still ran, without N3
+    for (const c of priceCalls.slice(c0)) expect(c.url.toLowerCase()).not.toContain(N3);
+  } finally {
+    CANNED.tokentx = cannedTok;
+    usdRestore(release);
   }
 });
 
