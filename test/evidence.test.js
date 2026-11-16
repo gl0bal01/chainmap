@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   CAVEATS, PARTIAL_CAVEAT, knownDataSnapshot, retrievalSummary, observedSampling,
-  buildManifest, sha256Sums, queryLogDocument, fileStamp, buildEvidenceZip,
+  buildManifest, USD_CAVEAT, sha256Sums, queryLogDocument, fileStamp, buildEvidenceZip,
 } from "../src/evidence.js";
 import { sha256Hex } from "../src/queryLog.js";
 import { APP_VERSION } from "../src/config.js";
@@ -32,7 +32,7 @@ describe("evidence", () => {
       expect(m.files[i].sha256).toBe(await sha256Hex(inp.files[i].bytes));
       expect(m.files[i].bytes).toBe(inp.files[i].bytes.length);
     }
-    expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "data", "caveats", "files", "omitted"]);
+    expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "data", "prices", "caveats", "files", "omitted"]);
     expect(m.format).toBe("chainmap-evidence/1");
     expect(m.app.version).toBe(APP_VERSION);
   });
@@ -142,4 +142,38 @@ test("manifest caveats define retrieval.fullyLogged and say it does not mean com
   const def = CAVEATS.find((c) => c.includes("fullyLogged"));
   expect(def).toBeDefined();
   for (const part of ["not mean the data is complete", "failed", "stopped", "sampled"]) expect(def).toContain(part);
+});
+
+describe("price entries in evidence", () => {
+  const P = (at) => ({ at, source: "defillama", action: "batchHistorical", params: { coins: "{}", searchWidth: "30m" } });
+  const st = (entries) => ({ entries, dropped: 0, unloggedData: false });
+  test("retrievalSummary ignores price entries", () => {
+    const r = retrievalSummary(st([E("2026-11-16T10:00:00.000Z"), E("2026-11-16T10:01:00.000Z"), P("2026-11-16T10:05:00.000Z")]));
+    expect(r).toMatchObject({ queries: 2, first: "2026-11-16T10:00:00.000Z", last: "2026-11-16T10:01:00.000Z" });
+    expect(retrievalSummary(st([P("2026-11-16T10:05:00.000Z")]))).toBeNull();
+  });
+  test("observedSampling ignores price entries", () => {
+    const o = observedSampling([E("a", "20"), P("b")]);
+    expect(o.actions).toEqual(["txlist"]);
+    expect(o.pageSizes).toEqual(["20"]);
+    expect(o.sorts).toEqual(["desc"]);
+  });
+  test("prices block when shown", async () => {
+    const m = await buildManifest(mkInput({ prices: { shown: true, queries: 2, priced: 3, priceable: 5 } }));
+    expect(m.prices).toEqual({
+      source: "DefiLlama (https://coins.llama.fi)", estimate: true, shown: true,
+      note: "USD values are estimates: DefiLlama price within 1 hour of each transaction, multiplied by the exact token amount; blank when unknown.",
+      queries: 2, priced: 3, priceable: 5,
+    });
+    expect(m.caveats).toContain(USD_CAVEAT);
+  });
+  test("prices block when off but logged", async () => {
+    const m = await buildManifest(mkInput({ prices: { shown: false, queries: 1, priced: null, priceable: null } }));
+    expect(m.prices).toMatchObject({ shown: false, priced: null, priceable: null, queries: 1 });
+    expect(m.caveats).not.toContain(USD_CAVEAT);
+  });
+  test("prices null when never used", async () => {
+    expect((await buildManifest(mkInput())).prices).toBeNull();
+    expect((await buildManifest(mkInput({ prices: { shown: false, queries: 0, priced: null, priceable: null } }))).prices).toBeNull();
+  });
 });

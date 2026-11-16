@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createQueryLog, sanitizeQueryLog, windowOf, PARAM_KEYS } from "../src/queryLog.js";
-import { API_BASE } from "../src/config.js";
+import { API_BASE, PRICE_API, LLAMA_CHAINS } from "../src/config.js";
+import { priceUrl } from "../src/usdPrice.js";
 
 const P = { chainid: "1", module: "account", action: "txlist", address: "0x" + "a".repeat(40), startblock: "0", endblock: "99999999", page: "1", offset: "20", sort: "desc" };
 const rec = (over) => ({ at: "2026-11-16T10:00:00.000Z", chainId: "1", action: "txlist", params: { ...P }, httpStatus: 200, rows: 2, outcome: "ok", ...over });
@@ -180,5 +181,92 @@ describe("queryLog", () => {
     expect(s.entries.length).toBe(5000);
     expect(s.entries[0].rows).toBe(3);
     expect(s.dropped).toBe(10);
+  });
+});
+
+const COINS = '{"coingecko:ethereum":[1700002800],"ethereum:0x' + "ab".repeat(20) + '":[1700002800,1700006400]}';
+const prec = (over) => ({
+  at: "2026-11-16T10:00:00.000Z", source: "defillama", action: "batchHistorical",
+  params: { coins: COINS, searchWidth: "30m" }, httpStatus: 200, rows: 3, outcome: "ok", body: bytes(), ...over,
+});
+const pentry = async (over) => { const l = createQueryLog(); await l.add(prec(over)); return l.entries()[0]; };
+
+describe("defillama entries", () => {
+  test("add rebuilds a defillama entry", async () => {
+    const shared = { coins: COINS, searchWidth: "30m", apikey: "K", address: "0x" + "a".repeat(40) };
+    const e = await pentry({ params: shared });
+    expect(e).toEqual({
+      at: "2026-11-16T10:00:00.000Z", source: "defillama", chainId: null, action: "batchHistorical",
+      params: { coins: COINS, searchWidth: "30m" }, url: priceUrl(COINS, "30m"),
+      httpStatus: 200, rows: 3, sha256: ABC, outcome: "ok",
+    });
+    expect(JSON.stringify(e)).not.toContain("apikey");
+    expect(e.params).not.toBe(shared);
+    expect(Object.keys(shared)).toEqual(["coins", "searchWidth", "apikey", "address"]);
+  });
+
+  test("etherscan entries unchanged", async () => {
+    const e = await entry();
+    expect(Object.keys(e)).toEqual(["at", "chainId", "action", "params", "url", "httpStatus", "rows", "sha256", "outcome"]);
+  });
+
+  test("sanitize round-trip", async () => {
+    const l = createQueryLog();
+    await l.add(rec()); await l.add(prec()); await l.add(rec({ body: bytes() }));
+    expect(sanitizeQueryLog(l.toJSON())).toEqual({ ...l.toJSON(), invalid: 0 });
+  });
+
+  test("url always rebuilt", async () => {
+    const e = await pentry();
+    const s = sanitizeQueryLog({ entries: [{ ...e, url: "https://evil.example/x" }], dropped: 0, unloggedData: false });
+    expect(s.invalid).toBe(0);
+    expect(s.entries[0].url).toBe(priceUrl(COINS, "30m"));
+    expect(s.entries[0].url.startsWith(PRICE_API)).toBe(true);
+  });
+
+  test("every LLAMA_CHAINS coin id passes", async () => {
+    const o = {};
+    for (const c of Object.values(LLAMA_CHAINS)) {
+      for (const n of c.native || []) o[n.coin] = [1700002800];
+      if (c.slug) o[c.slug + ":0x" + "ab".repeat(20)] = [1700002800];
+    }
+    const coins = JSON.stringify(o);
+    expect(Object.keys(o).length).toBeLessThanOrEqual(400);
+    const e = await pentry({ params: { coins, searchWidth: "30m" } });
+    const s = sanitizeQueryLog({ entries: [e], dropped: 0, unloggedData: false });
+    expect(s.invalid).toBe(0);
+    expect(s.entries[0]).toEqual(e);
+  });
+
+  const many = JSON.stringify(Object.fromEntries(Array.from({ length: 401 }, (_, i) => ["coingecko:c" + i, [1]])));
+  const cases = {
+    "chainId string": { chainId: "1" },
+    "action txlist": { action: "txlist" },
+    "source other": { source: "other" },
+    "no coins": { params: { searchWidth: "30m" } },
+    "uppercase address": { params: { coins: '{"ethereum:0xAB' + "ab".repeat(19) + '":[1]}', searchWidth: "30m" } },
+    "space in key": { params: { coins: '{"hello world":[1]}', searchWidth: "30m" } },
+    "? in key": { params: { coins: '{"a:b?c":[1]}', searchWidth: "30m" } },
+    "/ in key": { params: { coins: '{"a:b/c":[1]}', searchWidth: "30m" } },
+    "& in key": { params: { coins: '{"a:b&c":[1]}', searchWidth: "30m" } },
+    "401 keys": { params: { coins: many, searchWidth: "30m" } },
+    "__proto__": { params: { coins: '{"__proto__":[1]}', searchWidth: "30m" } },
+    "ts -1": { params: { coins: '{"coingecko:a":[-1]}', searchWidth: "30m" } },
+    "ts 1.5": { params: { coins: '{"coingecko:a":[1.5]}', searchWidth: "30m" } },
+    "ts string": { params: { coins: '{"coingecko:a":["1700002800"]}', searchWidth: "30m" } },
+    "empty ts array": { params: { coins: '{"coingecko:a":[]}', searchWidth: "30m" } },
+    "array coins": { params: { coins: "[]", searchWidth: "30m" } },
+    "whitespace json": { params: { coins: '{"coingecko:ethereum": [1]}', searchWidth: "30m" } },
+    "non-string coins": { params: { coins: { a: 1 }, searchWidth: "30m" } },
+    "8001-char coins": { params: { coins: '{"coingecko:a":[' + "1,".repeat(3991) + "1]}", searchWidth: "30m" } },
+    "searchWidth 1y+space": { params: { coins: COINS, searchWidth: "1y " } },
+    "searchWidth injection": { params: { coins: COINS, searchWidth: "30m&x=1" } },
+    "rows -1": { rows: -1 },
+  };
+  test.each(Object.entries(cases))("invalid: %s", async (_n, over) => {
+    const e = await pentry();
+    const bad = { ...e, ...over, params: over.params ?? e.params };
+    if (over.params) bad.params = { ...over.params };
+    expect(sanitizeQueryLog({ entries: [bad], dropped: 0, unloggedData: false }).invalid).toBe(1);
   });
 });
