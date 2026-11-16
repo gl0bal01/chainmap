@@ -94,7 +94,7 @@ function isInvalidKeyMessage(msg) {
  * @param {{ get?: (name:string)=>(string|null) }} [headers]
  * @returns {number|null}
  */
-function parseRetryAfter(headers) {
+export function parseRetryAfter(headers) {
   if (!headers || typeof headers.get !== "function") return null;
   const raw = headers.get("Retry-After");
   if (raw == null || raw === "") return null;
