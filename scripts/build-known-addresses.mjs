@@ -2,13 +2,15 @@
 // OP superchain registry and data/sources/curated.json. Glue only — all logic
 // lives in ./known-addresses/pipeline.mjs. Needs network; never run in CI.
 //   bun run data:build [--ofac <sdn.xml>] [--verify-sources]
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parseOfacXml, parseSuperchain, mergeSources, serializeKnownData, verifyEntry } from "./known-addresses/pipeline.mjs";
 
 const OFAC_URL = "https://sanctionslistservice.ofac.treas.gov/api/publicationpreview/exports/sdn.xml";
 const REGISTRY = "ethereum-optimism/superchain-registry";
 const CURATED = new URL("../data/sources/curated.json", import.meta.url);
-const OUT = new URL("../data/known-addresses.json", import.meta.url);
+// KNOWN_ADDRESSES_OUT: tests only (keeps CLI tests off the committed data file)
+const OUT = process.env.KNOWN_ADDRESSES_OUT || fileURLToPath(new URL("../data/known-addresses.json", import.meta.url));
 // No request carries user data. OFAC's WAF 403s custom user-agents, so only the
 // --verify-sources fetches (third-party pages) identify as chainmap-data-build.
 const VERIFY_UA = { "user-agent": "chainmap-data-build" };
@@ -48,18 +50,26 @@ async function loadRegistry() {
   return { ref, ...parsed };
 }
 
-/** Keep `verified`; keep `unsourced` only for legacy rows marked "needs official source". */
+/**
+ * Keep `verified`; keep `unsourced` only for legacy rows marked "needs official source";
+ * exclude `absent`. Any `fetch-failed` throws: a transient outage must not shrink the data.
+ */
 async function verifyCurated(rows) {
   const cache = new Map(); // url -> Promise<string>
   const fetchText = (url) => {
     if (!cache.has(url)) cache.set(url, get(url, { headers: VERIFY_UA, timeout: 30_000 }).then((r) => r.text()));
     return cache.get(url);
   };
-  const kept = [], excluded = [];
+  const kept = [], excluded = [], failed = new Map(); // url -> rows
   for (const row of rows) {
     const status = await verifyEntry(row, fetchText); // sequential: polite to the cited hosts
-    if (status === "verified" || (status === "unsourced" && row.note === "needs official source")) kept.push(row);
+    if (status === "fetch-failed") failed.set(row.source, (failed.get(row.source) ?? 0) + 1);
+    else if (status === "verified" || (status === "unsourced" && row.note === "needs official source")) kept.push(row);
     else excluded.push(`${row.chainId}:${row.address} ${row.label} → ${status}`);
+  }
+  if (failed.size) {
+    const lines = [...failed].map(([url, n]) => `  ${url} (${n} row${n > 1 ? "s" : ""})`).join("\n");
+    throw new Error(`--verify-sources could not fetch ${failed.size} cited page(s); retry later or fix the source:\n${lines}`);
   }
   return { kept, excluded };
 }
@@ -78,14 +88,15 @@ async function main() {
   const { kept: curated, excluded } = opts.verify ? await verifyCurated(curatedAll) : { kept: curatedAll, excluded: [] };
 
   const { data, report } = mergeSources({ ofac, registry: registry.rows, curated });
-  writeFileSync(OUT, serializeKnownData(data));
+  writeFileSync(`${OUT}.tmp`, serializeKnownData(data));
+  renameSync(`${OUT}.tmp`, OUT); // atomic: an interrupted write never leaves a half file
 
   const tags = {};
   for (const s of ofac.skippedIds) tags[s.tag] = (tags[s.tag] ?? 0) + 1;
   console.log(`OFAC SDN: ${opts.ofac ?? OFAC_URL}, published ${report.ofacPublishDate}, ${ofac.entries.length} EVM addresses`);
   console.log(`OFAC skippedIds (${ofac.skippedIds.length}): ${JSON.stringify(tags)}`);
-  // non-0x ids under an EVM tag (e.g. TRON-format USDT) are expected; a 0x-shaped skip is format drift
-  list("OFAC skipped 0x-shaped ids (format drift)", ofac.skippedIds.filter((s) => /^0x/i.test(s.idNumber)).map((s) => `${s.tag}: ${s.idNumber}`));
+  // non-0x ids under an EVM tag (e.g. TRON-format USDT) are expected; real 0x addresses under a new tag throw in parseOfacXml
+  list("OFAC skipped malformed 0x-shaped ids", ofac.skippedIds.filter((s) => /^0x/i.test(s.idNumber)).map((s) => `${s.tag}: ${s.idNumber}`));
   console.log(`superchain-registry: ${REGISTRY}@${registry.ref.sha} (${registry.ref.date}), ${registry.rows.length} rows`);
   console.log(`registry skipped chain ids (not mainnet-parented) (${registry.skipped.length}): ${registry.skipped.join(", ")}`);
   console.log(`curated: ${curatedAll.length} rows${opts.verify ? `, ${curated.length} kept after --verify-sources` : " (not verified this run)"}`);
@@ -96,7 +107,7 @@ async function main() {
   if (opts.verify) list("excluded by --verify-sources", excluded);
   list("needsSource", report.needsSource);
   list("delisted", report.delisted);
-  console.log(`wrote ${OUT.pathname}`);
+  console.log(`wrote ${OUT}`);
 }
 
 main().catch((e) => {

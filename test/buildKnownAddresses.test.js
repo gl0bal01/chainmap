@@ -1,5 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseOfacXml, parseSuperchain, mergeSources, serializeKnownData, verifyEntry } from "../scripts/known-addresses/pipeline.mjs";
 
 const fx = (f) => readFileSync(new URL(`./fixtures/${f}`, import.meta.url), "utf8");
@@ -22,17 +24,20 @@ describe("parseOfacXml", () => {
     const x = fx("sdn-mini.xml");
     expect(() => parseOfacXml(x.slice(0, x.indexOf("SEMENOV") + 5))).toThrow(/truncated/);
   });
-  test("skippedIds: 0x ids under non-allowlisted tags and malformed ids under allowlisted ones", () => {
-    const x = fx("sdn-mini.xml").replace("</sdnList>",
-      `<sdnEntry><lastName>Z</lastName><sdnType>Entity</sdnType><idList>
-      <id><idType>Digital Currency Address - POL</idType><idNumber>0x${"e".repeat(40)}</idNumber></id>
-      <id><idType>Digital Currency Address - ETH</idType><idNumber>0xshort</idNumber></id>
-      </idList></sdnEntry></sdnList>`);
-    const r = parseOfacXml(x);
+  const withIds = (ids) => fx("sdn-mini.xml").replace("</sdnList>",
+    `<sdnEntry><lastName>Z</lastName><sdnType>Entity</sdnType><idList>${ids}</idList></sdnEntry></sdnList>`);
+  const id = (t, n) => `<id><idType>Digital Currency Address - ${t}</idType><idNumber>${n}</idNumber></id>`;
+  test("a valid 0x address under a non-allowlisted tag is format drift: throws naming the tag(s)", () => {
+    const x = withIds(id("POL", "0x" + "e".repeat(40)) + id("BASE", "0x" + "f".repeat(40)) + id("ETH", "0xshort"));
+    expect(() => parseOfacXml(x)).toThrow(/non-allowlisted tag\(s\) Digital Currency Address - POL, Digital Currency Address - BASE/);
+  });
+  test("skippedIds: malformed ids under allowlisted tags and 0x non-addresses elsewhere are skipped, not fatal", () => {
+    const r = parseOfacXml(withIds(id("ETH", "0xshort") + id("USDT", "TXyz") + id("POL", "0x12")));
     expect(r.entries.length).toBe(4);
     expect(r.skippedIds).toEqual([
-      { tag: "Digital Currency Address - POL", idNumber: "0x" + "e".repeat(40) },
       { tag: "Digital Currency Address - ETH", idNumber: "0xshort" },
+      { tag: "Digital Currency Address - USDT", idNumber: "TXyz" },
+      { tag: "Digital Currency Address - POL", idNumber: "0x12" },
     ]);
   });
   test("throws without Publish_Date (error page) or without any EVM address (format drift)", () => {
@@ -74,8 +79,19 @@ describe("mergeSources", () => {
   });
   test("curated row of a listed address -> sanctioned + ' (OFAC SDN)'; '*' entry coexists; ofacDesignated not emitted", () => {
     const { data } = merge([row({ address: AA.toUpperCase().replace("0X", "0x"), label: "Ronin Exploiter", ofacDesignated: "2022-04-14" })]);
-    expect(data["1"][AA]).toEqual({ label: "Ronin Exploiter (OFAC SDN)", category: "sanctioned", source: "https://example.org/x", added: "2026-11-16" });
+    expect(data["1"][AA]).toEqual({
+      label: "Ronin Exploiter (OFAC SDN)", category: "sanctioned",
+      source: "https://example.org/x; OFAC SDN list, published 2026-11-13", added: "2026-11-16", // snapshot date visible in Source
+    });
     expect(data["*"][AA].category).toBe("sanctioned");
+  });
+  test("a curated '*' row for a listed address is rejected; the OFAC entry keeps its provenance", () => {
+    const { data, report } = merge([row({ chainId: "*", address: AA, label: "Ronin Exploiter", category: "other" })]);
+    expect(report.rejected.map((r) => r.reason)).toEqual(["curated conflicts with OFAC"]);
+    expect(data["*"][AA]).toEqual({
+      label: "LAZARUS GROUP (OFAC SDN)", category: "sanctioned",
+      source: "OFAC SDN list, published 2026-11-13", added: "2026-11-13",
+    });
   });
   test("designated but absent from the SDN -> base category kept, '(delisted from OFAC SDN)', reported", () => {
     const { data, report } = merge([row({ address: BB, label: "Tornado Cash: 100 ETH", category: "mixer", ofacDesignated: "2022-08-08" })]);
@@ -173,28 +189,57 @@ describe("verifyEntry", () => {
   });
 });
 
-describe("build-known-addresses CLI (network-free paths)", () => {
+describe("build-known-addresses CLI (network-free: fetch stubbed, output redirected)", () => {
   const script = new URL("../scripts/build-known-addresses.mjs", import.meta.url).pathname;
-  const out = new URL("../data/known-addresses.json", import.meta.url);
-  const run = (...args) => Bun.spawnSync([process.execPath, script, ...args], { stdout: "pipe", stderr: "pipe" });
+  const stub = new URL("./fixtures/fetch-stub.js", import.meta.url).pathname;
+  const sdn = new URL("./fixtures/sdn-mini.xml", import.meta.url).pathname;
+  const run = (mode, ...args) => {
+    const out = join(mkdtempSync(join(tmpdir(), "chainmap-build-")), "known-addresses.json");
+    const env = { ...process.env, KNOWN_ADDRESSES_OUT: out, FETCH_STUB: mode };
+    if (!mode) delete env.FETCH_STUB;
+    const r = Bun.spawnSync([process.execPath, "--preload", stub, script, ...args], { stdout: "pipe", stderr: "pipe", env });
+    return { exitCode: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString(), out, wrote: existsSync(out) || existsSync(`${out}.tmp`) };
+  };
   test("unknown argument -> usage on stderr, exit 2", () => {
-    const r = run("--bogus");
+    const r = run("", "--bogus");
     expect(r.exitCode).toBe(2);
-    expect(r.stderr.toString()).toContain("usage: bun run data:build");
+    expect(r.stderr).toContain("usage: bun run data:build");
+    expect(r.wrote).toBe(false);
   });
   test("a non-SDN --ofac file aborts with exit 1 before any network call and writes nothing", () => {
-    const before = readFileSync(out, "utf8");
-    const r = run("--ofac", new URL("./fixtures/superchain-chainList.json", import.meta.url).pathname);
+    const r = run("", "--ofac", new URL("./fixtures/superchain-chainList.json", import.meta.url).pathname);
+    expect(r.stderr).toContain("Publish_Date missing");
     expect(r.exitCode).toBe(1);
-    expect(r.stderr.toString()).toContain("Publish_Date missing");
-    expect(readFileSync(out, "utf8")).toBe(before);
+    expect(r.wrote).toBe(false);
   });
-  test("a registry with 0 bridge rows aborts with exit 1 and writes nothing (fetch stubbed, no network)", () => {
-    const before = readFileSync(out, "utf8");
-    const stub = new URL("./fixtures/fetch-stub-empty-registry.js", import.meta.url).pathname;
-    const r = Bun.spawnSync([process.execPath, "--preload", stub, script, "--ofac", new URL("./fixtures/sdn-mini.xml", import.meta.url).pathname], { stdout: "pipe", stderr: "pipe" });
-    expect(r.stderr.toString()).toContain("superchain-registry: 0 bridge rows (format drift?)");
+  test("GitHub API non-200 aborts with exit 1 and writes nothing", () => {
+    const r = run("github-403", "--ofac", sdn);
+    expect(r.stderr).toContain("GitHub API HTTP 403");
     expect(r.exitCode).toBe(1);
-    expect(readFileSync(out, "utf8")).toBe(before);
+    expect(r.wrote).toBe(false);
+  });
+  test("a registry with 0 bridge rows aborts with exit 1 and writes nothing", () => {
+    const r = run("empty-registry", "--ofac", sdn);
+    expect(r.stderr).toContain("superchain-registry: 0 bridge rows (format drift?)");
+    expect(r.exitCode).toBe(1);
+    expect(r.wrote).toBe(false);
+  });
+  test("--verify-sources: a cited page that cannot be fetched aborts, listing url + row count, and writes nothing", () => {
+    const r = run("verify-fail", "--ofac", sdn, "--verify-sources");
+    expect(r.stderr).toContain("--verify-sources could not fetch");
+    expect(r.stderr).toMatch(/https:\/\/ofac\.treasury\.gov\/recent-actions\/20220808 \(\d+ rows\)/);
+    expect(r.exitCode).toBe(1);
+    expect(r.wrote).toBe(false);
+  });
+  test("--verify-sources: rows absent from their page are excluded and listed; the build still writes", () => {
+    const r = run("verify-absent", "--ofac", sdn, "--verify-sources");
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/excluded by --verify-sources \(\d+\):/);
+    expect(r.stdout).toContain("→ absent");
+    const data = JSON.parse(readFileSync(r.out, "utf8"));
+    expect(Object.keys(data["*"])).toEqual([AA, BB, CC, DD]); // sdn-mini
+    const kept = Object.values(data).flatMap((c) => Object.values(c)).filter((e) => e.note === "needs official source");
+    expect(kept.length).toBeGreaterThan(0); // unsourced legacy rows survive
+    expect(existsSync(`${r.out}.tmp`)).toBe(false); // atomic write cleaned up
   });
 });

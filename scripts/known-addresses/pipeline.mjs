@@ -20,7 +20,8 @@ export function parseOfacXml(xml) {
   if (!/<\/(?:\w+:)?sdnList>\s*$/.test(xml)) throw new Error("OFAC SDN: truncated download (no closing </sdnList>)");
   const publishDate = `${d[3]}-${d[1]}-${d[2]}`;
   const entries = [];
-  const skippedIds = []; // 0x-shaped crypto ids we did not take, or malformed ids under allowlisted tags (format drift)
+  const skippedIds = []; // malformed ids under allowlisted tags, or 0x-prefixed non-addresses under other tags
+  const driftTags = new Set(); // non-allowlisted tags carrying real 0x addresses (e.g. a new "- BASE" tag)
   const seen = new Set();
   for (const chunk of xml.split("<sdnEntry>").slice(1)) {
     const head = chunk.split("<sdnType>")[0]; // aka blocks (after sdnType) also carry lastName
@@ -32,7 +33,8 @@ export function parseOfacXml(xml) {
       const addr = tag(m[1], "idNumber");
       const allowed = /^Digital Currency Address - (ETH|USDT|USDC|ARB|BSC|ETC)$/.test(idType);
       const valid = /^0x[0-9a-fA-F]{40}$/.test(addr);
-      if (allowed ? !valid : /^0x/i.test(addr)) skippedIds.push({ tag: idType, idNumber: addr });
+      if (!allowed && valid) driftTags.add(idType);
+      else if (allowed ? !valid : /^0x/i.test(addr)) skippedIds.push({ tag: idType, idNumber: addr });
       if (!allowed || !valid) continue;
       const address = addr.toLowerCase();
       if (seen.has(address)) continue;
@@ -40,6 +42,7 @@ export function parseOfacXml(xml) {
       entries.push({ address, name });
     }
   }
+  if (driftTags.size) throw new Error(`OFAC SDN: 0x addresses under non-allowlisted tag(s) ${[...driftTags].join(", ")} (format drift: extend the allowlist in parseOfacXml)`);
   if (!entries.length) throw new Error("OFAC SDN: no EVM addresses found (format drift?)");
   return { publishDate, entries, skippedIds };
 }
@@ -88,8 +91,9 @@ export function mergeSources({ ofac, registry, curated }) {
     (prov[chain] ??= {})[addr] = source;
   };
 
+  const ofacSource = `OFAC SDN list, published ${ofac.publishDate}`;
   for (const e of ofac.entries) {
-    put("*", e.address, { label: `${e.name} (OFAC SDN)`, category: "sanctioned", source: `OFAC SDN list, published ${ofac.publishDate}`, added: ofac.publishDate }, "ofac");
+    put("*", e.address, { label: `${e.name} (OFAC SDN)`, category: "sanctioned", source: ofacSource, added: ofac.publishDate }, "ofac");
   }
 
   const apply = (rows, which) => {
@@ -99,17 +103,19 @@ export function mergeSources({ ofac, registry, curated }) {
       if (reason) { rejected.push({ row: r, reason }); continue; }
       const chain = String(r.chainId), address = r.address.toLowerCase();
       if (which === "curated") {
+        // a "*" row for a listed address would replace the OFAC entry and its provenance
+        if (chain === "*" && sdn.has(address)) { rejected.push({ row: r, reason: "curated conflicts with OFAC" }); continue; }
         const k = `${chain}:${address}`;
         if (seen.has(k)) { rejected.push({ row: r, reason: "duplicate" }); continue; }
         seen.add(k);
       }
-      let { label, category } = r;
-      if (sdn.has(address)) { category = "sanctioned"; label += " (OFAC SDN)"; }
+      let { label, category, source } = r;
+      if (sdn.has(address)) { category = "sanctioned"; label += " (OFAC SDN)"; source += `; ${ofacSource}`; }
       else if (r.ofacDesignated) { label += " (delisted from OFAC SDN)"; delisted.push(`${chain}:${address}`); }
       const entry = { label, category };
       if (r.symbol !== undefined) entry.symbol = r.symbol;
       if (r.decimals !== undefined) entry.decimals = r.decimals;
-      entry.source = r.source;
+      entry.source = source;
       entry.added = r.added;
       if (r.note) entry.note = r.note;
       put(chain, address, entry, which);

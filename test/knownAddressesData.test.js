@@ -85,8 +85,10 @@ test("curated seed never asserts 'sanctioned' (sanctions come only from the OFAC
 });
 
 // Every "sanctioned" entry must trace to ONE OFAC import: "*" entries carry the
-// generator's exact source (single publish date); chain entries need a "*" twin.
+// generator's exact source (single publish date); chain entries need a "*" twin
+// and end their source with the same snapshot date.
 const OFAC_SOURCE = /^OFAC SDN list, published (\d{4}-\d{2}-\d{2})$/;
+const OFAC_SUFFIX = /; OFAC SDN list, published (\d{4}-\d{2}-\d{2})$/;
 function ofacProvenanceProblems(data) {
   const star = data["*"] || {};
   const problems = [], dates = new Set();
@@ -101,10 +103,15 @@ function ofacProvenanceProblems(data) {
         const m = OFAC_SOURCE.exec(e.source);
         if (m) dates.add(m[1]);
         else problems.push(`${at} source not the OFAC import: ${e.source}`);
-      } else if (star[addr]?.category !== "sanctioned") problems.push(`${at} sanctioned without a '*' OFAC entry`);
+      } else {
+        if (star[addr]?.category !== "sanctioned") problems.push(`${at} sanctioned without a '*' OFAC entry`);
+        const m = OFAC_SUFFIX.exec(e.source);
+        if (m) dates.add(m[1]);
+        else problems.push(`${at} source lacks the OFAC snapshot date`);
+      }
     }
   }
-  if (dates.size > 1) problems.push(`'*' OFAC sources span ${dates.size} publish dates`);
+  if (dates.size > 1) problems.push(`OFAC sources span ${dates.size} publish dates`);
   return problems;
 }
 
@@ -117,8 +124,12 @@ test("OFAC provenance check rejects hand-edited sanctions", () => {
   const ofac = (date) => ({ label: "X (OFAC SDN)", category: "sanctioned", source: `OFAC SDN list, published ${date}`, added: date });
   expect(ofacProvenanceProblems({ "*": { [A]: ofac("2026-11-13") } })).toEqual([]);
   expect(ofacProvenanceProblems({ "*": { [A]: { ...ofac("2026-11-13"), source: "some blog" } } })).toEqual([`*:${A} source not the OFAC import: some blog`]);
-  expect(ofacProvenanceProblems({ "*": { [A]: ofac("2026-11-13"), [B]: ofac("2025-01-01") } })).toEqual(["'*' OFAC sources span 2 publish dates"]);
-  expect(ofacProvenanceProblems({ "*": { [A]: ofac("2026-11-13") }, 1: { [B]: { ...ofac("2026-11-13"), source: "x" } } })).toEqual([`1:${B} sanctioned without a '*' OFAC entry`]);
+  expect(ofacProvenanceProblems({ "*": { [A]: ofac("2026-11-13"), [B]: ofac("2025-01-01") } })).toEqual(["OFAC sources span 2 publish dates"]);
+  expect(ofacProvenanceProblems({ "*": { [A]: ofac("2026-11-13") }, 1: { [B]: { ...ofac("2026-11-13"), source: "x" } } })).toEqual([`1:${B} sanctioned without a '*' OFAC entry`, `1:${B} source lacks the OFAC snapshot date`]);
+  const chainRow = (source) => ({ "*": { [A]: ofac("2026-11-13") }, 1: { [A]: { ...ofac("2026-11-13"), source } } });
+  expect(ofacProvenanceProblems(chainRow("https://x; OFAC SDN list, published 2026-11-13"))).toEqual([]);
+  expect(ofacProvenanceProblems(chainRow("https://x"))).toEqual([`1:${A} source lacks the OFAC snapshot date`]);
+  expect(ofacProvenanceProblems(chainRow("https://x; OFAC SDN list, published 2025-01-01"))).toEqual(["OFAC sources span 2 publish dates"]);
   expect(ofacProvenanceProblems({ "*": { [A]: ofac("2026-11-13") }, 1: { [B]: { ...ofac("2026-11-13"), category: "other" } } })).toEqual([`1:${B} OFAC label, category other`]);
   expect(ofacProvenanceProblems({ "*": { [A]: { ...ofac("2026-11-13"), label: "X" } } })).toEqual([`*:${A} label lacks (OFAC SDN)`]);
 });
