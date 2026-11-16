@@ -2333,6 +2333,82 @@ test("renderQueryLog: empty / dropped / unlogged notes", async () => {
   expect(c.textContent).not.toContain("No Etherscan request logged");
 });
 
+const usdEdge = (over = {}) => ({
+  key: "k", action: "txlist", group: "normal", from: ROOT, to: N2, hash: "0x1",
+  symbol: "ETH", amountText: "5", amountIndeterminate: false, tokenContract: "", tokenId: "",
+  value: "5", timeStamp: "1700000000", blockNumber: "1", hasData: false, ...over,
+});
+const usdRender = async (usd, over = {}, locale = "en") => {
+  const { ui, i18n } = await qlogEnv();
+  i18n.setLocale(locale);
+  const el = document.createElement("div");
+  ui.renderEdgeDetails(el, usdEdge(over), { i18n, explorer: null, getAlias: () => null, usd });
+  return { el, i18n };
+};
+
+test("usd row: ok shows grouped estimate + unit hint", async () => {
+  const EN = (await import("../src/locales/en.js")).default;
+  const at = 1700002860;
+  const usd = { state: "ok", text: "1234567.50", price: 2000, at, confidence: 0.99 };
+  const { el } = await usdRender(usd);
+  const t = el.textContent;
+  expect(t).toContain(EN["usd.label"]);
+  expect(t).toContain("≈ 1,234,567.50 USD");
+  expect(t).toContain("2000 USD per ETH");
+  expect(t).toContain(new Date(at * 1000).toISOString().slice(0, 16).replace("T", " "));
+  expect(t).toContain("0.99");
+  const fr = await usdRender(usd, {}, "fr");
+  expect(fr.el.textContent).toMatch(/1\D234\D567,50/);
+});
+
+test("usd row: states", async () => {
+  const EN = (await import("../src/locales/en.js")).default;
+  for (const [usd, key] of [
+    [{ state: "pending" }, "usd.pending"], [{ state: "none" }, "usd.unknown"],
+    [{ state: "error" }, "usd.error"], [{ state: "skip", reason: "root" }, "usd.skip.root"],
+  ]) {
+    const { el } = await usdRender(usd);
+    expect(el.textContent).toContain(EN[key]);
+    expect(el.textContent).not.toContain("0.00");
+  }
+  const { el } = await usdRender({ state: "ok", text: "1.00", price: 1, at: 1700000000, confidence: null });
+  expect(el.textContent).toContain("confidence —");
+});
+
+test("usd row absent when usd null/undefined", async () => {
+  const EN = (await import("../src/locales/en.js")).default;
+  for (const usd of [null, undefined]) {
+    const { el } = await usdRender(usd);
+    expect(el.textContent).not.toContain(EN["usd.label"]);
+  }
+});
+
+test("usd row: hostile symbol stays text", async () => {
+  const { el } = await usdRender({ state: "ok", text: "1.00", price: 1, at: 1700000000, confidence: 1 }, { symbol: "<img src=x onerror=alert(1)>" });
+  expect(el.querySelector("img")).toBeNull();
+});
+
+test("query log price row", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const coins = JSON.stringify({ "ethereum:0xaa": [1700000000], "ethereum:0xbb": [1700000000] });
+  const priceEntry = {
+    at: "2026-11-16T10:01:00.000Z", source: "defillama", chainId: null, action: "batchHistorical",
+    params: { coins, searchWidth: "30m" }, httpStatus: 200, rows: 2, sha256: "cd".repeat(32), outcome: "ok",
+  };
+  const c = document.createElement("div");
+  ui.renderQueryLog(c, [qEntry(1), priceEntry], { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  const rows = c.querySelectorAll("tbody tr");
+  const cells = [...rows[0].querySelectorAll("td")];
+  expect(cells[1].textContent).toBe("DefiLlama");
+  expect(cells[2].textContent).toBe("batchHistorical");
+  expect(cells[3].textContent).toBe("2");
+  expect(cells[3].title).toBe(coins);
+  expect(cells[4].textContent).toBe("—");
+  const eth = [...rows[1].querySelectorAll("td")];
+  expect(eth[1].textContent).toBe("1");
+  expect(eth[4].textContent).toBe("1/20");
+});
+
 test("shell has the bundle + query-log controls", () => {
   expect($("evidenceBundleBtn").textContent).toBe("Evidence bundle (.zip)");
   expect($("exportQueryLogBtn")).not.toBeNull();

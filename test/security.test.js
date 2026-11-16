@@ -20,6 +20,12 @@ describe("Subresource Integrity (CWE-353)", () => {
   });
 });
 
+test("USD toggle ships unchecked", () => {
+  const tag = html.match(/<input\b[^>]*\bid="usdToggle"[^>]*>/)[0];
+  expect(tag).toContain('type="checkbox"');
+  expect(tag).not.toMatch(/\bchecked\b/);
+});
+
 describe("Content-Security-Policy", () => {
   test("connect-src is exactly self + Etherscan + DefiLlama coins", () => {
     const m = html.match(/connect-src([^;]*);/);
