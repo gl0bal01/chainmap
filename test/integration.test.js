@@ -1102,3 +1102,35 @@ test("a '*'-only OFAC address is labeled, badged, sourced and risk-scored on a n
     restoreForm();
   }
 });
+
+test("imitation USDT: ⓘ on the graph, flagged in details + CSV, hidden by Hide spam; canonical USDC untouched", async () => {
+  await knownLoaded();
+  const FAKE = "0x" + "e".repeat(40);
+  const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"; // chain-1 `token` row in data/known-addresses.json
+  const tok = (hash, symbol, contract) => wsEdge({ hash, action: "tokentx", group: "token", color: "#4fd67a", symbol, tokenContract: contract });
+  const shown = () => window.vis.Network.first.edges.get();
+  const byHash = (h) => shown().find((e) => e.data.hash === h);
+  try {
+    await loadAsDemo({
+      version: 2, chainId: "1", root: ROOT,
+      nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: N2, depth: 1, isRoot: false, alias: null }],
+      edges: [tok("0xf1", "USDT", FAKE), tok("0xf2", "USDC", USDC)],
+    });
+    expect(byHash("0xf1").label).toContain("ⓘ");
+    expect(byHash("0xf1").title).toContain("Imitation token");
+    expect(byHash("0xf2").label).not.toContain("ⓘ");
+    window.vis.Network.first._on.click[0]({ nodes: [], edges: [byHash("0xf1").id] });
+    expect($("detailsContent").textContent).toContain("Imitation token");
+    const lines = (await captureCsv()).split("\n");
+    expect(lines.find((l) => l.includes(",0xf1,"))).toContain("flag.fakeToken");
+    expect(lines.find((l) => l.includes(",0xf2,"))).not.toContain("flag.fakeToken");
+    $("hideSpamToggle").checked = true;
+    $("hideSpamToggle").dispatchEvent(new window.Event("change"));
+    expect(shown().map((e) => e.data.hash)).toEqual(["0xf2"]);
+  } finally {
+    $("hideSpamToggle").checked = false;
+    $("hideSpamToggle").dispatchEvent(new window.Event("change"));
+    $("resetBtn").click();
+    restoreForm();
+  }
+});

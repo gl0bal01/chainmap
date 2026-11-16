@@ -121,7 +121,7 @@ export default {
   "legend.token": "Token transfer",
   "legend.data": "Contract call (input data)",
   "legend.riskHigh": "High risk (mixer / bridge / sanctioned)",
-  "legend.riskInfo": "Info flag (approval / hidden recipient)",
+  "legend.riskInfo": "Info flag (approval / hidden recipient / imitation token)",
   "legend.roundtrip": "Round-trip (cycle)",
   "legend.age": "Edge age (old → recent)",
 
@@ -194,6 +194,7 @@ export default {
   "flag.mixer": "mixer interaction",
   "flag.bridge": "bridge interaction",
   "flag.sanctioned": "sanctioned entity",
+  "flag.fakeToken": "Imitation token: uses the symbol of an official token but is not its official contract on this chain",
 
   // --- sidebar: log ---------------------------------------------------------
   "log.title": "Log",

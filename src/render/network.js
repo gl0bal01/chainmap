@@ -30,6 +30,7 @@ import { hasMoreHistory } from "../history.js";
  * @property {boolean} [hideSpam]
  * @property {Set<string>} [spamContracts]
  * @property {Set<string>} [spamSymbols]
+ * @property {(edge:import('../graphStore.js').EdgeRecord)=>boolean} [isFakeToken] hidden by hideSpam too
  */
 
 /**
@@ -348,6 +349,7 @@ export function createGraphView(container, store, deps) {
     if (opts.maxTime !== undefined) display.maxTime = Number(opts.maxTime) || 0;
     if (opts.spamContracts) display.spamContracts = opts.spamContracts;
     if (opts.spamSymbols) display.spamSymbols = opts.spamSymbols;
+    if (opts.isFakeToken) display.isFakeToken = opts.isFakeToken;
     refreshProjection();
   }
 

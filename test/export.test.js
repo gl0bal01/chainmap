@@ -273,4 +273,10 @@ describe("buildCsvRows", () => {
     expect(row).toContain("transfer(address,uint256)"); // method_sig
     expect(row).toContain(B); // real_recipient
   });
+
+  test("risk_flags is computed for plain (no-calldata) edges, incl. flag.fakeToken", () => {
+    const edge = { group: "token", action: "tokentx", from: "0xa", to: "0xb", amountText: "1", symbol: "USDT", hash: "0xh", blockNumber: "1", timeStamp: "0", hasData: false };
+    const rows = buildCsvRows(makeFakeStore([], [edge]), { category: () => null, isFakeToken: () => true });
+    expect(rows.find((r) => r[0] === "edge").at(-1)).toBe("flag.fakeToken");
+  });
 });

@@ -24,6 +24,8 @@ import { findCycleNodes } from "./roundTrips.js";
 import { findPeelChains } from "./peelChain.js";
 import { scoreNode } from "./riskScore.js";
 import { flagsForEdge } from "./riskFlags.js";
+import { buildCanonicalIndex, isFakeToken } from "./fakeToken.js";
+import { parseSpamList } from "./display.js";
 import { detectAddress } from "./blockchainDetect.js";
 import { rankChainActivity, probeChains } from "./chainProbe.js";
 import { methodName } from "./selectors.js";
@@ -84,8 +86,12 @@ let indicator;
 
 // --- Feature Layer 1 data (bundled local JSON, no third-party network) ------
 let knownData = {}; // chain-scoped known-address labels
-const spamContracts = new Set();
-const spamSymbols = new Set();
+let canonicalIndex = new Map(); // chain -> SYMBOL -> official token contracts (rebuilt from knownData)
+let spam = parseSpamList([]); // per-chain spam contracts + global spam symbols
+// The ONE flag ctx for every flagsForEdge call site (risk score, graph view,
+// details, CSV) — chain-bound at call time via dataChain().
+const isFakeTokenEdge = (edge) => isFakeToken(edge, dataChain(), canonicalIndex);
+const flagCtx = { category: (a) => knownCategory(a, dataChain(), knownData), isFakeToken: isFakeTokenEdge };
 
 // --- Feature Layer 2 state --------------------------------------------------
 let hubMap = new Map(); // address -> 'sink' | 'faucet'
@@ -132,7 +138,7 @@ function computeRisk(address) {
   const chainId = dataChain();
   const categoryFor = (a) => knownCategory(a, chainId, knownData);
   // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
-  const flags = outEdges.flatMap((e) => flagsForEdge(e, { category: categoryFor }));
+  const flags = outEdges.flatMap((e) => flagsForEdge(e, flagCtx));
   return scoreNode({
     inDeg: inC.size,
     outDeg: outC.size,
@@ -151,8 +157,9 @@ function applyDisplayOptions() {
     hideSpam: $("hideSpamToggle").checked,
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
-    spamContracts,
-    spamSymbols,
+    spamContracts: spam.contractsFor(dataChain()),
+    spamSymbols: spam.symbols,
+    isFakeToken: isFakeTokenEdge,
   });
 }
 
@@ -187,21 +194,16 @@ function populateChains() {
 // fetch (CSP connect-src 'self'); failures are non-fatal (app still runs).
 async function loadLocalData() {
   knownData = await loadKnownAddresses();
-  if (view) view.refreshLabels();
+  canonicalIndex = buildCanonicalIndex(knownData);
   try {
     const resp = await fetch(DATA_PATHS.spamTokens);
-    if (resp.ok) {
-      const list = await resp.json();
-      if (Array.isArray(list)) {
-        for (const raw of list) {
-          const s = String(raw).toLowerCase();
-          if (s.startsWith("0x")) spamContracts.add(s);
-          else spamSymbols.add(s);
-        }
-      }
-    }
+    if (resp.ok) spam = parseSpamList(await resp.json());
   } catch {
     /* spam list optional */
+  }
+  if (view) {
+    view.refreshLabels();
+    applyDisplayOptions(); // re-project: new spam sets + canonical index
   }
 }
 
@@ -364,6 +366,7 @@ function showEdgeDetails(edgeKey) {
     getAlias: (a) => store.getAlias(a),
     getKnownLabel: (a) => knownLabel(a, chainId, knownData),
     getCategory: (a) => knownCategory(a, chainId, knownData),
+    isFakeToken: isFakeTokenEdge,
   };
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
   else renderEdgeDetails($("detailsContent"), data, deps);
@@ -554,6 +557,7 @@ async function startScan() {
   const refusal = store.stats().nodes > 0 && chainRefusal(chainId);
   if (refusal) return logger.log({ level: "error", ...refusal });
   graphChainId = chainId;
+  applyDisplayOptions(); // per-chain spam contracts follow the graph chain
 
   // Native-value txs (no tokenSymbol) must show THIS chain's ticker, not a
   // hardcoded "ETH" — set before any edges are added so the whole scan is
@@ -1003,7 +1007,7 @@ function wireControls() {
     })
   );
   $("exportCsvBtn").addEventListener("click", () =>
-    exportCsv(store, { onLog, category: (a) => knownCategory(a, dataChain(), knownData) })
+    exportCsv(store, { onLog, ...flagCtx })
   );
 
   // Noise-reduction filters (live display projection; store is untouched).
@@ -1097,7 +1101,7 @@ function init() {
     // sinks (or anything else).
     getHubDimOn: () => hubOn,
     getCategory: (address) => knownCategory(address, dataChain(), knownData),
-    getEdgeFlags: (edge) => flagsForEdge(edge, { category: (a) => knownCategory(a, dataChain(), knownData) }),
+    getEdgeFlags: (edge) => flagsForEdge(edge, flagCtx),
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));

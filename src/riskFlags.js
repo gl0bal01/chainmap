@@ -4,7 +4,7 @@
 // layer escalates on the graph and the details panel explains. No vis, no DOM.
 //
 // Flags (i18n keys): flag.approvalUnlimited, flag.hiddenRecipient, flag.mixer,
-// flag.bridge, flag.sanctioned. Each is a signal, NOT a verdict.
+// flag.bridge, flag.sanctioned, flag.fakeToken. Each is a signal, NOT a verdict.
 // =============================================================================
 
 import { isValidAddress } from "./format.js";
@@ -40,7 +40,8 @@ function isUnlimited(rawAmount) {
 /**
  * Compute risk-flag keys for an edge.
  * @param {import('./graphStore.js').EdgeRecord} edge
- * @param {{ category:(addr:string)=>(string|null) }} ctx  known-category lookup
+ * @param {{ category:(addr:string)=>(string|null), isFakeToken?:(edge:object)=>boolean }} ctx
+ *   known-category lookup + optional imitation-token predicate (chain-bound by the caller)
  * @returns {string[]} de-duplicated flag keys
  */
 export function flagsForEdge(edge, ctx) {
@@ -75,6 +76,8 @@ export function flagsForEdge(edge, ctx) {
 
   // Tornado deposit selector always reads as a mixer interaction.
   if (id === "0xb214faa5") flags.add("flag.mixer");
+
+  if (ctx && ctx.isFakeToken && ctx.isFakeToken(edge)) flags.add("flag.fakeToken");
 
   return [...flags];
 }

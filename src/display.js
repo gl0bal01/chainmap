@@ -36,13 +36,46 @@ export function isSpam(edge, opts) {
 }
 
 /**
+ * Parse `data/spam-tokens.json`. Legacy array form = `"*"`; object form maps a
+ * chain key (`"*"` or a chainId) to a list. `0x…` strings are contracts (scoped
+ * to their key; `"*"` applies to every chain); other strings are symbols
+ * (global). Everything lowercased; non-string items / non-array values ignored;
+ * anything else → empty. Never throws.
+ * @param {unknown} raw
+ * @returns {{ symbols:Set<string>, contractsFor:(chainId:number|string)=>Set<string> }}
+ */
+export function parseSpamList(raw) {
+  const byChain = (Array.isArray(raw) ? { "*": raw } : raw && typeof raw === "object" ? raw : {});
+  const contracts = new Map(); // chain key -> Set<contract>
+  const symbols = new Set();
+  for (const [chain, list] of Object.entries(byChain)) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item !== "string" || !item) continue;
+      const s = item.toLowerCase();
+      if (s.startsWith("0x")) {
+        if (!contracts.has(chain)) contracts.set(chain, new Set());
+        contracts.get(chain).add(s);
+      } else symbols.add(s);
+    }
+  }
+  return {
+    symbols,
+    contractsFor: (chainId) => new Set([...(contracts.get("*") || []), ...(contracts.get(String(chainId)) || [])]),
+  };
+}
+
+/**
  * Whether an edge passes the active display filters (i.e. should be VISIBLE).
  * `minTime`/`maxTime` are UNIX seconds; edges with an unknown/unparseable
  * timeStamp are NOT excluded by the time range (can't be judged).
+ * `hideSpam` hides spam-list hits AND edges the optional `isFakeToken`
+ * predicate flags (imitation tokens).
  * @param {import('./graphStore.js').EdgeRecord} edge
  * @param {{ minAmount?:number, hideZero?:boolean, hideSpam?:boolean,
  *           minTime?:number, maxTime?:number,
- *           spamContracts?:Set<string>, spamSymbols?:Set<string> }} opts
+ *           spamContracts?:Set<string>, spamSymbols?:Set<string>,
+ *           isFakeToken?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} opts
  * @returns {boolean}
  */
 export function passesFilters(edge, opts) {
@@ -50,7 +83,7 @@ export function passesFilters(edge, opts) {
   const amount = edgeAmountNumber(edge);
   if (o.hideZero && amount === 0) return false;
   if (o.minAmount > 0 && amount < o.minAmount) return false;
-  if (o.hideSpam && isSpam(edge, o)) return false;
+  if (o.hideSpam && (isSpam(edge, o) || (o.isFakeToken && o.isFakeToken(edge)))) return false;
   const ts = Number(edge && edge.timeStamp);
   if (Number.isFinite(ts) && ts > 0) {
     if (o.minTime && ts < o.minTime) return false;
