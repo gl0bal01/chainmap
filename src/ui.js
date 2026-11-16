@@ -24,6 +24,9 @@ Object.values(TX_TYPE_GROUPS).forEach((infos) => {
   });
 });
 
+// "Check other chains" result state -> details line text key.
+const PROBE_STATE_KEY = { active: "details.probeActive", inactive: "details.probeNone", plan: "details.probePlan", error: "details.probeError" };
+
 /**
  * Build a `<tr><td class="k">label</td><td>value</td></tr>` row. `value` may be
  * a plain string (set via textContent) or a DOM Node (e.g. an <a> or <em>) to
@@ -208,6 +211,41 @@ export function renderNodeDetails(container, node, deps) {
       b.disabled = !!deps.busy;
       b.addEventListener("click", () => oc.onApplyAlias());
       box.appendChild(b);
+    }
+    const actionBtn = (text, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.disabled = !!deps.busy;
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    const loadable = oc.loadable || [];
+    const loadText = (chainId) => i18n.t("details.loadOnChain", { chain: loadable.find((c) => c.chainId === chainId)?.name });
+    if (oc.onCheckOtherChains) box.appendChild(actionBtn(i18n.t("details.checkOtherChains"), () => oc.onCheckOtherChains()));
+    for (const r of oc.probe || []) {
+      const line = document.createElement("div");
+      line.textContent = `${r.name} — ${i18n.t(PROBE_STATE_KEY[r.state])}`;
+      if (r.state === "active" && loadable.some((c) => c.chainId === r.chainId)) {
+        line.appendChild(document.createTextNode(" "));
+        line.appendChild(actionBtn(loadText(r.chainId), () => oc.onLoadOnChain(r.chainId)));
+      }
+      box.appendChild(line);
+    }
+    if (loadable.length) {
+      const sel = document.createElement("select");
+      sel.setAttribute("aria-label", i18n.t("details.otherChains"));
+      for (const c of loadable) {
+        const opt = document.createElement("option");
+        opt.value = c.chainId;
+        opt.textContent = c.name;
+        sel.appendChild(opt);
+      }
+      const load = actionBtn(loadText(sel.value), () => oc.onLoadOnChain(sel.value));
+      sel.addEventListener("change", () => (load.textContent = loadText(sel.value)));
+      const row = document.createElement("div");
+      row.append(sel, " ", load);
+      box.appendChild(row);
     }
     const t2 = document.createElement("table");
     t2.style.marginTop = "8px";

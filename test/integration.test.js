@@ -5,6 +5,7 @@ import { test, expect, beforeAll } from "bun:test";
 import { Window } from "happy-dom";
 import KNOWN from "../data/known-addresses.json";
 import V2 from "./fixtures/workspace-v2.json";
+import { PROBE_CHAIN_IDS } from "../src/config.js";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40); // 40-hex address helper
 const ROOT = A(1), N2 = A(2), N3 = A(3), N4 = A(4), TOKEN = A(9);
@@ -815,6 +816,40 @@ test("Other chains block lists twins, focuses on click, offers alias apply", asy
   expect(busy.disabled).toBe(true);
 });
 
+test("Other chains probe lines, Load on {chain} buttons and the chain select", async () => {
+  const { renderOther } = await historyEnv();
+  const probe = [
+    { chainId: "42161", name: "Arbitrum One", state: "active" },
+    { chainId: "8453", name: "Base", state: "inactive" },
+    { chainId: "56", name: "BNB Chain", state: "plan" },
+    { chainId: "10", name: "Optimism", state: "error" },
+  ];
+  const loaded = [];
+  let checks = 0;
+  const oc = {
+    twins: [], canApplyAlias: false, onFocusTwin: () => {}, onApplyAlias: () => {},
+    probe, loadable: probe.map(({ chainId, name }) => ({ chainId, name })),
+    onCheckOtherChains: () => checks++, onLoadOnChain: (c) => loaded.push(c),
+  };
+  const c = renderOther(oc);
+  for (const s of ["Arbitrum One — recent activity found", "Base — no recent normal/token activity found",
+    "BNB Chain — needs a paid Etherscan plan", "Optimism — check failed"]) expect(c.textContent).toContain(s);
+  const btns = (root) => [...root.querySelectorAll("button")];
+  btns(c).find((b) => b.textContent === "Check other chains").click();
+  expect(checks).toBe(1);
+  btns(c).find((b) => b.textContent === "Load on Arbitrum One").click();
+  expect(loaded).toEqual(["42161"]);
+  expect(btns(c).some((b) => b.textContent === "Load on Base")).toBe(false); // inactive: no probe-line button
+  const sel = c.querySelector("select");
+  sel.value = "8453";
+  sel.dispatchEvent(new window.Event("change"));
+  btns(c).find((b) => b.textContent === "Load on Base").click();
+  expect(loaded).toEqual(["42161", "8453"]);
+  const busy = btns(renderOther(oc, { busy: true })).filter((b) => b.textContent === "Check other chains" || b.textContent.startsWith("Load on "));
+  expect(busy.length).toBe(3); // Check + the active line's Load + the select's Load
+  expect(busy.every((b) => b.disabled)).toBe(true);
+});
+
 test("blocked note is linked to the load button via aria-describedby", async () => {
   const { render } = await historyEnv();
   const c = render([H("more", 40)], { loadBlocked: { key: "error.unknownChain", params: { id: "999999" } } });
@@ -1295,6 +1330,97 @@ test("alias apply targets same-key twins only and never overwrites", async () =>
     expect(visNode(ID("42161", N2)).label.startsWith("Suspect")).toBe(false);
   } finally {
     window.prompt = origPrompt;
+    restoreForm();
+  }
+});
+
+// --- Check other chains / Load on {chain} (details panel) --------------------
+const detailBtn = (txt) => [...$("detailsContent").querySelectorAll("button")].find((b) => b.textContent === txt);
+// A 1-chain scan, then probe ROOT's other chains at 30 req/s (11 chains at the default 3 req/s outlast `until`).
+async function probeRoot() {
+  await freshScan("20");
+  $("rps").value = "30";
+  clickNode(ID("1", ROOT));
+  const n = apiUrls.length;
+  detailBtn("Check other chains").click();
+  await until(() => !$("startBtn").disabled);
+  return apiUrls.slice(n);
+}
+
+test("Check other chains probes the probe set minus chains already holding the address", async () => {
+  try {
+    const qs = (await probeRoot()).map((u) => new URL(u).searchParams);
+    expect(new Set(qs.map((q) => q.get("chainid")))).toEqual(new Set(PROBE_CHAIN_IDS.filter((c) => c !== 1).map(String)));
+    expect(qs.every((q) => ["txlist", "tokentx"].includes(q.get("action")) && q.get("offset") === "1")).toBe(true);
+    expect($("detailsContent").textContent).toContain("Arbitrum One — recent activity found");
+    await freshScan("20"); // store reset -> probe results are session facts, gone
+    clickNode(ID("1", ROOT));
+    expect($("detailsContent").textContent).not.toContain("recent activity found");
+  } finally {
+    $("rps").value = "3";
+    restoreForm();
+  }
+});
+
+test("Stop cancels the probe", async () => {
+  let release = () => {};
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const n = apiUrls.length;
+    release = gate();
+    detailBtn("Check other chains").click();
+    $("stopBtn").click();
+    release();
+    await until(() => !$("startBtn").disabled);
+    expect(apiUrls.length - n).toBeLessThan(22);
+    expect($("startBtn").disabled).toBe(false);
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("Load on Arbitrum One creates the twin as a root, copies no alias, draws a same-key link", async () => {
+  const origPrompt = window.prompt;
+  try {
+    await probeRoot();
+    window.prompt = () => "Suspect";
+    detailBtn("Rename (alias)").click();
+    detailBtn("Load on Arbitrum One").click();
+    await waitLoaded();
+    expect(lastTxlist().get("chainid")).toBe("42161");
+    const v = visNode(ID("42161", ROOT));
+    expect(v).toBeTruthy();
+    expect(v.color).toBe("#e63946"); // root colour: the twin is the investigator's subject on B
+    expect(v.label).not.toContain("Suspect");
+    expect(twins().length).toBe(1);
+    expect($("logContent").textContent).toContain("Added Arbitrum One — graph now spans 2 chains.");
+  } finally {
+    window.prompt = origPrompt;
+    $("rps").value = "3";
+    restoreForm();
+  }
+});
+
+test("a load that fetches nothing leaves no phantom node", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    globalThis.fetch = async (url, init) =>
+      String(url).includes("data/")
+        ? realFetch(url, init)
+        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    detailBtn("Load on Arbitrum One").click();
+    await waitLoaded();
+    expect(window.vis.Network.first.nodes.getIds().some((id) => String(id).startsWith("42161:"))).toBe(false);
+    expect($("logContent").textContent).toContain("Nothing could be loaded on Arbitrum One; the node was not added.");
+  } finally {
+    globalThis.fetch = realFetch;
     restoreForm();
   }
 });

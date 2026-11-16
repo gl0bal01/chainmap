@@ -375,7 +375,61 @@ function otherChainsFor(node) {
     canApplyAlias: !!node.alias && twins.some((x) => x.basis === "key" && !store.getNode(x.id).alias),
     onFocusTwin: (tid) => revealAndFocus({ kind: "node", id: tid }),
     onApplyAlias: () => applyAliasToTwins(node.id),
+    probe: probeCache.get(node.address) || null,
+    loadable: CHAINS.filter((c) => !store.hasNode(nodeId(String(c.id), node.address))).map((c) => ({ chainId: String(c.id), name: c.name })),
+    onCheckOtherChains: () => checkOtherChains(node.id),
+    onLoadOnChain: (chainId) => loadOnChain(node.id, chainId),
   };
+}
+
+// "Check other chains" results per address (session only, not graph facts): cleared on every store reset.
+const probeCache = new Map();
+
+// Probe this address on the probe set's chains it isn't on yet, as THE network op (Stop cancels it).
+async function checkOtherChains(id) {
+  const node = store.getNode(id);
+  if (!node) return;
+  if (scanning || detecting) return rerenderDetails();
+  if (!$("apiKey").value.trim()) {
+    logger.log({ level: "error", key: "error.apiKeyRequired" });
+    return rerenderDetails();
+  }
+  const candidates = PROBE_CHAIN_IDS.filter((c) => !store.hasNode(nodeId(String(c), node.address)))
+    .map((c) => ({ chainId: c, name: chainLabel(c) }));
+  await withBusy(async ({ signal, limiter }) => {
+    const results = await probeChains(node.address, candidates, { probeOne: probeOneChain, limiter, signal });
+    // Stored before withBusy's final re-render, so the results show as soon as Stop/Start re-enable.
+    probeCache.set(node.address, rankChainActivity(results).ranked.map((r) => ({
+      chainId: String(r.chainId),
+      name: r.name,
+      state: r.planRequired ? "plan" : r.error ? "error" : r.active ? "active" : "inactive",
+    })));
+  });
+}
+
+// One first-load page of this address on another chain (no BFS). The new node takes the
+// source's depth and root flag, never its alias; if nothing could be fetched it is removed again.
+async function loadOnChain(id, chainId) {
+  const src = store.getNode(id);
+  if (!src) return;
+  if (scanning || detecting) return rerenderDetails();
+  const refusal = loadRefusal(chainId);
+  if (refusal) {
+    logger.log({ level: "error", ...refusal });
+    return rerenderDetails();
+  }
+  const newId = nodeId(chainId, src.address);
+  if (store.hasNode(newId)) return rerenderDetails(); // already there: never load into, or remove, an existing node
+  const before = store.chains();
+  store.addNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot });
+  await loadOlderFor(newId);
+  if (store.getNode(newId)?.history) {
+    logChainAdded(before, chainId);
+  } else {
+    store.removeNodes([newId]);
+    logger.log({ level: "error", key: "log.loadOnChainEmpty", params: { chain: chainLabel(chainId) } });
+  }
+  showNodeDetails(id);
 }
 
 // Copy this node's alias to same-key twins that have none; never overwrites.
@@ -1193,6 +1247,7 @@ function init() {
   view.setTwins(true);
   let chainSyncQueued = false;
   store.subscribe((e) => {
+    if (e.type === "reset") probeCache.clear(); // incl. workspace/demo load (loadSnapshot resets)
     if (e.type !== "node:add" && e.type !== "node:remove" && e.type !== "reset") return;
     if (chainSyncQueued) return;
     chainSyncQueued = true;
