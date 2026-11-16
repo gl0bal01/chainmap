@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **598 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **671 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -123,7 +123,16 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   (ou non-EVM) par format. Cliquez ensuite sur **Détecter la chaîne** pour explorer ~12 chaînes populaires en quête d'activité on-chain et auto-sélectionner celle où l'adresse est la plus active, en montrant où elle est aussi active.
 - **Exports** — PNG, PDF et CSV (avec la mise en garde d'échantillonnage intégrée, plus les
   colonnes méthode décodée, destinataire réel, montant décodé et signaux de risque par
-  arête). Sauvegarde / chargement d'espaces de travail.
+  arête). Sauvegarde / chargement d'espaces de travail. Les PNG/PDF portent un pied de page de
+  provenance et la marque de dépôt probable ; le CSV la porte en ligne 1.
+- **Journal des requêtes** — chaque requête Etherscan est consignée en mémoire (heure, chaîne,
+  requête sans la clé d'API, statut HTTP, nombre de lignes, SHA-256 du corps brut de la réponse,
+  issue) et affichée dans un panneau. Exportable en `.json` ; il est aussi enregistré dans les
+  espaces de travail.
+- **Dossier de preuves** — un seul `.zip` (sans compression) avec `graph.csv`, `graph.png`,
+  `workspace.json`, `query-log.json`, un `MANIFEST.json` et un `SHA256SUMS` à vérifier avec
+  `sha256sum -c`. Le SHA-256 du zip est écrit dans le journal de l'appli pour vos notes de dossier.
+  Détection d'altération seulement.
 - **Recherche & navigation au clavier** — un **bouton 🔍 Rechercher** dans la barre du haut
   (ou **Ctrl/Cmd+K**) ouvre une palette de commandes qui cherche des nœuds par adresse / alias /
   libellé connu / catégorie et des transactions par hash / méthode (classement hybride substring
@@ -180,6 +189,9 @@ pour les contrats de modules figés.
 - **Bibliothèques vendorisées** (`vis-network`, `jsPDF`) — sans CDN — épinglées avec
   **Subresource Integrity**. Une **CSP** stricte limite `script-src` à `'self'` et
   `connect-src` à l'API Etherscan.
+- **La clé d'API n'est jamais écrite dans un export, un journal ou un nom de fichier.** Le
+  journal des requêtes ne garde que les paramètres de la requête sans la clé et un SHA-256 de
+  chaque réponse, jamais les corps de réponse.
 - **Aucune chaîne non fiable n'atteint `innerHTML`** — les alias et symboles de jetons issus
   de l'API sont rendus comme nœuds texte du DOM ; l'analyse est insensible au XSS par
   construction.
@@ -197,7 +209,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 598 tests unitaires + d'intégration
+bun test        # 671 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :

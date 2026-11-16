@@ -19,7 +19,8 @@ the tool. Open **Demo mode** (no API key needed) and follow along.
 8. [Failed & reverted transactions](#8-failed--reverted-transactions)
 9. [The EVM & multichain](#9-the-evm--multichain)
 10. [Investigation heuristics](#10-investigation-heuristics)
-11. [Hands-on labs](#hands-on-labs)
+11. [Evidence & provenance](#11-evidence--provenance)
+12. [Hands-on labs](#hands-on-labs)
 
 ---
 
@@ -218,6 +219,61 @@ Limits, read them before relying on a mark:
 
 Worked example: in the demo, `0xdec0…0001` is funded by the root and swept to Binance 14
 ten minutes later, so it is marked (illustrative data).
+
+---
+
+## 11. Evidence & provenance
+
+A picture of a graph is easy to doubt: when was it made, from what data, could it have been
+edited? chainmap keeps a **query log** and can pack everything into an **evidence bundle** so
+that you, or a reader, can check the files were not changed after export.
+
+**What the query log records.** One entry per Etherscan request attempt (a retry is its own
+entry): time (UTC), chain, action, the request parameters **without your API key**, HTTP
+status, number of rows returned, the **SHA-256 of the raw response body**, and an outcome
+(ok, retried, error, no response). Only the hash is kept, never the response itself: the log
+stays small and holds no response data, yet anyone holding the same raw response can check
+that it matches. The API key is removed before anything is stored. Open the **Query log**
+panel to read it, or use **Export query log (.json)**. The log is also saved inside workspaces.
+
+**What the bundle holds.** **Evidence bundle (.zip)** downloads `chainmap-evidence-<UTC time>.zip`:
+
+- `graph.csv` and `graph.png` (the PNG is left out if it would exceed the pixel cap, and the
+  manifest says so under `omitted`), both showing the full graph, with provenance (footer on
+  the PNG, line 1 of the CSV);
+- `workspace.json`, which reloads the graph;
+- `query-log.json`;
+- `MANIFEST.json`: app version, export time, chains, roots, graph size, sampling settings,
+  retrieval window, the known-address snapshot, the caveats, and the SHA-256 of each file;
+- `SHA256SUMS`: the same hashes in a format standard tools check.
+
+**How to verify it.**
+
+```bash
+unzip chainmap-evidence-*.zip -d case && cd case && sha256sum -c SHA256SUMS
+```
+
+Every line must say `OK`. On macOS use `shasum -a 256 -c SHA256SUMS`. On Windows use
+`Get-FileHash` (PowerShell) and compare the values by hand. Then **write the SHA-256 of the
+zip itself** (shown in the app log right after export) in your case notes, or give it to a
+third party: later, hashing the zip again must give the same value.
+
+**Limits. Read them before you rely on a bundle.**
+
+- **Tamper evidence, not a signature.** The hashes show that files changed after export. They
+  do not prove *when* the bundle was made or *who* made it: whoever can rebuild the zip can
+  rebuild the hashes too. A timestamp or a signature from a third party is what adds that.
+- **Sampled data.** Scans fetch the latest transactions per address (see section 7). The
+  bundle says so; it is never the full on-chain history.
+- **The log records requests, not proof that it explains every record.** It includes probes
+  that added no graph data (scan estimate, chain detection, "check other chains"), and
+  deleting nodes does not delete log entries.
+- **"Partial".** If part of the graph came from the demo, or from a workspace saved without a
+  query log, or if old log entries were dropped at the log limit, the footer and the manifest
+  say that part of the graph has no logged retrieval.
+- **Labels and heuristics are signals, not facts.** Known labels, risk flags, imitation-token
+  marks, likely-deposit marks (also drawn in the PNG/PDF) and same-key links are leads to
+  corroborate. Known labels come from a dated snapshot, recorded in the manifest.
 
 ---
 

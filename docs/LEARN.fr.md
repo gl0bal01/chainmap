@@ -20,7 +20,8 @@ le fil.
 8. [Transactions échouées et annulées](#8-transactions-échouées-et-annulées)
 9. [EVM et multichaîne](#9-evm-et-multichaîne)
 10. [Heuristiques pour enquêter](#10-heuristiques-pour-enquêter)
-11. [Travaux pratiques](#travaux-pratiques)
+11. [Preuves et provenance](#11-preuves-et-provenance)
+12. [Travaux pratiques](#travaux-pratiques)
 
 ---
 
@@ -247,6 +248,70 @@ Limites, à lire avant de se fier à une marque :
 
 Exemple : dans la démo, `0xdec0…0001` est alimentée par la racine puis balayée vers Binance 14
 dix minutes plus tard ; elle est donc marquée (données illustratives).
+
+---
+
+## 11. Preuves et provenance
+
+Une image de graphe se conteste facilement : quand a-t-elle été faite, à partir de quelles
+données, a-t-elle été retouchée ? chainmap tient un **journal des requêtes** et peut tout
+réunir dans un **dossier de preuves** pour que vous, ou un lecteur, puissiez vérifier que les
+fichiers n'ont pas changé depuis l'export.
+
+**Ce que le journal enregistre.** Une entrée par tentative de requête Etherscan (une nouvelle
+tentative est une entrée à part) : l'heure (UTC), la chaîne, l'action, les paramètres de la
+requête **sans votre clé d'API**, le statut HTTP, le nombre de lignes reçues, le **SHA-256 du
+corps brut de la réponse** et une issue (ok, nouvelle tentative, erreur, sans réponse). Seule
+l'empreinte est conservée, jamais la réponse : le journal reste léger et ne contient aucune
+donnée de réponse, mais quiconque détient la même réponse brute peut vérifier qu'elle
+correspond. La clé d'API est retirée avant tout stockage. Ouvrez le panneau **Journal des
+requêtes** pour le lire, ou utilisez **Exporter le journal des requêtes (.json)**. Il est
+aussi enregistré dans les espaces de travail.
+
+**Ce que contient le dossier.** **Dossier de preuves (.zip)** télécharge
+`chainmap-evidence-<heure UTC>.zip` :
+
+- `graph.csv` et `graph.png` (le PNG est omis s'il dépasserait le plafond de pixels, et le
+  manifeste l'indique dans `omitted`), qui montrent tous deux le graphe complet, avec leur
+  provenance (pied de page du PNG, ligne 1 du CSV) ;
+- `workspace.json`, qui permet de recharger le graphe ;
+- `query-log.json` ;
+- `MANIFEST.json` : version de l'appli, heure d'export, chaînes, racines, taille du graphe,
+  réglages d'échantillonnage, fenêtre de récupération, instantané des adresses connues,
+  mises en garde et SHA-256 de chaque fichier ;
+- `SHA256SUMS` : les mêmes empreintes dans un format que les outils standards savent contrôler.
+
+**Comment le vérifier.**
+
+```bash
+unzip chainmap-evidence-*.zip -d case && cd case && sha256sum -c SHA256SUMS
+```
+
+Chaque ligne doit afficher `OK`. Sous macOS, utilisez `shasum -a 256 -c SHA256SUMS`. Sous
+Windows, utilisez `Get-FileHash` (PowerShell) et comparez les valeurs à la main. Ensuite,
+**notez le SHA-256 du zip lui-même** (affiché dans le journal de l'appli juste après
+l'export) dans vos notes de dossier, ou confiez-le à un tiers : plus tard, recalculer
+l'empreinte du zip doit redonner la même valeur.
+
+**Limites. À lire avant de vous appuyer sur un dossier.**
+
+- **Détection d'altération, pas une signature.** Les empreintes montrent que des fichiers ont
+  changé après l'export. Elles ne prouvent ni *quand* le dossier a été produit ni *par qui* :
+  qui peut reconstruire le zip peut reconstruire les empreintes. C'est un horodatage ou une
+  signature d'un tiers qui apporte cela.
+- **Données échantillonnées.** Les scans récupèrent les dernières transactions de chaque
+  adresse (voir la section 7). Le dossier le dit ; ce n'est jamais l'historique complet de la chaîne.
+- **Le journal enregistre des requêtes ; il ne prouve pas qu'il explique chaque enregistrement.**
+  Il contient aussi des sondes qui n'ont ajouté aucune donnée au graphe (estimation du scan,
+  détection de chaîne, « vérifier les autres chaînes »), et supprimer des nœuds ne supprime
+  pas les entrées du journal.
+- **« Partiel ».** Si une partie du graphe vient de la démo, d'un espace de travail enregistré
+  sans journal, ou si d'anciennes entrées ont été écartées à la limite du journal, le pied de
+  page et le manifeste signalent qu'une partie du graphe n'a pas de récupération journalisée.
+- **Libellés et heuristiques : des signaux, pas des faits.** Libellés connus, signaux de
+  risque, jetons imités, marques de dépôt probable (aussi dessinées dans les PNG/PDF) et liens
+  de même clé sont des pistes à corroborer. Les libellés connus viennent d'un instantané
+  daté, consigné dans le manifeste.
 
 ---
 

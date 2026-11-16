@@ -91,7 +91,7 @@ standard tools; A is fragile and B hashes the wrong bytes. No zip library is ven
 - `sha256Hex(bytes) → Promise<string>` via `crypto.subtle.digest`.
 - `sanitizeQueryLog(raw) → { entries, dropped, invalid }` — the trust boundary for workspace input: `raw` must be
   `{ entries: [], dropped?: int>=0 }`; each entry is rebuilt from scratch (no spread): `at` must match
-  `^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$`; `chainId` via `parseChainId`; `action` `^[a-z]{1,32}$`; `params`
+  `^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$`; `chainId` via `parseChainId`; `action` `^[a-z0-9]{1,32}$` (digits: `token1155tx`); `params`
   only the nine known keys, each a string `^[0-9A-Za-z]{0,66}$` (unknown keys, incl. `apikey`, dropped); `url`
   ignored and rebuilt; `httpStatus` integer 100–599 or null; `rows` integer ≥ 0 or null; `sha256` `^[0-9a-f]{64}$`
   or null; `outcome` in the enum. A failing entry is dropped and counted in `invalid`. At most `limit` entries kept
