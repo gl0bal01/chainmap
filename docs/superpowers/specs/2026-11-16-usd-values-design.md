@@ -323,3 +323,56 @@ Builder check (sonnet), answered by the lead:
     has no DefiLlama slug: native only. *Cost if wrong:* blanks, never a wrong value.
 12. **`minConfidence` 0.9** is chainmap's rule, stated as such in docs; an absent confidence is accepted. *Cost if
     wrong:* a few long-tail tokens blank (all observed values are 0.99+).
+
+## Execution and final-review rulings (lead)
+
+- **One price service per query-log epoch.** `makePrices()` reads `queryLog.epoch` when it creates the service and binds
+  `onQuery` to that epoch, the same pattern as `makeClient`. Reset, workspace load and demo call `clear()` on the old
+  service and create a new one, each with its own `RateLimiter`. An attempt still in flight across an epoch change is
+  dropped by the P5 epoch guard. *Cost if wrong:* none (the spec's `clear()` still runs).
+- **Aborted attempts are logged.** Unticking, or an epoch change, aborts the in-flight request. The attempt is logged as
+  `network` because it already left the browser, but its states are never published. *Cost if wrong:* one extra log
+  row per untick.
+- **One valuation function.** The CSV `ctx.usd` returns the `usdForEdge` result instead of the spec's `string|null`.
+  Details, the CSV column, CSV line-1 counts and MANIFEST counts therefore all come from the same function.
+  *Cost if wrong:* none (internal signature).
+- **Fail closed on bundled data.** No key is built and no request is made until the known-address data has loaded
+  non-empty and the spam list has loaded OK. If either fails, or the load rejects, nothing is requested in that session
+  and one `log.usdNoData` error line is shown. This path is verified by reading: the shared integration harness loads
+  data once, and a second `main.js` instance would break the harness rules. *Cost if wrong:* no USD in a session whose
+  bundled data failed, and the one-line catch is untested.
+- **Root rule on every chain.** A token contract that is a root on *any* chain is never sent. This is stricter than
+  the spec's "on that chain", because the same EVM address can exist on several chains. It is checked when keys are
+  built, again just before the first send, and again before every retry. Removing or demoting a root node re-requests
+  the edges it was blocking. *Cost if wrong:* a token contract investigated on another chain stays unpriced.
+- **Polygon split** compares the raw transaction `timeStamp`, not the hour bucket. *Cost if wrong:* one hour around
+  2024-09-10 priced with the other coin id.
+- **Timestamps.** A `timeStamp` that is not a safe integer, or whose hour bucket is not one, is skipped as `data`, so
+  every request round-trips through the sanitizer. *Cost if wrong:* none.
+- **Batching is O(n).** URL length is tracked incrementally, and the output is identical to the greedy split.
+  The old version took 463 ms for 5000 pairs on the main thread. *Cost if wrong:* none.
+- **Retries.** Only 429 and 5xx are retried, honouring `Retry-After` capped at 60 s (`PRICE_FETCH.maxRetryWaitMs`).
+  Timeouts, network failures and other 4xx are not retried: the pair shows "price request failed" and is requested
+  again on the next tick or graph change. *Cost if wrong:* a flaky network shows failures until the next want.
+- **Query-log coin ids** are only `<slug>:0x<40 hex>` or `coingecko:<id>`. This is stricter than the spec's regex,
+  which also accepted `<slug>:<free text>`. *Cost if wrong:* none, because every live id still passes.
+- **Log lines.** The spec's `log.usdBatch`/`log.usdError` became one `log.usdDone {priced, unknown, failed}` per
+  drained queue (error level when `failed > 0`), plus `log.usdNoData`. The counts are coin-hour pairs, not transfers.
+  *Cost if wrong:* wording.
+- **CSV line-1 wording.** The never-priced list also names root-contract and unknown-data transfers
+  (`NFT/zero-value/imitation/spam-list/root-contract/unknown-data/unsupported-chain`). The spec text above keeps the
+  approved wording. *Cost if wrong:* none.
+- **The box is unticked at every page load,** in `init` and with `autocomplete="off"`, against browser form-state
+  restore. *Cost if wrong:* none.
+- **Browser smoke** (headless Chrome, `coins.llama.fi` stubbed with `page.route`) passed 11/11 steps:
+  - box off: zero price requests;
+  - box on: the details row, the CSV `usd_value` column and the DefiLlama query-log row appear;
+  - unticking stops requests;
+  - no app errors (the only console error is the pre-P6 `frame-ancestors` meta-CSP warning).
+- **Accepted limitations:**
+  - Non-root token contracts that are also graph nodes are sent (builder-check ruling 7). If the owner reads "never the
+    addresses you investigate" as covering every queried address, that is an owner decision.
+  - The browser's `Origin` header reaches `coins.llama.fi`; CORS requires it. It reveals the app's host, never an
+    investigated address.
+  - Chain slugs and coingecko ids were verified live on 2026-11-16 only. A DefiLlama rename shows up as blanks, never
+    as a wrong value.
