@@ -11,7 +11,7 @@
 // file only orchestrates — it never mutates vis DataSets directly.
 // =============================================================================
 
-import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, APP_VERSION } from "./config.js";
+import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, APP_VERSION, PRICE_FETCH } from "./config.js";
 import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
@@ -31,6 +31,7 @@ import { findDeposits } from "./depositDetect.js";
 import { detectAddress } from "./blockchainDetect.js";
 import { rankChainActivity, probeChains } from "./chainProbe.js";
 import { methodName } from "./selectors.js";
+import { priceKeyFor, usdForEdge, usdCounts, createPriceService } from "./usdPrice.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
@@ -119,6 +120,7 @@ let spam = parseSpamList([]); // per-chain spam contracts + global spam symbols
 // The ONE flag ctx for every flagsForEdge call site (risk score, graph view,
 // details, CSV) — every lookup uses the edge's own chain.
 const isFakeTokenEdge = (e) => isFakeToken(e, e.chainId, canonicalIndex);
+const isSpamEdge = (e) => isSpam(e, { spamContractsFor: spam.contractsFor, spamSymbols: spam.symbols });
 const flagCtx = { category: (a, chainId) => knownCategory(a, chainId, knownData), isFakeToken: isFakeTokenEdge };
 
 // --- Feature Layer 2 state --------------------------------------------------
@@ -130,7 +132,7 @@ let depositMap = new Map(); // node id -> DepositEvidence
 const depositCtx = {
   known: (a, chainId) => knownEntry(a, chainId, knownData),
   // Imitation / spam-listed fake Transfer(from=N) events are dropped (unknown spoofed tokens can still dilute).
-  ignoreEdge: (e) => isFakeTokenEdge(e) || isSpam(e, { spamContractsFor: spam.contractsFor, spamSymbols: spam.symbols }),
+  ignoreEdge: (e) => isFakeTokenEdge(e) || isSpamEdge(e),
   // A forged token Transfer cannot create a mark alone: only native coin or a known token vouches.
   trustedToken: (contract, chainId) => knownCategory(contract, chainId, knownData) === "token",
 };
@@ -161,6 +163,81 @@ function refreshQueryLogUi() {
   if ($("queryLogPanel").open) {
     renderQueryLog($("queryLogContent"), entries, { i18n, dropped: queryLog.dropped, unloggedData: queryLog.unloggedData, limit: LIMITS.queryLog });
   }
+}
+
+// USD estimates (opt-in #usdToggle: off at load, never persisted). One price service per query-log
+// epoch, on its own limiter (never the scan's): a price is shown only after its request was logged in
+// that epoch, and an epoch change (reset / workspace / demo) drops the cache.
+let usdDataOk = null; // R4: true once known-address + spam data loaded OK, false = fail closed for the session
+let usdDoneDue = false; // a want() queued pairs: log.usdDone once the queue drains
+let usdRefreshQueued = false;
+let usdNoDataLogged = false;
+const usdActive = () => $("usdToggle").checked && usdDataOk === true;
+// R5: an address that is a root on ANY chain is never sent.
+const rootAddrs = () => new Set(store.listNodes().filter((n) => n.isRoot).map((n) => n.address));
+function usdCtx() {
+  const roots = rootAddrs();
+  return { isFakeToken: isFakeTokenEdge, isSpam: isSpamEdge, isRoot: (_chainId, a) => roots.has(a) };
+}
+// Re-checked by the service just before each request (a contract that became a root since is dropped).
+const usdAllowed = (coin) => coin.startsWith("coingecko:") || !rootAddrs().has(coin.slice(coin.indexOf(":") + 1));
+// The one valuation for details, CSV and MANIFEST; undefined while USD is not shown.
+function usdFn() {
+  if (!usdActive()) return undefined;
+  const ctx = usdCtx();
+  const svc = prices; // this epoch's cache, whatever happens after the caller read it
+  return (e) => usdForEdge(e, ctx, (c, ts) => svc.get(c, ts));
+}
+function makePrices() {
+  const epoch = queryLog.epoch;
+  const svc = createPriceService({
+    onQuery: (r) => queryLog.add(r, epoch).then(refreshQueryLogUi),
+    limiter: new RateLimiter(PRICE_FETCH.rps),
+    allowed: usdAllowed,
+  });
+  svc.onChange(queueUsdRefresh);
+  return svc;
+}
+let prices = makePrices();
+// onChange may fire synchronously inside want(): coalesced to one macrotask, by which time
+// usdDoneDue is already set (R8).
+function queueUsdRefresh() {
+  if (usdRefreshQueued) return;
+  usdRefreshQueued = true;
+  setTimeout(() => {
+    usdRefreshQueued = false;
+    if (currentDetail?.kind === "edge") rerenderDetails();
+    const s = prices.stats();
+    if (!usdDoneDue || s.pending) return;
+    usdDoneDue = false;
+    logger.log({ level: s.error > 0 ? "error" : "info", key: "log.usdDone", params: { priced: s.ok, unknown: s.none, failed: s.error } });
+  }, 0);
+}
+function wantAll() {
+  if (!usdActive()) return;
+  const ctx = usdCtx();
+  const keys = store.listEdges().map((e) => priceKeyFor(e, ctx)).filter((k) => !("skip" in k));
+  if (prices.want(keys) > 0) usdDoneDue = true;
+}
+// Called right after the query log's epoch changed.
+function newPriceEpoch() {
+  prices.clear();
+  prices = makePrices();
+  usdDoneDue = false;
+  wantAll();
+}
+function onUsdToggle() {
+  const on = $("usdToggle").checked;
+  if (on && usdDataOk === false && !usdNoDataLogged) {
+    usdNoDataLogged = true;
+    logger.log({ level: "error", key: "log.usdNoData" });
+  }
+  if (on) wantAll();
+  else {
+    prices.cancel(); // does not notify: disarm the drain log here
+    usdDoneDue = false;
+  }
+  rerenderDetails();
 }
 
 const dateToEpoch = (v) => {
@@ -261,19 +338,25 @@ function populateChains() {
 }
 
 // Bundled local datasets: known-address labels + spam token list. Same-origin
-// fetch (CSP connect-src 'self'); failures are non-fatal (app still runs).
+// fetch (CSP connect-src 'self'); failures are non-fatal (app still runs), but USD
+// values need both (imitation/spam exclusion): resolves true only when both loaded OK.
 async function loadLocalData() {
   knownData = await loadKnownAddresses();
   canonicalIndex = buildCanonicalIndex(knownData);
   if (view) view.refreshLabels(); // known labels never wait on the spam request
+  let spamOk = false;
   try {
     const resp = await fetch(DATA_PATHS.spamTokens);
-    if (resp.ok) spam = parseSpamList(await resp.json());
+    if (resp.ok) {
+      spam = parseSpamList(await resp.json());
+      spamOk = true;
+    }
   } catch {
-    /* spam list optional */
+    /* spam list optional for the graph; USD stays off without it */
   }
   if (view) recomputeDeposits(); // known + spam data feed the heuristic
   if (view) applyDisplayOptions(); // re-project: spam sets + edge flags (known data, canonical index)
+  return Object.keys(knownData).length > 0 && spamOk;
 }
 
 function wirePersistedInputs() {
@@ -546,7 +629,10 @@ function showEdgeDetails(edgeKey) {
     isFakeToken: isFakeTokenEdge,
   };
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
-  else renderEdgeDetails($("detailsContent"), data, deps);
+  else {
+    const usd = usdFn();
+    renderEdgeDetails($("detailsContent"), data, { ...deps, usd: usd ? usd(data) : null });
+  }
 }
 
 function rerenderDetails() {
@@ -854,6 +940,7 @@ function resetGraph() {
   $("samplingBanner").hidden = true;
   queryLog.clear();
   refreshQueryLogUi();
+  newPriceEpoch();
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,6 +1226,7 @@ function loadWorkspaceFromText(text) {
   }
   if (ws.queryLogInvalid) logger.log({ level: "error", key: "log.queryLogInvalid", params: { n: ws.queryLogInvalid } });
   refreshQueryLogUi();
+  newPriceEpoch();
   const s = store.stats();
   logger.log({ level: "info", key: "log.workspaceLoaded", params: { nodes: s.nodes, edges: s.edges } });
 }
@@ -1154,6 +1242,7 @@ async function loadDemo() {
     queryLog.clear();
     queryLog.markUnlogged();
     refreshQueryLogUi();
+    newPriceEpoch();
     logger.log({ level: "info", key: "log.demoLoaded" });
   } catch (e) {
     logger.log({ level: "error", key: "log.workspaceError", params: { error: String(e.message || e) } });
@@ -1247,7 +1336,7 @@ function wireControls() {
   );
   $("exportCsvBtn").addEventListener("click", () => {
     const { exportedAt, retrieval } = exportContext();
-    exportCsv(store, { onLog, ...flagCtx, deposits: depositMap, provenance: { exportedAt, retrieval } });
+    exportCsv(store, { onLog, ...flagCtx, deposits: depositMap, usd: usdFn(), provenance: { exportedAt, retrieval } });
   });
   $("exportQueryLogBtn").addEventListener("click", () => {
     const now = new Date();
@@ -1259,10 +1348,12 @@ function wireControls() {
   // Never rejects: exportEvidenceBundle logs its own failure (log.bundleFailed).
   $("evidenceBundleBtn").addEventListener("click", () => {
     const { exportedAt, retrieval, footer } = exportContext();
+    const usd = usdFn();
     exportEvidenceBundle(view, store, {
       ...imageDeps(footer),
       ...flagCtx,
       deposits: depositMap,
+      usd,
       exportedAt,
       retrieval,
       workspaceText: workspaceText(exportedAt),
@@ -1280,6 +1371,11 @@ function wireControls() {
           observed: observedSampling(queryLog.entries()),
         },
         data: { knownAddresses: knownDataSnapshot(knownData) },
+        prices: {
+          shown: !!usd,
+          queries: queryLog.entries().filter((e) => e.source === "defillama").length,
+          ...(usd ? usdCounts(store.listEdges(), usd) : { priced: null, priceable: null }),
+        },
       },
     });
   });
@@ -1343,6 +1439,7 @@ function wireControls() {
     $("loadFile").value = "";
   });
   $("demoBtn").addEventListener("click", loadDemo);
+  $("usdToggle").addEventListener("change", onUsdToggle);
 
   // Drag-and-drop a workspace .json onto the graph to load it.
   const graph = $("graph");
@@ -1408,6 +1505,12 @@ function init() {
     depositQueued = true;
     setTimeout(() => { depositQueued = false; recomputeDeposits(); }, 0);
   });
+  let usdQueued = false; // new edges while USD is on: want their prices (coalesced)
+  store.subscribe((e) => {
+    if (e.type !== "edge:add" || usdQueued) return;
+    usdQueued = true;
+    setTimeout(() => { usdQueued = false; wantAll(); }, 0);
+  });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));
   indicator = createRequestIndicator($("requestIndicator"), i18n);
@@ -1431,7 +1534,12 @@ function init() {
   wirePanels();
   applyLocale();
   clearDetails();
-  loadLocalData(); // async; enriches labels + spam sets when ready
+  $("usdToggle").checked = false; // never restored (a browser may restore form state on reload)
+  // async; enriches labels + spam sets when ready, then arms USD (fail closed: never rejects)
+  loadLocalData().then((ok) => {
+    usdDataOk = ok;
+    onUsdToggle();
+  });
 }
 
 if (document.readyState === "loading") {
