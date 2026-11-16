@@ -19,7 +19,7 @@ const ACTION_RE = /^[a-z0-9]{1,32}$/; // token1155tx has digits
 const PARAM_RE = /^[0-9A-Za-z]{0,66}$/;
 const SHA_RE = /^[0-9a-f]{64}$/;
 const WIDTH_RE = /^\d{1,4}[mhdw]?$/;
-const COIN_RE = /^[a-z0-9_-]{1,40}:(0x[0-9a-f]{40}|[a-z0-9-]{1,64})$/;
+const COIN_RE = /^(?:[a-z0-9_-]{1,40}:0x[0-9a-f]{40}|coingecko:[a-z0-9-]{1,64})$/;
 const MAX_COINS_CHARS = 8000;
 const MAX_COIN_KEYS = 400;
 
@@ -134,14 +134,19 @@ function validCoins(coins) {
   return JSON.stringify(o) === coins;
 }
 
+// Shared response metadata checks (Etherscan and price entries).
+function validMeta(e) {
+  return (e.httpStatus === null || (Number.isInteger(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599)) &&
+    (e.rows === null || (Number.isInteger(e.rows) && e.rows >= 0)) &&
+    (e.sha256 === null || (typeof e.sha256 === "string" && SHA_RE.test(e.sha256))) &&
+    OUTCOMES.includes(e.outcome);
+}
+
 function rebuildPrice(e) {
   const at = normAt(e.at);
   const ok =
     at !== null && e.chainId === null && e.action === "batchHistorical" &&
-    (e.httpStatus === null || (Number.isInteger(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599)) &&
-    (e.rows === null || (Number.isInteger(e.rows) && e.rows >= 0)) &&
-    (e.sha256 === null || (typeof e.sha256 === "string" && SHA_RE.test(e.sha256))) &&
-    OUTCOMES.includes(e.outcome) &&
+    validMeta(e) &&
     typeof e.params.searchWidth === "string" && WIDTH_RE.test(e.params.searchWidth) &&
     validCoins(e.params.coins);
   if (!ok) return null;
@@ -161,10 +166,7 @@ function rebuild(e) {
     at !== null &&
     chainId !== null &&
     typeof e.action === "string" && ACTION_RE.test(e.action) &&
-    (e.httpStatus === null || (Number.isInteger(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599)) &&
-    (e.rows === null || (Number.isInteger(e.rows) && e.rows >= 0)) &&
-    (e.sha256 === null || (typeof e.sha256 === "string" && SHA_RE.test(e.sha256))) &&
-    OUTCOMES.includes(e.outcome);
+    validMeta(e);
   if (!ok) return null;
   const params = {};
   for (const k of PARAM_KEYS) {

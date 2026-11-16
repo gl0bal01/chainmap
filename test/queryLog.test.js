@@ -238,7 +238,14 @@ describe("defillama entries", () => {
     expect(s.entries[0]).toEqual(e);
   });
 
-  const many = JSON.stringify(Object.fromEntries(Array.from({ length: 401 }, (_, i) => ["coingecko:c" + i, [1]])));
+  const keys = (n) => JSON.stringify(Object.fromEntries(Array.from({ length: n }, (_, i) => ["coingecko:" + (i + 36).toString(36), [0]])));
+  const many = keys(401);
+  test("400 keys pass, 401 are rejected by the key count (under the size cap)", async () => {
+    expect(many.length).toBeLessThanOrEqual(8000);
+    const e = await pentry({ params: { coins: keys(400), searchWidth: "30m" } });
+    expect(sanitizeQueryLog({ entries: [e], dropped: 0, unloggedData: false }).invalid).toBe(0);
+  });
+
   const cases = {
     "chainId string": { chainId: "1" },
     "action txlist": { action: "txlist" },
@@ -249,6 +256,9 @@ describe("defillama entries", () => {
     "? in key": { params: { coins: '{"a:b?c":[1]}', searchWidth: "30m" } },
     "/ in key": { params: { coins: '{"a:b/c":[1]}', searchWidth: "30m" } },
     "& in key": { params: { coins: '{"a:b&c":[1]}', searchWidth: "30m" } },
+    "ethereum: 40 hex without 0x": { params: { coins: '{"ethereum:' + "ab".repeat(20) + '":[1]}', searchWidth: "30m" } },
+    "ethereum: 64-hex hash": { params: { coins: '{"ethereum:' + "ab".repeat(32) + '":[1]}', searchWidth: "30m" } },
+    "free-text id": { params: { coins: '{"a:this-wallet-is-a-scammer":[1]}', searchWidth: "30m" } },
     "401 keys": { params: { coins: many, searchWidth: "30m" } },
     "__proto__": { params: { coins: '{"__proto__":[1]}', searchWidth: "30m" } },
     "ts -1": { params: { coins: '{"coingecko:a":[-1]}', searchWidth: "30m" } },
