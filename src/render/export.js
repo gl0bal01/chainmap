@@ -293,13 +293,16 @@ const CSV_HEADER = [
   "row_type", "address", "alias", "depth", "is_root",
   "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
   "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
-  "likely_deposit_of", "deposit_evidence",
+  "likely_deposit_of", "deposit_evidence", "usd_value",
 ];
 
 const DEPOSIT_CAVEAT = "; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet) - not an attribution";
 
 const depositEvidenceText = (d) =>
   `wallet=${d.wallet};swept=${d.swept}/${d.outgoing};share=${d.assets.map((a) => `${a.symbol}:${a.sharePct}%`).join(",")};max_delay_s=${d.maxDelaySec ?? "none"}`;
+
+const usdCaveatText = (k, m) =>
+  `; usd_value is an estimate (DefiLlama coins.llama.fi price within 1h of the transaction) - blank when unknown/unpriced/pending - amounts are exact in tokens; usd priced ${k} of ${m} priceable transfers (NFT/zero-value/imitation/spam-list/unsupported-chain transfers are never priced)`;
 
 function provenanceText({ exportedAt, retrieval }) {
   return `; exported ${exportedAt} UTC` +
@@ -314,7 +317,9 @@ function provenanceText({ exportedAt, retrieval }) {
  * @param {{ category:(addr:string, chainId:string)=>(string|null), isFakeToken?:(edge:object)=>boolean,
  *           formatTimestamp?:(t:string)=>string,
  *           deposits?:Map<string, import('../depositDetect.js').DepositEvidence>,
+ *           usd?:(edge:object)=>({state:string, text?:string}),
  *           provenance?:{ exportedAt:string, retrieval:object|null } }} ctx
+ *   `usd` (absent when the box is off) fills usd_value and adds the line-1 estimate caveat with counts.
  *   `provenance` (when given) extends line 1 — still one comma-free `#` comment.
  * @returns {string[][]}
  */
@@ -326,14 +331,14 @@ export function buildCsvRows(store, ctx) {
   const nodes = store.listNodes();
   const multiChain = new Set(nodes.map((n) => n.chainId)).size >= 2;
   const prov = ctx && ctx.provenance;
+  const usd = ctx && ctx.usd;
   const rows = [
     // Sampling caveat: this graph reflects only the transactions retrieved
     // during the scan (latest-first, capped per address/type) — not full
     // on-chain history. Kept as the first CSV line so it survives copy/paste.
     ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete" +
       (multiChain ? "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer" : "") +
-      (nodes.some((n) => deposits.has(n.id)) ? DEPOSIT_CAVEAT : "") +
-      (prov ? provenanceText(prov) : "")],
+      (nodes.some((n) => deposits.has(n.id)) ? DEPOSIT_CAVEAT : "")],
     CSV_HEADER,
   ];
 
@@ -343,10 +348,17 @@ export function buildCsvRows(store, ctx) {
       "node", n.address, n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
       "", "", "", "", "", "", "", "",
       "", "", "", "", "", n.chainId,
-      d ? d.label : "", d ? depositEvidenceText(d) : "",
+      d ? d.label : "", d ? depositEvidenceText(d) : "", "",
     ]);
   }
+  let priced = 0, priceable = 0;
   for (const e of store.listEdges()) {
+    let usdCell = "";
+    if (usd) {
+      const r = usd(e);
+      if (r.state !== "skip") priceable++;
+      if (r.state === "ok") { priced++; usdCell = r.text; }
+    }
     let method = "", sig = "", realRecipient = "", decodedAmount = "";
     // Flags for EVERY edge (a plain transfer to a mixer / an imitation token still flags).
     const flags = flagsForEdge(e, { category, isFakeToken }).join(";");
@@ -365,9 +377,11 @@ export function buildCsvRows(store, ctx) {
       "edge", "", "", "", "",
       e.group || "", e.from || "", e.to || "", e.amountText || "", e.symbol || "",
       e.hash || "", e.blockNumber || "", fmtTs(e.timeStamp),
-      method, sig, realRecipient, decodedAmount, flags, e.chainId, "", "",
+      method, sig, realRecipient, decodedAmount, flags, e.chainId, "", "", usdCell,
     ]);
   }
+  // Line 1 is finished here: the usd caveat needs the counts from the edge pass.
+  rows[0][0] += (usd ? usdCaveatText(priced, priceable) : "") + (prov ? provenanceText(prov) : "");
   return rows;
 }
 
@@ -399,7 +413,7 @@ export function exportCsv(store, deps) {
     return;
   }
 
-  const text = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, provenance: deps.provenance });
+  const text = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, usd: deps.usd, provenance: deps.provenance });
   const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   triggerDownload(url, `graph-${Date.now()}.csv`);
@@ -439,7 +453,7 @@ export async function exportEvidenceBundle(view, store, deps) {
   let url = null, sha256, names;
   try {
     const enc = (s) => new TextEncoder().encode(s);
-    const csv = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, provenance: { exportedAt, retrieval } });
+    const csv = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, usd: deps.usd, provenance: { exportedAt, retrieval } });
     const files = [{ name: "graph.csv", bytes: enc(csv) }, { name: "workspace.json", bytes: enc(deps.workspaceText) }];
     const omitted = [];
     const size = computeExportSize(deps.preset, nodeCount);
