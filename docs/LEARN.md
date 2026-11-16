@@ -334,7 +334,7 @@ CSV, never `0`**. A positive amount worth under a cent shows as "< 0.01".
 **Fail closed.** The imitation and spam checks need the bundled known-address data and the
 spam list. If either failed to load, chainmap requests **no** price for the whole session
 and writes one error line in the app log. A request that fails is handled quietly: a 429 or
-5xx is retried up to 3 times (honouring `Retry-After`); a timeout, a network error or any
+5xx is retried up to 3 times (honouring `Retry-After`, at most 60 s); a timeout, a network error or any
 other 4xx is not retried and the transfer shows "price request failed". It is asked again
 the next time the graph changes or the box is ticked again. A price failure never slows or stops a scan.
 

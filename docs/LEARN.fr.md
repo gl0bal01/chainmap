@@ -383,7 +383,7 @@ laissé **vide dans le CSV, jamais `0`**. Un montant positif valant moins d'un c
 d'adresses connues et sur la liste de spam. Si l'une des deux n'a pas pu être chargée, chainmap
 ne demande **aucun** prix pendant toute la session et écrit une seule ligne d'erreur dans le
 journal de l'appli. Une requête qui échoue est traitée sobrement : un 429 ou un 5xx est retenté
-jusqu'à 3 fois (en respectant `Retry-After`) ; un délai dépassé, une erreur réseau ou tout autre
+jusqu'à 3 fois (en respectant `Retry-After`, 60 s au plus) ; un délai dépassé, une erreur réseau ou tout autre
 4xx n'est pas retenté et le transfert affiche « échec de la requête de prix ». Il est redemandé
 au prochain changement du graphe ou quand la case est recochée. Un échec de prix ne ralentit ni n'arrête jamais un scan.
 
