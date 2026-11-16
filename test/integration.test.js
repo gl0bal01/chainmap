@@ -1375,6 +1375,11 @@ test("Stop cancels the probe", async () => {
     await until(() => !$("startBtn").disabled);
     expect(apiUrls.length - n).toBeLessThan(22);
     expect($("startBtn").disabled).toBe(false);
+    // A stopped probe is discarded, never shown (or cached) as if it were complete.
+    const text = $("detailsContent").textContent;
+    for (const s of ["recent activity found", "no recent normal/token activity found", "needs a paid Etherscan plan", "check failed"]) {
+      expect(text).not.toContain(s);
+    }
   } finally {
     release();
     restoreForm();
@@ -1403,6 +1408,39 @@ test("Load on Arbitrum One creates the twin as a root, copies no alias, draws a 
   }
 });
 
+test("the load picker lists mainnets in probe order first", async () => {
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const first = $("detailsContent").querySelector("select option").value;
+    expect(first).toBe(String(PROBE_CHAIN_IDS.find((c) => c !== 1))); // 8453 (Base), not Sepolia
+  } finally {
+    restoreForm();
+  }
+});
+
+test("a Load on {chain} stopped before any page removes the node and logs it as info", async () => {
+  let release = () => {};
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    release = gate();
+    detailBtn("Load on Arbitrum One").click();
+    $("stopBtn").click();
+    release();
+    await until(() => /Nothing could be loaded/.test($("logContent").textContent || ""));
+    expect(window.vis.Network.first.nodes.getIds().some((id) => String(id).startsWith("42161:"))).toBe(false);
+    const line = [...$("logContent").children].find((l) => l.textContent.includes("Nothing could be loaded on Arbitrum One"));
+    expect(line.className).not.toBe("err");
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
 test("a load that fetches nothing leaves no phantom node", async () => {
   const realFetch = globalThis.fetch;
   try {
@@ -1419,6 +1457,7 @@ test("a load that fetches nothing leaves no phantom node", async () => {
     await waitLoaded();
     expect(window.vis.Network.first.nodes.getIds().some((id) => String(id).startsWith("42161:"))).toBe(false);
     expect($("logContent").textContent).toContain("Nothing could be loaded on Arbitrum One; the node was not added.");
+    expect([...$("logContent").children].at(-1).className).toBe("err"); // failed, not stopped
   } finally {
     globalThis.fetch = realFetch;
     restoreForm();

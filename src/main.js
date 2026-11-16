@@ -376,11 +376,19 @@ function otherChainsFor(node) {
     onFocusTwin: (tid) => revealAndFocus({ kind: "node", id: tid }),
     onApplyAlias: () => applyAliasToTwins(node.id),
     probe: probeCache.get(node.address) || null,
-    loadable: CHAINS.filter((c) => !store.hasNode(nodeId(String(c.id), node.address))).map((c) => ({ chainId: String(c.id), name: c.name })),
+    // Probe-priority order first (mainnets), so the picker never defaults to a testnet.
+    loadable: CHAINS.filter((c) => !store.hasNode(nodeId(String(c.id), node.address)))
+      .sort((x, y) => probePriority(x.id) - probePriority(y.id))
+      .map((c) => ({ chainId: String(c.id), name: c.name })),
     onCheckOtherChains: () => checkOtherChains(node.id),
     onLoadOnChain: (chainId) => loadOnChain(node.id, chainId),
   };
 }
+
+const probePriority = (id) => {
+  const i = PROBE_CHAIN_IDS.indexOf(id);
+  return i < 0 ? PROBE_CHAIN_IDS.length : i;
+};
 
 // "Check other chains" results per address (session only, not graph facts): cleared on every store reset.
 const probeCache = new Map();
@@ -398,6 +406,7 @@ async function checkOtherChains(id) {
     .map((c) => ({ chainId: c, name: chainLabel(c) }));
   await withBusy(async ({ signal, limiter }) => {
     const results = await probeChains(node.address, candidates, { probeOne: probeOneChain, limiter, signal });
+    if (signal.aborted) return; // a stopped probe is partial: discard it, never show it as complete
     // Stored before withBusy's final re-render, so the results show as soon as Stop/Start re-enable.
     probeCache.set(node.address, rankChainActivity(results).ranked.map((r) => ({
       chainId: String(r.chainId),
@@ -422,12 +431,13 @@ async function loadOnChain(id, chainId) {
   if (store.hasNode(newId)) return rerenderDetails(); // already there: never load into, or remove, an existing node
   const before = store.chains();
   store.addNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot });
-  await loadOlderFor(newId);
+  const res = await loadOlderFor(newId);
   if (store.getNode(newId)?.history) {
     logChainAdded(before, chainId);
   } else {
     store.removeNodes([newId]);
-    logger.log({ level: "error", key: "log.loadOnChainEmpty", params: { chain: chainLabel(chainId) } });
+    // Stopped by the user: info, not a failure.
+    logger.log({ level: res?.stopped ? "info" : "error", key: "log.loadOnChainEmpty", params: { chain: chainLabel(chainId) } });
   }
   showNodeDetails(id);
 }
@@ -778,6 +788,7 @@ async function loadOlderFor(id) {
   const done = { edges: res.newEdges, addr: shortAddress(node.address), errors: res.errors };
   const key = res.stopped ? "status.loadOlderStopped" : res.errors ? "status.loadOlderErrors" : "status.loadOlderDone";
   status.set(res.planRequired ? t("status.planRequired", { chain: chainLabel(node.chainId) }) : t(key, done));
+  return res;
 }
 
 function resetGraph() {
