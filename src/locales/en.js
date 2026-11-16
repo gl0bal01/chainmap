@@ -127,6 +127,7 @@ export default {
   "legend.riskInfo": "Info flag (approval / hidden recipient / imitation token)",
   "legend.roundtrip": "Round-trip (cycle)",
   "legend.age": "Edge age (old → recent)",
+  "legend.deposit": "Likely exchange deposit (heuristic)",
 
   // --- sidebar: details -----------------------------------------------------
   "details.title": "Details",
@@ -188,6 +189,18 @@ export default {
   "details.risk": "Risk",
   "details.summary": "Summary",
   "details.flags": "Risk flags",
+  "details.deposit": "Exchange deposit",
+  "deposit.badge": "🏦 likely deposit → {label}",
+  "deposit.tooltip": "🏦 likely deposit → {label} (heuristic)",
+  "deposit.of": "Likely deposit address of {label} (heuristic)",
+  "deposit.swept": "Forwarded {swept} of {outgoing} outgoing transfers to it",
+  "deposit.share": "{pct}% of the {symbol} outflow",
+  "deposit.delay": "Swept within {delay} of the latest inflow ({timed} of {swept} sweeps timed)",
+  "deposit.noInflow": "No inflow seen before the sweep in the sampled data",
+  "deposit.sampled": "Based only on the sampled transactions; verify with the exchange.",
+  "duration.m": "{n} min",
+  "duration.h": "{n} h",
+  "duration.d": "{n} d",
   "risk.high": "High",
   "risk.med": "Medium",
   "risk.low": "Low",
@@ -199,6 +212,7 @@ export default {
   "risk.approval": "unlimited token approval",
   "risk.sanctioned": "sanctioned entity",
   "risk.known": "labeled entity",
+  "risk.deposit": "likely exchange deposit address",
 
   // --- edge decode: call summary + risk flags --------------------------------
   "summary.transfer": "Transfer {amount} → {recipient}",

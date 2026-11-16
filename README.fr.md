@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **562 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **598 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -93,6 +93,15 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   transfert où la valeur transite par des adresses jetables), coloration par ancienneté,
   libellés d'adresses connues, marquage mixeur/pont/sanctionné (badges 🌀/🌉/⛔) et un score
   de risque par nœud *explicable*.
+- **Adresses de dépôt probables d'une plateforme d'échange** (🏦) — une adresse dont les
+  sorties échantillonnées sont allées presque toutes (>= 90 % des transferts et de la valeur de
+  chaque actif balayé) vers un même portefeuille chaud connu d'une plateforme, avec au moins un
+  balayage en monnaie native ou en jeton connu (un transfert de jeton forgé ne peut pas, seul,
+  créer une marque), est marquée
+  « dépôt probable → `<portefeuille>` », avec ses indices dans le panneau de détails et dans le
+  CSV (`likely_deposit_of`, `deposit_evidence`). Une piste heuristique pour une demande de
+  conformité, jamais une attribution. Seules les adresses dont les propres transactions ont été
+  récupérées sont jugées, et seuls les portefeuilles listés dans `data/` sont reconnus.
 - **Base d'adresses connues sourcée** — environ 580 libellés (ponts, routeurs, mixeurs, jetons
   officiels, adresses sanctionnées par l'OFAC, quelques portefeuilles chauds de plateformes
   d'échange) générés à partir de la liste SDN officielle de l'OFAC (sanctions et retraits à la
@@ -188,7 +197,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 562 tests unitaires + d'intégration
+bun test        # 598 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :

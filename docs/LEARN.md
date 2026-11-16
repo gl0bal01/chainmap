@@ -172,8 +172,52 @@ investigators look for:
 - **Per-node risk score** — an *explainable* triage number combining the above (on a cycle,
   hub, high degree, contract calls, known entity). Click a node to see the score **and
   every reason** — no black box.
+- **Exchange deposit addresses** — see the subsection below.
 
 ![investigator overlays: cycle rings + weighted edges + legend](img/overlays.png)
+
+### Exchange deposit addresses
+
+Custodial exchanges give each customer a **unique deposit address**. Whatever a customer
+sends there is later **swept** (forwarded, usually soon and nearly in full) to one of the
+exchange's hot wallets. So an address whose outflow goes almost entirely to **one known
+exchange wallet** is probably a deposit address of that exchange, and that is the lead you
+take to the exchange in a compliance request.
+
+chainmap marks such an address "likely deposit → `<wallet>`" when all of this holds:
+
+- **Its own transactions were fetched**, both native and token ones. Otherwise its outflows
+  in the graph are only what other nodes' fetches happened to show, and it is never judged.
+- It is not itself a known entity, and it sent value to **exactly one** known exchange wallet.
+- **The 90/90 rule:** at least 90 % of its outgoing transfers (by count) went to that wallet,
+  and, for each asset swept, at least 90 % of the value (BigInt on raw units, percent floored,
+  so 99.9 % never reads as 100 %). Fake transfers of imitation or spam-listed tokens are
+  ignored.
+- **At least one sweep is in the chain's native coin or a known token** (listed in `data/`).
+  Anyone can deploy a token whose contract emits a fake `Transfer` from any address, so a
+  forged token transfer cannot create a mark on its own.
+
+The details panel shows the evidence: "forwarded N of M outgoing transfers", the share per
+asset, and a **delay line** ("swept within 10 minutes of the latest inflow"). The delay uses
+the same filter as outflows (fetched action, value > 0, not imitation/spam) and is shown, not
+required: sweep policies run from minutes to weeks, and the inflow is often outside the sample.
+
+Limits, read them before relying on a mark:
+
+- It rests on **sampled data**; the evidence is only as complete as the latest-N fetch.
+- **1 of 1 qualifies.** Deposit addresses are often used once, so the count is shown for you
+  to weigh.
+- Only wallets in `data/` are recognized; other exchanges stay invisible.
+- A flow split across two exchange wallets stays unmarked (could be two exchanges).
+- **Spoofed transfers can still hide a deposit.** Fake transfers of an unknown token count
+  as outgoing transfers, so they can push a real deposit address below the 90 % share.
+- **Assets never swept to the wallet are not value-judged.** A large transfer of another
+  asset elsewhere counts only as one transfer against the 90 % count share.
+- It is judged **per chain**; the same address on two chains is judged twice, independently.
+- It is a **lead, not proof of ownership**: verify with the exchange.
+
+Worked example: in the demo, `0xdec0…0001` is funded by the root and swept to Binance 14
+ten minutes later, so it is marked (illustrative data).
 
 ---
 

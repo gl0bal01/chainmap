@@ -40,6 +40,7 @@ import { addressEvidence, sameAddressLinks } from "../chainTwins.js";
  * @property {(opts?:object)=>void} fit
  * @property {(ids?:string[])=>Record<string,{x:number,y:number}>} getPositions
  * @property {()=>void} refreshLabels
+ * @property {(ids:string[])=>void} refreshNodes re-apply node visuals for these ids (unknown ids skipped)
  * @property {()=>void} refreshProjection            recompute widths + filtered views
  * @property {(opts:DisplayOptions)=>void} setDisplayOptions
  * @property {(id:string)=>boolean} hasRenderedNode is this node (by node id) currently visible?
@@ -107,12 +108,13 @@ function buildOptions(layout) {
  *           getHubKind?:(id:string)=>('sink'|'faucet'|null),
  *           getHubDimOn?:()=>boolean,
  *           getCategory?:(address:string, chainId:string)=>(string|null),
- *           getEdgeFlags?:(edge:import('../graphStore.js').EdgeRecord)=>string[] }} deps
+ *           getEdgeFlags?:(edge:import('../graphStore.js').EdgeRecord)=>string[],
+ *           getDeposit?:(id:string)=>(import('../depositDetect.js').DepositEvidence|null) }} deps
  *   Known-address lookups take the node's own chain; `getKnownNote` is appended to the hover title.
  * @returns {GraphView}
  */
 export function createGraphView(container, store, deps) {
-  const { i18n, getAddressFormat, getLayout, getKnownLabel, getKnownNote, getChainTag, getHubKind, getHubDimOn, getCategory, getEdgeFlags } = deps;
+  const { i18n, getAddressFormat, getLayout, getKnownLabel, getKnownNote, getChainTag, getHubKind, getHubDimOn, getCategory, getEdgeFlags, getDeposit } = deps;
   const vis = window.vis;
 
   const nodesDS = new vis.DataSet([]); // full graph (mirror of store) + annotation nodes
@@ -175,6 +177,13 @@ export function createGraphView(container, store, deps) {
     return tag ? ` · ${tag}` : "";
   };
 
+  function refreshNodes(ids) {
+    for (const id of ids) {
+      const n = store.getNode(id);
+      if (n) applyNode(n);
+    }
+  }
+
   function applyNode(node) {
     const knownLabel = knownFor(node);
     const chainTag = getChainTag ? getChainTag(node.chainId) : null;
@@ -190,15 +199,17 @@ export function createGraphView(container, store, deps) {
     const hubTitle = hub ? `${visual.title} · ${i18n.t("risk." + hub)}` : visual.title;
     const baseTitle = note ? `${hubTitle} · ${note}` : hubTitle;
     const more = hasMoreHistory(node);
+    const dep = getDeposit ? getDeposit(node.id) : null;
     const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
       id: node.id,
       chainId: node.chainId,
-      label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel, chainTag }),
+      label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel, chainTag }) +
+        (dep ? "\n" + i18n.t("deposit.badge", { label: dep.label }) : ""),
       color: ringColor ? { background: bg, border: ringColor } : more ? { background: bg, border: MORE_BORDER } : bg,
       borderWidth: ringColor ? 3 : more ? 2 : 1,
       shapeProperties: { borderDashes: more ? [4, 3] : false },
-      title: icon ? `${icon} ${baseTitle}` : baseTitle,
+      title: (icon ? `${icon} ${baseTitle}` : baseTitle) + (dep ? " · " + i18n.t("deposit.tooltip", { label: dep.label }) : ""),
     });
   }
 
@@ -575,6 +586,7 @@ export function createGraphView(container, store, deps) {
     fit: (opts) => network.fit(opts || DEFAULT_FIT_OPTS),
     getPositions: (ids) => network.getPositions(ids ?? nodesDS.getIds()),
     refreshLabels: () => store.listNodes().forEach(applyNode),
+    refreshNodes,
     refreshProjection,
     setDisplayOptions,
     setBundling,

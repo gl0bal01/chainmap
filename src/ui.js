@@ -14,6 +14,7 @@ import { TX_TYPE_GROUPS } from "./config.js";
 import { methodName } from "./selectors.js";
 import { summarizeCall, decodeCalldataWords, decodeInputText } from "./abiDecode.js";
 import { flagsForEdge } from "./riskFlags.js";
+import { delayParts } from "./depositDetect.js";
 
 // action -> i18n labelKey (flattened from config.TX_TYPE_GROUPS), used to render
 // the edge "Type" cell (e.g. "tokentx" -> "tx.type.erc20").
@@ -101,6 +102,7 @@ function explorerLink(href, text) {
  *   (from `historyState`, plus each type's `labelKey`) adds the History row and a Load
  *   button (+`pageSize`) whose click calls `onLoadOlder`; the button is disabled when every
  *   type is complete, while `busy`, or when `loadBlocked` (a localized refusal) is set.
+ *   `deposit` (DepositEvidence|null, optional) adds the Exchange deposit row after Risk.
  *   A null `explorer` (unknown chain) omits the Link row.
  */
 export function renderNodeDetails(container, node, deps) {
@@ -131,6 +133,28 @@ export function renderNodeDetails(container, node, deps) {
     const reasons = deps.risk.reasons.map((k) => i18n.t(k)).join(", ");
     const txt = reasons ? `${i18n.t("risk." + deps.risk.level)} — ${reasons}` : i18n.t("risk." + deps.risk.level);
     table.appendChild(detailRow(i18n.t("details.risk"), txt));
+  }
+  if (deps.deposit) {
+    const d = deps.deposit;
+    const lines = [
+      i18n.t("deposit.of", { label: d.label }),
+      i18n.t("deposit.swept", { swept: d.swept, outgoing: d.outgoing }),
+      ...d.assets.map((x) => i18n.t("deposit.share", { pct: x.sharePct, symbol: x.symbol })),
+    ];
+    if (d.maxDelaySec != null) {
+      const p = delayParts(d.maxDelaySec);
+      lines.push(i18n.t("deposit.delay", { delay: i18n.t(p.key, p.params), timed: d.timedSweeps, swept: d.swept }));
+    } else {
+      lines.push(i18n.t("deposit.noInflow"));
+    }
+    lines.push(i18n.t("deposit.sampled"));
+    const box = document.createElement("div");
+    for (const l of lines) {
+      const row = document.createElement("div");
+      row.textContent = l;
+      box.appendChild(row);
+    }
+    table.appendChild(detailRow(i18n.t("details.deposit"), box));
   }
   // An empty list (no tx type selected) renders neither the row nor the button.
   if (deps.history && deps.history.length) {

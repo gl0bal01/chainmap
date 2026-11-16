@@ -12,7 +12,7 @@
   },
   "annotations": [
     {
-      "text": "Ronin Bridge hack (Mar 2022) — illustrative teaching reconstruction, extended to showcase every investigator overlay. LABELED node addresses are REAL (Ronin Exploiter/Bridge, Tornado pools, Uniswap, Binance, USDC — click to open on Etherscan). The drainer / peel-hop / hidden-recipient addresses (0xbad…, 0xf00d…) are ILLUSTRATIVE PLACEHOLDERS, as are all amounts and tx hashes. Teaching aid, not forensic data. The Arbitrum One hop (0xf00d…0003 → 0xf00d…0004) is ILLUSTRATIVE too: the same address on two chains, linked as “same key” because it signed a transaction on Arbitrum.",
+      "text": "Ronin Bridge hack (Mar 2022) — illustrative teaching reconstruction, extended to showcase every investigator overlay. LABELED node addresses are REAL (Ronin Exploiter/Bridge, Tornado pools, Uniswap, Binance, USDC — click to open on Etherscan). The drainer / peel-hop / hidden-recipient addresses (0xbad…, 0xf00d…) are ILLUSTRATIVE PLACEHOLDERS, as are all amounts and tx hashes. Teaching aid, not forensic data. The Arbitrum One hop (0xf00d…0003 → 0xf00d…0004) is ILLUSTRATIVE too: the same address on two chains, linked as “same key” because it signed a transaction on Arbitrum. The 0xdec0…0001 address is an ILLUSTRATIVE exchange deposit address: funded by the root, swept to Binance 14 ten minutes later — marked \"likely deposit\" by the heuristic.",
       "x": 0,
       "y": -600
     }
@@ -116,6 +116,29 @@
         "depth": 4,
         "isRoot": false,
         "alias": null
+      },
+      {
+        "chainId": "1",
+        "address": "0xdec0000000000000000000000000000000000001",
+        "depth": 1,
+        "isRoot": false,
+        "alias": null,
+        "history": {
+          "txlist": {
+            "oldestBlock": "14466000",
+            "blockPage": 0,
+            "pageSize": 0,
+            "done": true,
+            "count": 3
+          },
+          "tokentx": {
+            "oldestBlock": "0",
+            "blockPage": 0,
+            "pageSize": 0,
+            "done": true,
+            "count": 0
+          }
+        }
       }
     ],
     "edges": [
@@ -461,6 +484,69 @@
         "blockNumber": "190000000",
         "chainId": "42161",
         "tokenDecimal": ""
+      },
+      {
+        "chainId": "1",
+        "key": "1|txlist|0xd1|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0xdec0000000000000000000000000000000000001||",
+        "action": "txlist",
+        "group": "normal",
+        "color": "#4f8ef7",
+        "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96",
+        "to": "0xdec0000000000000000000000000000000000001",
+        "hash": "0xd1",
+        "symbol": "ETH",
+        "tokenContract": "",
+        "tokenId": "",
+        "value": "7000000000000000000",
+        "amountText": "7",
+        "amountIndeterminate": false,
+        "hasData": false,
+        "methodId": "",
+        "methodArgs": [],
+        "timeStamp": "1648720000",
+        "blockNumber": "14466000"
+      },
+      {
+        "chainId": "1",
+        "key": "1|txlist|0xd2|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0xdec0000000000000000000000000000000000001||",
+        "action": "txlist",
+        "group": "normal",
+        "color": "#4f8ef7",
+        "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96",
+        "to": "0xdec0000000000000000000000000000000000001",
+        "hash": "0xd2",
+        "symbol": "ETH",
+        "tokenContract": "",
+        "tokenId": "",
+        "value": "5000000000000000000",
+        "amountText": "5",
+        "amountIndeterminate": false,
+        "hasData": false,
+        "methodId": "",
+        "methodArgs": [],
+        "timeStamp": "1648720300",
+        "blockNumber": "14466022"
+      },
+      {
+        "chainId": "1",
+        "key": "1|txlist|0xd3|0xdec0000000000000000000000000000000000001|0x28c6c06298d514db089934071355e5743bf21d60||",
+        "action": "txlist",
+        "group": "normal",
+        "color": "#4f8ef7",
+        "from": "0xdec0000000000000000000000000000000000001",
+        "to": "0x28c6c06298d514db089934071355e5743bf21d60",
+        "hash": "0xd3",
+        "symbol": "ETH",
+        "tokenContract": "",
+        "tokenId": "",
+        "value": "11990000000000000000",
+        "amountText": "11.99",
+        "amountIndeterminate": false,
+        "hasData": false,
+        "methodId": "",
+        "methodArgs": [],
+        "timeStamp": "1648720900",
+        "blockNumber": "14466067"
       }
     ]
   }

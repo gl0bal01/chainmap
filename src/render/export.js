@@ -260,24 +260,33 @@ export async function exportPdf(view, store, deps) {
 
 /** Header row for the CSV export (node rows leave tx_type/from/... blank, and
  *  vice versa — one wide sparse table keeps a single header for both kinds).
- *  The last five columns are decoded-calldata columns (edge rows only). */
+ *  The decoded-calldata columns (edge rows only) are followed by chain_id and
+ *  the two deposit columns (node rows only). */
 const CSV_HEADER = [
   "row_type", "address", "alias", "depth", "is_root",
   "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
   "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
+  "likely_deposit_of", "deposit_evidence",
 ];
+
+const DEPOSIT_CAVEAT = "; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet) - not an attribution";
+
+const depositEvidenceText = (d) =>
+  `wallet=${d.wallet};swept=${d.swept}/${d.outgoing};share=${d.assets.map((a) => `${a.symbol}:${a.sharePct}%`).join(",")};max_delay_s=${d.maxDelaySec ?? "none"}`;
 
 /**
  * Build all CSV rows (caveat + header + node/edge rows). Pure — no DOM.
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ category:(addr:string, chainId:string)=>(string|null), isFakeToken?:(edge:object)=>boolean,
- *           formatTimestamp?:(t:string)=>string }} ctx
+ *           formatTimestamp?:(t:string)=>string,
+ *           deposits?:Map<string, import('../depositDetect.js').DepositEvidence> }} ctx
  * @returns {string[][]}
  */
 export function buildCsvRows(store, ctx) {
   const fmtTs = (ctx && ctx.formatTimestamp) || formatTimestamp;
   const category = (ctx && ctx.category) || (() => null);
   const isFakeToken = ctx && ctx.isFakeToken;
+  const deposits = (ctx && ctx.deposits) || new Map();
   const nodes = store.listNodes();
   const multiChain = new Set(nodes.map((n) => n.chainId)).size >= 2;
   const rows = [
@@ -285,15 +294,18 @@ export function buildCsvRows(store, ctx) {
     // during the scan (latest-first, capped per address/type) — not full
     // on-chain history. Kept as the first CSV line so it survives copy/paste.
     ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete" +
-      (multiChain ? "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer" : "")],
+      (multiChain ? "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer" : "") +
+      (nodes.some((n) => deposits.has(n.id)) ? DEPOSIT_CAVEAT : "")],
     CSV_HEADER,
   ];
 
   for (const n of nodes) {
+    const d = deposits.get(n.id);
     rows.push([
       "node", n.address, n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
       "", "", "", "", "", "", "", "",
       "", "", "", "", "", n.chainId,
+      d ? d.label : "", d ? depositEvidenceText(d) : "",
     ]);
   }
   for (const e of store.listEdges()) {
@@ -315,7 +327,7 @@ export function buildCsvRows(store, ctx) {
       "edge", "", "", "", "",
       e.group || "", e.from || "", e.to || "", e.amountText || "", e.symbol || "",
       e.hash || "", e.blockNumber || "", fmtTs(e.timeStamp),
-      method, sig, realRecipient, decodedAmount, flags, e.chainId,
+      method, sig, realRecipient, decodedAmount, flags, e.chainId, "", "",
     ]);
   }
   return rows;
@@ -326,7 +338,8 @@ export function buildCsvRows(store, ctx) {
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ onLog:(e:{level:string,key:string,params?:object})=>void,
  *           category?:(addr:string, chainId:string)=>(string|null),
- *           isFakeToken?:(edge:object)=>boolean }} deps
+ *           isFakeToken?:(edge:object)=>boolean,
+ *           deposits?:Map<string, import('../depositDetect.js').DepositEvidence> }} deps
  */
 export function exportCsv(store, deps) {
   const { onLog } = deps;
@@ -336,7 +349,7 @@ export function exportCsv(store, deps) {
     return;
   }
 
-  const rows = buildCsvRows(store, { category: deps.category, isFakeToken: deps.isFakeToken });
+  const rows = buildCsvRows(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits });
 
   const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });

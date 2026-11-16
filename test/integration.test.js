@@ -542,6 +542,70 @@ test("node details render a Source provenance row only when getKnownSource retur
   expect(xss.textContent).toContain(payload); // present as inert text
 });
 
+test("node details render the Exchange deposit row from evidence (textContent only)", async () => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const node = { address: ROOT, depth: 1, isRoot: false, alias: null };
+  const evil = '<img src=x onerror="alert(1)">';
+  const dep = {
+    walletId: ID("1", N2), wallet: N2, label: evil, swept: 9, outgoing: 10,
+    assets: [{ symbol: "ETH", contract: "", sharePct: 100 }, { symbol: evil, contract: TOKEN, sharePct: 93 }],
+    maxDelaySec: 5400, timedSweeps: 7,
+  };
+  const render = (deposit) => {
+    const box = document.createElement("div");
+    ui.renderNodeDetails(box, node, { i18n, explorer: "etherscan.io", onRename: () => {}, deposit });
+    return box;
+  };
+  const box = render(dep);
+  expect(box.querySelector("img")).toBeNull();
+  const txt = box.textContent;
+  expect(txt).toContain("Exchange deposit");
+  expect(txt).toContain(`Likely deposit address of ${evil} (heuristic)`);
+  expect(txt).toContain("Forwarded 9 of 10 outgoing transfers to it");
+  expect(txt).toContain("100% of the ETH outflow");
+  expect(txt).toContain(`93% of the ${evil} outflow`);
+  expect(txt).toContain("Swept within 2 h of the latest inflow (7 of 9 sweeps timed)");
+  expect(txt).toContain("Based only on the sampled transactions; verify with the exchange.");
+  const untimed = render({ ...dep, maxDelaySec: null, timedSweeps: 0 }).textContent;
+  expect(untimed).toContain("No inflow seen before the sweep in the sampled data");
+  expect(untimed).not.toContain("Swept within");
+  expect(render(null).textContent).not.toContain("Exchange deposit");
+});
+
+test("graph view appends the deposit line + tooltip from getDeposit; refreshNodes re-applies; French", async () => {
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { createGraphView } = await import("../src/render/network.js");
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const store = new GraphStore();
+  let dep = null;
+  const view = createGraphView(document.createElement("div"), store, {
+    i18n, getAddressFormat: () => "short", getDeposit: (id) => (id === ID("1", N2) ? dep : null),
+  });
+  try {
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("1", N2, { depth: 1 });
+    const item = (id) => view.network.nodes.get(id);
+    expect(item(ID("1", N2)).label).not.toContain("🏦");
+    dep = { walletId: ID("1", N3), wallet: N3, label: "Binance 14 (hot wallet)", swept: 1, outgoing: 1, assets: [], maxDelaySec: null, timedSweeps: 0 };
+    view.refreshNodes([ID("1", N2), "1:0xmissing"]); // unknown id: skipped, no throw
+    expect(item(ID("1", N2)).label.endsWith("\n🏦 likely deposit → Binance 14 (hot wallet)")).toBe(true);
+    expect(item(ID("1", N2)).title).toContain("🏦 likely deposit → Binance 14 (hot wallet) (heuristic)");
+    expect(item(ID("1", ROOT)).label).not.toContain("🏦");
+    i18n.setLocale("fr");
+    view.refreshLabels();
+    expect(item(ID("1", N2)).label).toContain("dépôt probable");
+  } finally {
+    view.destroy();
+  }
+});
+
 test("demo workspace showcases every investigator overlay (6 categories, all 5 risk flags, peel chain, NFT) and holds store invariants", async () => {
   const { parseWorkspace } = await import("../src/workspace.js");
   const { GraphStore } = await import("../src/graphStore.js");
@@ -613,6 +677,134 @@ test("demo shows the same-key hop", async () => {
   const lab = (c) => window.vis.Network.first.nodes.get(ID(c, F3)).label;
   expect(lab("1").endsWith("\nEthereum")).toBe(true);
   expect(lab("42161").endsWith("\nArbitrum One")).toBe(true);
+});
+
+const DEPOSIT = "0xdec0000000000000000000000000000000000001";
+const BINANCE14 = "0x28c6c06298d514db089934071355e5743bf21d60";
+const badged = (id) => (visNode(id)?.label || "").includes("🏦");
+const DEP_HIST = {
+  txlist: { oldestBlock: "1", blockPage: 0, pageSize: 0, done: true, count: 1 },
+  tokentx: { oldestBlock: "0", blockPage: 0, pageSize: 0, done: true, count: 0 },
+};
+
+test("demo deposit evidence (pure): exactly one, 0xdec0…0001 -> Binance 14, 1/1, ETH 100%, 600 s", async () => {
+  const { parseWorkspace } = await import("../src/workspace.js");
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { findDeposits } = await import("../src/depositDetect.js");
+  const { knownEntry } = await import("../src/knownAddresses.js");
+  const demo = JSON.parse(await Bun.file(new URL("../data/demo-workspace.json", import.meta.url)).text());
+  const store = new GraphStore();
+  const parsed = parseWorkspace(JSON.stringify(demo));
+  store.loadSnapshot(parsed.data.nodes, parsed.data.edges);
+  const map = findDeposits(store.listNodes(), store.listEdges(), { known: (a, c) => knownEntry(a, c, KNOWN) });
+  expect([...map.keys()]).toEqual([ID("1", DEPOSIT)]);
+  expect(map.get(ID("1", DEPOSIT))).toEqual({
+    walletId: ID("1", BINANCE14), wallet: BINANCE14, label: "Binance 14 (hot wallet)", swept: 1, outgoing: 1,
+    assets: [{ symbol: "ETH", contract: "", sharePct: 100 }], maxDelaySec: 600, timedSweeps: 1,
+  });
+});
+
+test("demo marks the illustrative deposit: badge, tooltip, details row, risk reason, CSV", async () => {
+  await knownLoaded();
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    const id = ID("1", DEPOSIT);
+    await until(() => badged(id));
+    expect(visNode(id).label).toContain("🏦 likely deposit → Binance 14 (hot wallet)");
+    expect(visNode(id).title).toContain("(heuristic)");
+    expect(badged(ID("1", DEMO_ROOT))).toBe(false);
+    window.vis.Network.first._on.click[0]({ nodes: [id], edges: [] });
+    const txt = $("detailsContent").textContent;
+    expect(txt).toContain("Exchange deposit");
+    expect(txt).toContain("Forwarded 1 of 1 outgoing transfers to it");
+    expect(txt).toContain("100% of the ETH outflow");
+    expect(txt).toContain("Swept within 10 min of the latest inflow (1 of 1 sweeps timed)");
+    expect(txt).toContain("likely exchange deposit address");
+    const lines = (await captureCsv()).split("\n");
+    expect(lines[0]).toContain("likely_deposit_of is a heuristic");
+    expect(lines[1].endsWith(",chain_id,likely_deposit_of,deposit_evidence")).toBe(true);
+    const row = lines.find((l) => l.startsWith(`node,${DEPOSIT},`));
+    expect(row.endsWith(`,1,Binance 14 (hot wallet),wallet=${BINANCE14};swept=1/1;share=ETH:100%;max_delay_s=600`)).toBe(true);
+  } finally {
+    $("resetBtn").click();
+  }
+});
+
+test("pruning the hot wallet removes the mark and its details row; reset + reload leaves no stale mark", async () => {
+  await knownLoaded();
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    const id = ID("1", DEPOSIT);
+    await until(() => badged(id));
+    window.vis.Network.first._on.click[0]({ nodes: [id], edges: [] });
+    expect($("detailsContent").textContent).toContain("Exchange deposit");
+    window.vis.Network.first.setSelection({ nodes: [ID("1", BINANCE14)] });
+    $("deleteNodesBtn").click();
+    await until(() => !badged(id));
+    expect(badged(id)).toBe(false);
+    await until(() => !$("detailsContent").textContent.includes("Exchange deposit"));
+    expect($("detailsContent").textContent).not.toContain("Exchange deposit");
+    // Reset + reload the SAME node (with history) but no sweep edge: the old evidence must not survive.
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => badged(id));
+    expect(badged(id)).toBe(true);
+    await loadAsDemo(v3ws(
+      [v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node("1", DEPOSIT, { history: DEP_HIST })],
+      [v3Edge({ hash: "0xs1", to: DEPOSIT })],
+    ));
+    await until(() => visNode(id) && !badged(id));
+    expect(visNode(id)).toBeDefined();
+    expect(badged(id)).toBe(false);
+    window.vis.Network.first._on.click[0]({ nodes: [id], edges: [] });
+    expect($("detailsContent").textContent).not.toContain("Exchange deposit");
+    const lines = (await captureCsv()).split("\n");
+    expect(lines[0]).not.toContain("likely_deposit_of");
+    expect(lines.find((l) => l.startsWith(`node,${DEPOSIT},`)).endsWith(",1,,")).toBe(true);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a saved workspace never carries deposit evidence", async () => {
+  await knownLoaded();
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    await until(() => badged(ID("1", DEPOSIT)));
+    URL.createObjectURL = (b) => ((captured = b), "blob:x");
+    URL.revokeObjectURL = () => {};
+    $("saveBtn").click();
+    const saved = JSON.parse(await captured.text());
+    expect(saved.version).toBe(3);
+    const keys = [Object.keys(saved), Object.keys(saved.graph), ...saved.graph.nodes.map(Object.keys), ...saved.graph.edges.map(Object.keys)].flat();
+    expect(keys.filter((k) => /deposit/i.test(k))).toEqual([]);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    $("resetBtn").click();
+  }
+});
+
+test("a scan whose root sweeps to a known exchange wallet is marked when the scan ends", async () => {
+  await knownLoaded();
+  const prev = { txlist: CANNED.txlist, tokentx: CANNED.tokentx };
+  CANNED.txlist = [{ from: ROOT, to: BINANCE14, value: "1000000000000000000", hash: "0xdd1", isError: "0", txreceipt_status: "1", timeStamp: "1700000000", blockNumber: "100" }];
+  CANNED.tokentx = [];
+  try {
+    await freshScan("20");
+    await until(() => badged(ID("1", ROOT)));
+    expect(visNode(ID("1", ROOT)).label).toContain("Binance 14 (hot wallet)");
+  } finally {
+    Object.assign(CANNED, prev);
+    $("resetBtn").click();
+    restoreForm();
+  }
 });
 
 test("scan marks nodes with more history using a dashed border", async () => {
@@ -1555,12 +1747,12 @@ test("CSV: chain_id on every row, per-chain flags, multi-chain caveat", async ()
     expect(lines[1].startsWith("row_type,")).toBe(true);
     const data = lines.filter((l) => /^(node|edge),/.test(l));
     expect(data.length).toBe(6);
-    for (const l of data) expect(/,(1|56)$/.test(l)).toBe(true);
+    for (const l of data) expect(/,(1|56),,$/.test(l)).toBe(true);
     const m1 = lines.find((l) => l.includes("0xm1")), m2 = lines.find((l) => l.includes("0xm2"));
     expect(m1).toContain("flag.mixer");
-    expect(m1.endsWith(",1")).toBe(true);
+    expect(m1.endsWith(",1,,")).toBe(true);
     expect(m2).not.toContain("flag.mixer");
-    expect(m2.endsWith(",56")).toBe(true);
+    expect(m2.endsWith(",56,,")).toBe(true);
   } finally {
     $("resetBtn").click();
     restoreForm();
@@ -1910,7 +2102,7 @@ test("chain filter: shown at 2 chains, hides one chain's nodes and edges, store 
     expect(net.edges.get().some((e) => e.id.startsWith("42161|"))).toBe(false);
     expect(net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length).toBe(n1);
     expect(net.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(e1);
-    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161"));
+    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161,,"));
     expect(rows.length).toBe(3);
     URL.createObjectURL = (b) => ((captured = b), "blob:x");
     URL.revokeObjectURL = () => {};
