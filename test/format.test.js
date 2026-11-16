@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import {
   csvEscape,
   edgeDedupKey,
+  edgeKey,
   escapeHtml,
   formatTimestamp,
   formatUnits,
   isFailedTx,
   isValidAddress,
   lc,
+  nodeId,
+  parseChainId,
   shortAddress,
   trimZero,
 } from "../src/format.js";
@@ -258,4 +261,21 @@ describe("formatTimestamp", () => {
     expect(formatTimestamp(null)).toBe("");
     expect(formatTimestamp("")).toBe("");
   });
+});
+
+test("parseChainId accepts decimal chain ids (string or number) and rejects the rest", () => {
+  expect(parseChainId("1")).toBe("1");
+  expect(parseChainId(42161)).toBe("42161");
+  expect(parseChainId("007")).toBe("7");
+  for (const bad of [undefined, null, "", " 1", "1.0", "1e3", "-1", -1, 1.5, "0x1", "eth", "9007199254740993", {}, []]) {
+    expect(parseChainId(bad)).toBeNull();
+  }
+});
+test("nodeId is chainId:lowercased address", () => {
+  expect(nodeId("56", "0xAbC")).toBe("56:0xabc");
+});
+test("edgeKey prefixes the dedup key with the chain: one raw tx on chains 1 and 56 gives two keys", () => {
+  const tx = { hash: "0xh", from: "0xA", to: "0xB" };
+  expect(edgeKey("1", "txlist", tx)).toBe("1|" + edgeDedupKey("txlist", tx));
+  expect(edgeKey("1", "txlist", tx)).not.toBe(edgeKey("56", "txlist", tx));
 });

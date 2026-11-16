@@ -41,8 +41,8 @@ import { hasMoreHistory } from "../history.js";
  * @property {()=>void} refreshLabels
  * @property {()=>void} refreshProjection            recompute widths + filtered views
  * @property {(opts:DisplayOptions)=>void} setDisplayOptions
- * @property {(address:string)=>boolean} hasRenderedNode is this node currently visible?
- * @property {(address:string)=>void} focusNode select + center a visible node (no-op if hidden)
+ * @property {(id:string)=>boolean} hasRenderedNode is this node (by node id) currently visible?
+ * @property {(id:string)=>void} focusNode select + center a visible node by node id (no-op if hidden)
  * @property {(key:string)=>(string|null)} selectEdge resolve a raw edge key to the rendered id (bundle-aware) and select it; never throws
  * @property {()=>void} destroy
  */
@@ -101,7 +101,7 @@ function buildOptions(layout) {
  * @param {{ i18n:import('../i18n.js').I18n, getAddressFormat:()=>('short'|'full'),
  *           getLayout?:()=>('force'|'hierarchical'),
  *           getKnownLabel?:(address:string)=>(string|null),
- *           getHubKind?:(address:string)=>('sink'|'faucet'|null),
+ *           getHubKind?:(id:string)=>('sink'|'faucet'|null),
  *           getHubDimOn?:()=>boolean,
  *           getCategory?:(address:string)=>(string|null),
  *           getEdgeFlags?:(edge:import('../graphStore.js').EdgeRecord)=>string[] }} deps
@@ -122,8 +122,8 @@ export function createGraphView(container, store, deps) {
   let hubHidden = { faucet: false, sink: false }; // reversible faucet/sink hide (display projection only)
   // Investigator overlays
   let roundTripOn = false;
-  let roundTripSet = new Set(); // addresses on a directed cycle
-  let peelNodes = new Set(); // addresses on a highlighted peel chain
+  let roundTripSet = new Set(); // node ids on a directed cycle
+  let peelNodes = new Set(); // node ids on a highlighted peel chain
   const PEEL_COLOR = "#7b61ff";
   const MORE_BORDER = "#e8eef7"; // light so the dashed more-history border contrasts the fill
   let colorByAge = false;
@@ -141,8 +141,8 @@ export function createGraphView(container, store, deps) {
     filter: (n) => {
       if (n.group === "annotation") return true;
       if (!(visibleNodes === null || visibleNodes.has(n.id))) return false;
-      // Node DataSet items only carry `.id` (the lowercased address) — applyNode()
-      // never sets a separate `.address` field — so look hub kind up by id.
+      // Node DataSet items only carry `.id` (the node id, chainId:address) —
+      // applyNode() never sets a separate `.address` field — so look hub kind up by id.
       const kind = getHubKind ? getHubKind(n.id) : null;
       return !shouldHideNode(kind, hubHidden);
     },
@@ -153,7 +153,7 @@ export function createGraphView(container, store, deps) {
 
   const knownFor = (address) => (getKnownLabel ? getKnownLabel(address) : null);
 
-  const hubFor = (address) => (getHubKind ? getHubKind(address) : null);
+  const hubFor = (id) => (getHubKind ? getHubKind(id) : null);
 
   const catFor = (address) => (getCategory ? getCategory(address) : null);
   const CAT_ICON = { mixer: "🌀", bridge: "🌉", sanctioned: "⛔" };
@@ -165,18 +165,18 @@ export function createGraphView(container, store, deps) {
   function applyNode(node) {
     const knownLabel = knownFor(node.address);
     const visual = labels.nodeVisual(node, { knownLabel });
-    const hub = hubFor(node.address); // 'sink' | 'faucet' | null — used for title + (elsewhere) hide filter
+    const hub = hubFor(node.id); // 'sink' | 'faucet' | null — used for title + (elsewhere) hide filter
     const dimOn = getHubDimOn ? getHubDimOn() : false; // dim-only toggle, decoupled from hide
     const bg = hub && dimOn ? "#3f4048" : visual.color; // de-emphasize detected sink/faucet hubs only when dim-only toggle is on
-    const rt = roundTripOn && roundTripSet.has(node.address); // on a cycle -> amber ring
-    const onPeel = peelNodes.has(node.address); // on a highlighted peel chain -> violet ring (wins over round-trip)
+    const rt = roundTripOn && roundTripSet.has(node.id); // on a cycle -> amber ring
+    const onPeel = peelNodes.has(node.id); // on a highlighted peel chain -> violet ring (wins over round-trip)
     const cat = catFor(node.address);
     const icon = CAT_ICON[cat] || "";
     const baseTitle = hub ? `${visual.title} · ${i18n.t("risk." + hub)}` : visual.title;
     const more = hasMoreHistory(node);
     const ringColor = onPeel ? PEEL_COLOR : (rt ? "#e8b84f" : null);
     nodesDS.update({
-      id: node.address,
+      id: node.id,
       label: labels.nodeLabel(node, { addressFormat: getAddressFormat(), knownLabel }),
       color: ringColor ? { background: bg, border: ringColor } : more ? { background: bg, border: MORE_BORDER } : bg,
       borderWidth: ringColor ? 3 : more ? 2 : 1,
@@ -213,7 +213,7 @@ export function createGraphView(container, store, deps) {
   function applyEdge(edge) {
     const amount = edgeAmountNumber(edge);
     if (amount > maxAmount) maxAmount = amount;
-    edgesDS.add({ id: edge.key, from: edge.from, to: edge.to, data: edge, ...edgeVisual(edge) });
+    edgesDS.add({ id: edge.key, from: edge.fromId, to: edge.toId, data: edge, ...edgeVisual(edge) });
   }
 
   /** Edge color: age gradient when "color by age" is on, else the tx-type color. */
@@ -252,13 +252,13 @@ export function createGraphView(container, store, deps) {
       ids.add(e.to);
     });
     store.listNodes().forEach((n) => {
-      if (n.isRoot) ids.add(n.address);
+      if (n.isRoot) ids.add(n.id);
     });
     visibleNodes = ids;
   }
 
   // Bundling: collapse the currently-visible per-tx edges into one arrow per
-  // (from,to,contract,symbol). Store per-tx rows are untouched; memberKeys let the
+  // (fromId,toId,contract,symbol). Store per-tx rows are untouched; memberKeys let the
   // detail panel drill back. Rebuilt from the FILTERED edge view.
   function rebuildBundles() {
     const records = edgesView.get().map((e) => e.data);
@@ -276,8 +276,8 @@ export function createGraphView(container, store, deps) {
         const baseTitle = `${b.count} tx — ${b.totalText} ${b.symbol}`.trim();
         return {
           id: b.id,
-          from: b.from,
-          to: b.to,
+          from: b.fromId,
+          to: b.toId,
           label: sev ? `${label} ${RISK_MARK[sev]}` : (b.hasData ? `${label} ✱` : label),
           color: { color: sev ? RISK_COLOR[sev] : b.color },
           width: sev === "high" ? baseWidth + 2 : sev === "info" ? baseWidth + 1 : baseWidth,
@@ -375,18 +375,18 @@ export function createGraphView(container, store, deps) {
     nodesView.refresh();
   }
 
-  /** True iff `address` is currently visible in the (filtered) node view — used
+  /** True iff node `id` is currently visible in the (filtered) node view — used
    *  by the command palette to decide whether a jump-to needs an auto-reveal. */
-  function hasRenderedNode(address) {
-    return nodesView.get(address) != null;
+  function hasRenderedNode(id) {
+    return nodesView.get(id) != null;
   }
 
   /** Select + center a node the palette jumped to. No-op (no throw) if the node
    *  isn't currently in the view — caller reveals it first. */
-  function focusNode(address) {
-    if (nodesView.get(address) == null) return;
-    network.selectNodes([address]);
-    network.focus(address, { scale: network.getScale(), animation: true });
+  function focusNode(id) {
+    if (nodesView.get(id) == null) return;
+    network.selectNodes([id]);
+    network.focus(id, { scale: network.getScale(), animation: true });
   }
 
   /** Resolve a RAW store edge key to whatever id is CURRENTLY RENDERED for it
@@ -473,9 +473,9 @@ export function createGraphView(container, store, deps) {
         // Store already emits edge:remove for each connected edge from edgesDS;
         // this sweep is defensive (when bundled, network shows bundledDS so these
         // ids won't match — the real removal came via the edge:remove events).
-        const edgeIds = network.getConnectedEdges(e.address);
+        const edgeIds = network.getConnectedEdges(e.id);
         if (edgeIds.length) edgesDS.remove(edgeIds);
-        nodesDS.remove(e.address);
+        nodesDS.remove(e.id);
         if (bundled) rebuildBundles();
         break;
       }
@@ -491,7 +491,7 @@ export function createGraphView(container, store, deps) {
         if (bundled) rebuildBundles(); // keep collapsed arrows current when a member is pruned
         break;
       case "alias:set": {
-        const node = store.getNode(e.address);
+        const node = store.getNode(e.id);
         if (node) applyNode(node);
         break;
       }

@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { classifyHubs, hubDim, shouldHideNode } from "../src/sinkFaucet.js";
 
-const edge = (from, to) => ({ from, to });
+const edge = (from, to) => ({ fromId: from, toId: to });
 
 test("high in-degree, zero out-degree -> sink", () => {
   const edges = [];
@@ -105,7 +105,7 @@ test("tie under low ratio prefers the larger side (sink on equal degrees)", () =
 
 test("candidate addresses come from nodes and/or edges", () => {
   // node present but no edges touching it -> never classified (degree 0 < minDegree)
-  const nodes = [{ address: "0xisolated", depth: 0, isRoot: false, alias: null }];
+  const nodes = [{ id: "1:0xisolated", depth: 0, isRoot: false, alias: null }];
   const result = classifyHubs(nodes, [], {});
   expect(result.size).toBe(0);
 });
@@ -124,4 +124,14 @@ test("shouldHideNode respects the per-kind toggle", () => {
   expect(shouldHideNode("sink", { faucet: false, sink: true })).toBe(true);
   expect(shouldHideNode(null, { faucet: true, sink: true })).toBe(false);
   expect(shouldHideNode("faucet", undefined)).toBe(false);
+});
+
+test("hubs are per chain: 4 senders on chain 1 + 4 on chain 8453 to one address is no sink", () => {
+  const edges = [];
+  for (let i = 0; i < 4; i++) edges.push(edge(`1:s${i}`, "1:hub"), edge(`8453:s${i}`, "8453:hub"));
+  expect(classifyHubs([], edges, {}).size).toBe(0);
+  for (let i = 4; i < 8; i++) edges.push(edge(`1:s${i}`, "1:hub"));
+  const hubs = classifyHubs([], edges, {});
+  expect(hubs.get("1:hub")).toBe("sink");
+  expect(hubs.has("8453:hub")).toBe(false);
 });

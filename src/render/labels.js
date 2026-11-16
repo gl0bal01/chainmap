@@ -3,8 +3,8 @@
 // (no vis, no DOM): given a record + display settings, return label/color specs.
 //
 // STAGE A: interface frozen. STAGE B: implement + unit tests.
-// Identity vs display: node id is ALWAYS the raw lowercased address; labels are
-// derived here and never change ids.
+// Identity vs display: node id is ALWAYS `chainId:address` (format.nodeId);
+// labels are derived here and never change ids.
 // =============================================================================
 
 import { ROOT_COLOR } from "../config.js";
@@ -23,7 +23,7 @@ export function depthColor(depth) {
 /**
  * Node label text: display name + short/full address per `addressFormat`.
  * Name precedence: user alias > known-address label > (none). Identity (id) is
- * always the raw address; this only affects the drawn label.
+ * always the node id; this only affects the drawn label.
  * @param {import('../graphStore.js').NodeRecord} node
  * @param {{ addressFormat:'short'|'full', knownLabel?:string|null }} opts
  * @returns {string}

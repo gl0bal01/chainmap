@@ -14,7 +14,7 @@ export const API_BASE = "https://api.etherscan.io/v2/api";
  * Supported chains. `explorer` is used ONLY to build outbound address/tx links
  * (block-explorer navigation, never fetched). `name` is a proper noun — not
  * translated. `native` is the chain's native currency ticker (shown on edges
- * for value transfers that aren't a token, via graphStore.setNativeSymbol).
+ * for value transfers that aren't a token; graphStore.addEdge reads it by the edge's chain).
  *
  * Sourced from the Etherscan v2 unified chainlist (https://api.etherscan.io/v2/chainlist,
  * fetched 2026-07-12; totalcount 64, all status:1). Etherscan v2 serves every

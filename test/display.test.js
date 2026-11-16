@@ -57,10 +57,10 @@ test("ageColor: neutral on unknown/single, hue shifts old->recent", () => {
 
 test("bundleEdges: collapses same from|to|contract|symbol, keeps member keys", () => {
   const edges = [
-    { key: "k1", from: "0xa", to: "0xb", symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "1" },
-    { key: "k2", from: "0xa", to: "0xb", symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "2" },
-    { key: "k3", from: "0xa", to: "0xb", symbol: "USDC", tokenContract: "0xc", color: "#2", group: "token", amountText: "5" },
-    { key: "k4", from: "0xa", to: "0xz", symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "9" },
+    { key: "k1", from: "0xa", to: "0xb", fromId: "1:0xa", toId: "1:0xb", symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "1" },
+    { key: "k2", from: "0xa", to: "0xb", fromId: "1:0xa", toId: "1:0xb", symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "2" },
+    { key: "k3", from: "0xa", to: "0xb", fromId: "1:0xa", toId: "1:0xb", symbol: "USDC", tokenContract: "0xc", color: "#2", group: "token", amountText: "5" },
+    { key: "k4", from: "0xa", to: "0xz", fromId: "1:0xa", toId: "1:0xz", symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "9" },
   ];
   const bundles = bundleEdges(edges);
   expect(bundles.length).toBe(3); // (a->b ETH), (a->b USDC), (a->z ETH)
@@ -96,4 +96,10 @@ test("parseSpamList: malformed input yields empty sets, never throws", () => {
     expect(p.contractsFor("1").size).toBe(0);
     expect(p.symbols.size).toBe(0);
   }
+});
+
+test("bundles are per chain: native ETH X→Y on Ethereum and on Arbitrum are two bundles", () => {
+  const mk = (key, chainId) => ({ key, chainId, from: "0xa", to: "0xb", fromId: `${chainId}:0xa`, toId: `${chainId}:0xb`, symbol: "ETH", tokenContract: "", color: "#1", group: "normal", amountText: "1" });
+  expect(bundleEdges([mk("k1", "1"), mk("k2", "42161")]).map((b) => [b.chainId, b.fromId, b.toId, b.from, b.count]))
+    .toEqual([["1", "1:0xa", "1:0xb", "0xa", 1], ["42161", "42161:0xa", "42161:0xb", "0xa", 1]]);
 });

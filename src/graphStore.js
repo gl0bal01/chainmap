@@ -7,16 +7,21 @@
 // The render layer (render/network.js) MIRRORS the store into vis DataSets by
 // subscribing — the store itself never touches the DOM or vis.
 //
-// STAGE A: interface frozen. STAGE B: implement + unit tests (invariants).
+// Identity is chain-scoped: node id = `chainId:address` (format.nodeId). An
+// address alone is not an identity — the same address on two chains is two
+// independent nodes, and an edge never joins nodes of different chains.
 // =============================================================================
 
-import { lc, formatUnits, trimZero, edgeDedupKey } from "./format.js";
+import { lc, formatUnits, trimZero, parseChainId, nodeId, edgeKey } from "./format.js";
+import { CHAINS } from "./config.js";
 import { decodeCall } from "./abiDecode.js";
 import { sanitizeHistory } from "./history.js";
 
 /**
  * @typedef {object} NodeRecord
- * @property {string}  address  lowercased; canonical node id
+ * @property {string}  id       canonical node id: format.nodeId(chainId, address)
+ * @property {string}  chainId  decimal chain id ("1", "42161", …)
+ * @property {string}  address  lowercased on-chain address (display/links/lookups; not an identity)
  * @property {number}  depth    minimum BFS depth seen
  * @property {boolean} isRoot    sticky once true
  * @property {string|null} alias user label (null = none)
@@ -25,14 +30,17 @@ import { sanitizeHistory } from "./history.js";
 
 /**
  * @typedef {object} EdgeRecord
- * @property {string}  key                 precise dedup key (format.edgeDedupKey)
+ * @property {string}  key                 chain-scoped dedup key (format.edgeKey: "<chainId>|" + edgeDedupKey)
+ * @property {string}  chainId             decimal chain id; both endpoints live on this chain
  * @property {string}  action              Etherscan action
  * @property {'normal'|'internal'|'token'} group
  * @property {string}  color               edge color for this type
- * @property {string}  from                lowercased
- * @property {string}  to                  lowercased
+ * @property {string}  from                lowercased address
+ * @property {string}  to                  lowercased address
+ * @property {string}  fromId              nodeId(chainId, from) — derived by the store, never trusted from a file
+ * @property {string}  toId                nodeId(chainId, to)
  * @property {string}  hash
- * @property {string}  symbol              display symbol (chain's native symbol / tokenSymbol, raw)
+ * @property {string}  symbol              display symbol (the edge chain's native ticker / tokenSymbol, raw)
  * @property {string}  tokenContract       "" for native
  * @property {string}  tokenId             "" unless ERC-721/1155
  * @property {string}  value               raw base-unit integer string
@@ -52,6 +60,7 @@ import { sanitizeHistory } from "./history.js";
 /**
  * Input accepted by {@link GraphStore#addEdge}. The store computes key + amount.
  * @typedef {object} EdgeInput
+ * @property {string} chainId decimal chain id (required; invalid -> TypeError)
  * @property {string} action
  * @property {'normal'|'internal'|'token'} group
  * @property {string} color
@@ -65,40 +74,32 @@ import { sanitizeHistory } from "./history.js";
  * @typedef {(
  *  | { type:'node:add',    node:NodeRecord }
  *  | { type:'node:update', node:NodeRecord }
- *  | { type:'node:remove', address:string }
+ *  | { type:'node:remove', id:string }
  *  | { type:'edge:add',    edge:EdgeRecord }
  *  | { type:'edge:remove', key:string }
- *  | { type:'alias:set',   address:string, alias:string|null }
+ *  | { type:'alias:set',   id:string, alias:string|null }
  *  | { type:'reset' }
  * )} StoreEvent
  */
 
+/** @param {string} chainId @returns {string} native ticker, "" for a chain not in CHAINS */
+function nativeTicker(chainId) {
+  const chain = CHAINS.find((c) => String(c.id) === chainId);
+  return chain ? chain.native : "";
+}
+
 export class GraphStore {
   constructor() {
-    /** @type {Map<string, NodeRecord>} address -> node */
+    /** @type {Map<string, NodeRecord>} node id -> node */
     this._nodes = new Map();
     /** @type {Map<string, EdgeRecord>} key -> edge */
     this._edges = new Map();
     /** @type {Set<string>} parity set mirroring _edges keys */
     this._edgeKeys = new Set();
+    /** @type {Map<string, number>} chainId -> node count (backs chains()) */
+    this._chainCounts = new Map();
     /** @type {Set<(e:StoreEvent)=>void>} subscribers */
     this._subs = new Set();
-    // Native-currency ticker for edges with no tokenSymbol (plain value
-    // transfers). A graph is single-chain per scan, so a store-level setting
-    // is correct — the caller (main.js) sets this from CHAINS[].native right
-    // before a scan starts. Defaults to "ETH" for backward-compat (workspace
-    // snapshots restore their own baked-in per-edge symbol and are
-    // unaffected by this field either way).
-    this._nativeSymbol = "ETH";
-  }
-
-  /**
-   * Set the native-currency ticker used by subsequent {@link addEdge} calls
-   * for non-token transfers. Falls back to "ETH" on empty/nullish input.
-   * @param {string} sym
-   */
-  setNativeSymbol(sym) {
-    this._nativeSymbol = sym && String(sym).trim() ? String(sym).trim() : "ETH";
   }
 
   /**
@@ -109,31 +110,46 @@ export class GraphStore {
     for (const handler of this._subs) handler(event);
   }
 
+  /** @param {string} chainId @param {number} delta */
+  _countChain(chainId, delta) {
+    const n = (this._chainCounts.get(chainId) || 0) + delta;
+    if (n > 0) this._chainCounts.set(chainId, n);
+    else this._chainCounts.delete(chainId);
+  }
+
   // --- mutations (the ONLY way to change state) ----------------------------
 
   /**
    * Add or merge a node. On merge: keep the MINIMUM depth; isRoot is sticky.
-   * Emits 'node:add' (new) or 'node:update' (changed).
+   * Emits 'node:add' (new) or 'node:update' (changed). Throws TypeError when
+   * `chainId` is not a decimal chain id (never defaulted).
+   * @param {string|number} chainId
    * @param {string} address
    * @param {{ depth?:number, isRoot?:boolean }} [meta]
    * @returns {NodeRecord}
    */
-  addNode(address, meta) {
+  addNode(chainId, address, meta) {
+    const cid = parseChainId(chainId);
+    if (cid === null) throw new TypeError(`addNode: invalid chainId ${String(chainId)}`);
     const addr = lc(address);
+    const id = nodeId(cid, addr);
     const m = meta || {};
     const isRoot = m.isRoot === true;
     const hasDepth = typeof m.depth === "number" && Number.isFinite(m.depth);
-    const existing = this._nodes.get(addr);
+    const existing = this._nodes.get(id);
 
     if (!existing) {
       /** @type {NodeRecord} */
       const node = {
+        id,
+        chainId: cid,
         address: addr,
         depth: hasDepth ? m.depth : 0,
         isRoot,
         alias: null,
       };
-      this._nodes.set(addr, node);
+      this._nodes.set(id, node);
+      this._countChain(cid, 1);
       this._emit({ type: "node:add", node });
       return node;
     }
@@ -152,15 +168,18 @@ export class GraphStore {
   }
 
   /**
-   * Add an edge unless its precise dedup key already exists. Auto-adds endpoints
-   * only if the caller has already (scanner adds nodes explicitly). Emits
-   * 'edge:add' on insert. Returns the record, or null if it was a duplicate.
+   * Add an edge unless its chain-scoped dedup key already exists. Does NOT
+   * auto-add endpoints (the scanner adds nodes explicitly). Emits 'edge:add' on
+   * insert. Returns the record, or null if it was a duplicate. Throws TypeError
+   * when `input.chainId` is not a decimal chain id.
    * @param {EdgeInput} input
    * @returns {EdgeRecord|null}
    */
   addEdge(input) {
-    const { action, group, color, from, to, tx } = input;
-    const key = edgeDedupKey(action, tx);
+    const { chainId, action, group, color, from, to, tx } = input;
+    const cid = parseChainId(chainId);
+    if (cid === null) throw new TypeError(`addEdge: invalid chainId ${String(chainId)}`);
+    const key = edgeKey(cid, action, tx);
     if (this._edgeKeys.has(key)) return null;
 
     const amount = formatUnits(tx.value || "0", tx.tokenDecimal);
@@ -171,13 +190,17 @@ export class GraphStore {
     /** @type {EdgeRecord} */
     const edge = {
       key,
+      chainId: cid,
       action,
       group,
       color,
       from: lc(from),
       to: lc(to),
+      fromId: nodeId(cid, from),
+      toId: nodeId(cid, to),
       hash: tx.hash || "",
-      symbol: tx.tokenSymbol || this._nativeSymbol,
+      // Native ticker of THIS edge's chain; a chain not in CHAINS borrows none.
+      symbol: tx.tokenSymbol || nativeTicker(cid),
       tokenContract: tx.contractAddress || "",
       tokenId: tx.tokenID || "",
       value: tx.value || "0",
@@ -206,26 +229,25 @@ export class GraphStore {
 
   /**
    * Set (or clear with null/"") a node alias. Emits 'alias:set'. No-op if node absent.
-   * @param {string} address
+   * @param {string} id node id (looked up exactly; not lowercased)
    * @param {string|null} alias
    */
-  setAlias(address, alias) {
-    const addr = lc(address);
-    const node = this._nodes.get(addr);
+  setAlias(id, alias) {
+    const node = this._nodes.get(id);
     if (!node) return;
     const next = alias === "" || alias == null ? null : alias;
     node.alias = next;
-    this._emit({ type: "alias:set", address: addr, alias: next });
+    this._emit({ type: "alias:set", id, alias: next });
   }
 
   /**
    * Record a per-action "load older" cursor on a node. Emits 'node:update'. No-op if node absent.
-   * @param {string} address
+   * @param {string} id node id
    * @param {string} action
    * @param {import('./history.js').HistoryEntry} entry
    */
-  setHistory(address, action, entry) {
-    const node = this._nodes.get(lc(address));
+  setHistory(id, action, entry) {
+    const node = this._nodes.get(id);
     if (!node) return;
     node.history = { ...node.history, [action]: entry };
     this._emit({ type: "node:update", node });
@@ -234,26 +256,27 @@ export class GraphStore {
   /**
    * Remove nodes and every connected edge; drop their aliases + edge keys.
    * Emits 'edge:remove' per edge then 'node:remove' per node.
-   * @param {string[]} addresses
+   * @param {string[]} ids node ids
    * @returns {{ removedNodes:number, removedEdges:number }}
    */
-  removeNodes(addresses) {
+  removeNodes(ids) {
     let removedNodes = 0;
     let removedEdges = 0;
-    for (const raw of addresses) {
-      const addr = lc(raw);
-      if (!this._nodes.has(addr)) continue;
+    for (const id of ids) {
+      const node = this._nodes.get(id);
+      if (!node) continue;
       for (const [key, edge] of this._edges) {
-        if (edge.from === addr || edge.to === addr) {
+        if (edge.fromId === id || edge.toId === id) {
           this._edges.delete(key);
           this._edgeKeys.delete(key);
           removedEdges++;
           this._emit({ type: "edge:remove", key });
         }
       }
-      this._nodes.delete(addr);
+      this._nodes.delete(id);
+      this._countChain(node.chainId, -1);
       removedNodes++;
-      this._emit({ type: "node:remove", address: addr });
+      this._emit({ type: "node:remove", id });
     }
     return { removedNodes, removedEdges };
   }
@@ -263,13 +286,16 @@ export class GraphStore {
     this._nodes.clear();
     this._edges.clear();
     this._edgeKeys.clear();
+    this._chainCounts.clear();
     this._emit({ type: "reset" });
   }
 
   /**
    * Replace all state from a prebuilt snapshot (workspace / demo restore). Emits
-   * 'reset' then 'node:add'/'edge:add' so the view rebuilds. Edges whose endpoints
-   * are absent are dropped (invariants preserved). Nodes carry their alias.
+   * 'reset' then 'node:add'/'edge:add' so the view rebuilds. `id`/`fromId`/`toId`
+   * are always recomputed. Dropped (invariants preserved): nodes with an invalid
+   * chainId; edges with an invalid chainId, a key not prefixed `chainId|`, or an
+   * endpoint missing on that chain. Nodes carry their alias.
    * @param {NodeRecord[]} nodes
    * @param {EdgeRecord[]} edges
    */
@@ -277,13 +303,19 @@ export class GraphStore {
     this._nodes.clear();
     this._edges.clear();
     this._edgeKeys.clear();
+    this._chainCounts.clear();
     this._emit({ type: "reset" });
 
     for (const n of nodes || []) {
+      const cid = parseChainId(n && n.chainId);
       const addr = lc(n && n.address);
-      if (!addr || this._nodes.has(addr)) continue;
+      if (cid === null || !addr) continue;
+      const id = nodeId(cid, addr);
+      if (this._nodes.has(id)) continue;
       /** @type {NodeRecord} */
       const node = {
+        id,
+        chainId: cid,
         address: addr,
         depth: typeof n.depth === "number" && Number.isFinite(n.depth) ? n.depth : 0,
         isRoot: n.isRoot === true,
@@ -291,33 +323,37 @@ export class GraphStore {
       };
       const history = sanitizeHistory(n.history);
       if (history !== undefined) node.history = history;
-      this._nodes.set(addr, node);
+      this._nodes.set(id, node);
+      this._countChain(cid, 1);
       this._emit({ type: "node:add", node });
     }
 
     for (const e of edges || []) {
+      const cid = parseChainId(e && e.chainId);
       const key = e && e.key;
-      if (!key || this._edgeKeys.has(key)) continue;
+      if (cid === null || typeof key !== "string" || !key.startsWith(cid + "|") || this._edgeKeys.has(key)) continue;
       const from = lc(e.from);
       const to = lc(e.to);
-      if (!this._nodes.has(from) || !this._nodes.has(to)) continue; // keep endpoint invariant
+      const fromId = nodeId(cid, from);
+      const toId = nodeId(cid, to);
+      if (!this._nodes.has(fromId) || !this._nodes.has(toId)) continue; // endpoints on THIS chain
       /** @type {EdgeRecord} */
-      const edge = { ...e, key, from, to };
+      const edge = { ...e, key, chainId: cid, from, to, fromId, toId };
       this._edges.set(key, edge);
       this._edgeKeys.add(key);
       this._emit({ type: "edge:add", edge });
     }
   }
 
-  // --- reads ----------------------------------------------------------------
+  // --- reads (ids are looked up exactly as given; no lowercasing) -----------
 
-  /** @param {string} address @returns {NodeRecord|undefined} */
-  getNode(address) { return this._nodes.get(lc(address)); }
-  /** @param {string} address @returns {boolean} */
-  hasNode(address) { return this._nodes.has(lc(address)); }
-  /** @param {string} address @returns {string|null} */
-  getAlias(address) {
-    const node = this._nodes.get(lc(address));
+  /** @param {string} id node id @returns {NodeRecord|undefined} */
+  getNode(id) { return this._nodes.get(id); }
+  /** @param {string} id node id @returns {boolean} */
+  hasNode(id) { return this._nodes.has(id); }
+  /** @param {string} id node id @returns {string|null} */
+  getAlias(id) {
+    const node = this._nodes.get(id);
     return node ? node.alias : null;
   }
   /** @param {string} key @returns {boolean} */
@@ -328,17 +364,22 @@ export class GraphStore {
   listEdges() { return [...this._edges.values()]; }
   /** @returns {{ nodes:number, edges:number }} */
   stats() { return { nodes: this._nodes.size, edges: this._edges.size }; }
+  /** Distinct chain ids present, numeric ascending. @returns {string[]} */
+  chains() { return [...this._chainCounts.keys()].sort((x, y) => Number(x) - Number(y)); }
 
   // --- integrity ------------------------------------------------------------
 
   /**
    * Dev invariant check (spec Definition-of-Done): every edge endpoint exists as
-   * a node; edgeKeys <-> edges parity; every node has meta; aliases reference
-   * existing nodes.
+   * a node ON THE EDGE'S CHAIN (fromId/toId === nodeId(chainId, from/to));
+   * edgeKeys <-> edges parity; keys prefixed `chainId|`; node ids derived from
+   * chainId+address; decimal chain ids; chain counts match the nodes; every node
+   * has meta; aliases reference existing nodes.
    * @returns {{ ok:boolean, errors:string[] }}
    */
   checkInvariants() {
     const errors = [];
+    const decimal = (v) => typeof v === "string" && /^\d+$/.test(v);
 
     if (this._edgeKeys.size !== this._edges.size) {
       errors.push(`edgeKeys/edges size parity broken: ${this._edgeKeys.size} keys vs ${this._edges.size} edges`);
@@ -349,16 +390,27 @@ export class GraphStore {
     for (const [key, edge] of this._edges) {
       if (!this._edgeKeys.has(key)) errors.push(`edge has no matching edgeKey: ${key}`);
       if (edge.key !== key) errors.push(`edge.key does not match map key: ${key}`);
-      if (!this._nodes.has(edge.from)) errors.push(`edge ${key} references missing from-node: ${edge.from}`);
-      if (!this._nodes.has(edge.to)) errors.push(`edge ${key} references missing to-node: ${edge.to}`);
+      if (!decimal(edge.chainId)) errors.push(`edge ${key} has invalid chainId: ${edge.chainId}`);
+      if (!key.startsWith(edge.chainId + "|")) errors.push(`edge ${key} key not prefixed by its chainId ${edge.chainId}`);
+      if (edge.fromId !== nodeId(edge.chainId, edge.from)) errors.push(`edge ${key} fromId ${edge.fromId} != chainId:from`);
+      if (edge.toId !== nodeId(edge.chainId, edge.to)) errors.push(`edge ${key} toId ${edge.toId} != chainId:to`);
+      if (!this._nodes.has(edge.fromId)) errors.push(`edge ${key} references missing from-node: ${edge.fromId}`);
+      if (!this._nodes.has(edge.toId)) errors.push(`edge ${key} references missing to-node: ${edge.toId}`);
     }
-    for (const [addr, node] of this._nodes) {
-      if (node.address !== addr) errors.push(`node.address does not match map key: ${addr}`);
-      if (typeof node.depth !== "number") errors.push(`node ${addr} missing numeric depth`);
-      if (typeof node.isRoot !== "boolean") errors.push(`node ${addr} missing boolean isRoot`);
-      if (!("alias" in node)) errors.push(`node ${addr} missing alias field`);
-      else if (node.alias !== null && typeof node.alias !== "string") errors.push(`node ${addr} has invalid alias type`);
+    const counts = new Map();
+    for (const [id, node] of this._nodes) {
+      if (node.id !== id) errors.push(`node.id does not match map key: ${id}`);
+      if (node.id !== nodeId(node.chainId, node.address)) errors.push(`node ${id} id != chainId:address`);
+      if (!decimal(node.chainId)) errors.push(`node ${id} has invalid chainId: ${node.chainId}`);
+      counts.set(node.chainId, (counts.get(node.chainId) || 0) + 1);
+      if (typeof node.depth !== "number") errors.push(`node ${id} missing numeric depth`);
+      if (typeof node.isRoot !== "boolean") errors.push(`node ${id} missing boolean isRoot`);
+      if (!("alias" in node)) errors.push(`node ${id} missing alias field`);
+      else if (node.alias !== null && typeof node.alias !== "string") errors.push(`node ${id} has invalid alias type`);
     }
+    const countsMatch = counts.size === this._chainCounts.size
+      && [...counts].every(([cid, n]) => this._chainCounts.get(cid) === n);
+    if (!countsMatch) errors.push("chain counts out of step with nodes");
 
     return { ok: errors.length === 0, errors };
   }

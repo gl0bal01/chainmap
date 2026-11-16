@@ -59,9 +59,9 @@ Frozen module contracts live in `INTERFACES.md`.
 
 ## Conventions / gotchas
 
-- **Addresses are lowercased everywhere** and are the canonical node id. Display (short/full/alias/known-label) never changes ids.
+- Addresses are lowercased everywhere. **Node id = `chainId:address`** (`format.nodeId`); an address alone is not an identity. Every record carries `chainId` (decimal string); look labels/categories/explorers up with the record's own chain. Display (short/full/alias/known-label/chain tag) never changes ids.
 - **Amounts are base-unit integer strings**; use `formatUnits` (BigInt + tokenDecimal), NEVER `Number`. On bad decimals it returns `indeterminate`, never a silent "0".
-- **Edges dedup on a precise key**: `action|hash|from|to|contract|tokenID|logIndex` (symbol is display-only) so ERC-1155 / same-symbol-different-contract stay distinct.
+- **Edges dedup on a precise key**: `chainId|action|hash|from|to|contract|tokenID|logIndex` (symbol is display-only) so ERC-1155 / same-symbol-different-contract stay distinct.
 - **Drop failed txs** (`isError==="1"` / `txreceipt_status==="0"`) before drawing edges.
 - **Filters/overlays are a display projection** over the store mirror (vis DataViews) — the store keeps the full graph so CSV/detail stay complete.
 - **Sampling is explicit**: scans fetch the latest N per address (page 1, sort desc, offset N), extendable per node via **Load older** (block cursor on `NodeRecord.history`) — not full history, surfaced in UI + exports. A graph is single-chain (cross-chain scans into a non-empty graph are refused). Never present sampled data as complete.

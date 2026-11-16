@@ -76,7 +76,7 @@ export function renderExportCanvas(view, store, opts) {
 
   return new Promise((resolve, reject) => {
     const nodes = store.listNodes();
-    const ids = nodes.map((n) => n.address);
+    const ids = nodes.map((n) => n.id);
     const positions = view.getPositions(ids);
 
     const offscreen = document.createElement("div");
@@ -101,10 +101,10 @@ export function renderExportCanvas(view, store, opts) {
     try {
       const exportNodes = new vis.DataSet(
         nodes.map((n) => {
-          const p = positions[n.address] || { x: 0, y: 0 };
+          const p = positions[n.id] || { x: 0, y: 0 };
           const visual = nodeVisual(n);
           return {
-            id: n.address,
+            id: n.id,
             x: p.x,
             y: p.y,
             fixed: { x: true, y: true },
@@ -117,8 +117,8 @@ export function renderExportCanvas(view, store, opts) {
       const exportEdges = new vis.DataSet(
         store.listEdges().map((e) => ({
           id: e.key,
-          from: e.from,
-          to: e.to,
+          from: e.fromId,
+          to: e.toId,
           color: { color: e.color, inherit: false },
           label: edgeLabel(e),
           title: e.title,

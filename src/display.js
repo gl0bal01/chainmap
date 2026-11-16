@@ -140,9 +140,12 @@ export function ageColor(ts, min, max) {
 
 /**
  * @typedef {object} BundledEdge
- * @property {string} id          synthetic bundle id ("bundle:from|to|contract|symbol")
- * @property {string} from
- * @property {string} to
+ * @property {string} id          synthetic bundle id ("bundle:fromId|toId|contract|symbol")
+ * @property {string} chainId     chain of every member (bundles never span chains)
+ * @property {string} from        address
+ * @property {string} to          address
+ * @property {string} fromId      node id
+ * @property {string} toId        node id
  * @property {string} symbol
  * @property {string} tokenContract
  * @property {string} color
@@ -155,7 +158,7 @@ export function ageColor(ts, min, max) {
  */
 
 /**
- * Collapse many per-tx edges into one weighted arrow per (from,to,contract,symbol)
+ * Collapse many per-tx edges into one weighted arrow per (fromId,toId,contract,symbol)
  * so same-unit transfers sum meaningfully. The store keeps every per-tx edge; this
  * is a DISPLAY aggregation only — memberKeys let the UI drill back to the rows.
  * @param {import('./graphStore.js').EdgeRecord[]} edges
@@ -166,12 +169,12 @@ export function bundleEdges(edges) {
   for (const e of edges) {
     const contract = (e.tokenContract || "").toLowerCase();
     const symbol = (e.symbol || "").toLowerCase();
-    const key = `${e.from}|${e.to}|${contract}|${symbol}`;
+    const key = `${e.fromId}|${e.toId}|${contract}|${symbol}`;
     let b = map.get(key);
     if (!b) {
       b = {
         id: `bundle:${key}`,
-        from: e.from, to: e.to,
+        chainId: e.chainId, from: e.from, to: e.to, fromId: e.fromId, toId: e.toId,
         symbol: e.symbol || "", tokenContract: e.tokenContract || "",
         color: e.color, group: e.group,
         count: 0, total: 0, hasData: false, memberKeys: [],

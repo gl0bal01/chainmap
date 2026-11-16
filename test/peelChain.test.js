@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { findPeelChains } from "../src/peelChain.js";
 
-const e = (from, to, amt, t) => ({ from, to, amountText: String(amt), timeStamp: String(t) });
+const e = (from, to, amt, t) => ({ fromId: from, toId: to, amountText: String(amt), timeStamp: String(t) });
 
 test("detects a clean 3-hop peel chain", () => {
   const edges = [e("0xa", "0xb", 100, 1), e("0xb", "0xc", 98, 2), e("0xc", "0xd", 97, 3)];
@@ -23,4 +23,8 @@ test("breaks when a mid-node fans out (not ~1-out)", () => {
 test("breaks when time goes backward", () => {
   const edges = [e("0xa", "0xb", 100, 5), e("0xb", "0xc", 98, 1)];
   expect(findPeelChains(edges, {})).toEqual([]);
+});
+
+test("peel chains never hop chains", () => {
+  expect(findPeelChains([e("1:a", "1:b", 100, 1), e("10:b", "10:c", 98, 2)], {})).toEqual([]);
 });

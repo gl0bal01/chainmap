@@ -87,7 +87,7 @@ function explorerLink(href, text) {
  * Render the node-details panel. Uses safe DOM nodes / escaped values only.
  * @param {HTMLElement} container  #detailsContent
  * @param {import('./graphStore.js').NodeRecord} node
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(addr:string)=>void,
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(id:string)=>void,
  *           getKnownSource?:(addr:string)=>(string|null),
  *           history?:Array<{action:string,labelKey:string,state:'unloaded'|'more'|'complete',count:number}>,
  *           pageSize?:number, onLoadOlder?:()=>void, busy?:boolean,
@@ -153,7 +153,7 @@ export function renderNodeDetails(container, node, deps) {
   renameBtn.type = "button";
   renameBtn.style.marginTop = "8px";
   renameBtn.textContent = i18n.t("details.rename");
-  renameBtn.addEventListener("click", () => onRename(node.address));
+  renameBtn.addEventListener("click", () => onRename(node.id));
   container.appendChild(renameBtn);
 
   if (deps.history && deps.history.length) {

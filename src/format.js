@@ -14,7 +14,7 @@
  */
 
 /**
- * Lowercase an address safely (canonical node-id form). Null/undefined -> "".
+ * Lowercase an address safely (canonical address form). Null/undefined -> "".
  * @param {string|null|undefined} addr
  * @returns {string}
  */
@@ -138,6 +138,43 @@ export function edgeDedupKey(action, tx) {
   const logIndex = rec.logIndex !== undefined && rec.logIndex !== null ? String(rec.logIndex) : "";
   const hash = rec.hash || "";
   return [action || "", hash, from, to, contractAddress, tokenID, logIndex].join("|");
+}
+
+/**
+ * Normalize a chain id to its decimal-string form, or null when it isn't one.
+ * Accepts a safe non-negative integer number or a `/^\d+$/` string whose value
+ * is a safe integer ("007" -> "7"). Everything else (hex, signs, decimals,
+ * whitespace, objects) -> null.
+ * @param {unknown} v
+ * @returns {string|null}
+ */
+export function parseChainId(v) {
+  if (typeof v === "string" ? !/^\d+$/.test(v) : typeof v !== "number") return null;
+  const n = Number(v);
+  return Number.isSafeInteger(n) && n >= 0 ? String(n) : null;
+}
+
+/**
+ * Canonical node id: `<chainId>:<lowercased address>`. Never parsed back —
+ * records carry `chainId` and `address` explicitly.
+ * @param {string} chainId decimal chain id
+ * @param {string} address
+ * @returns {string}
+ */
+export function nodeId(chainId, address) {
+  return `${chainId}:${lc(address)}`;
+}
+
+/**
+ * Chain-scoped edge key: `<chainId>|` + {@link edgeDedupKey}. One raw tx replayed
+ * on two chains (same hash) is two edges.
+ * @param {string} chainId decimal chain id
+ * @param {string} action
+ * @param {object} tx
+ * @returns {string}
+ */
+export function edgeKey(chainId, action, tx) {
+  return `${chainId}|${edgeDedupKey(action, tx)}`;
 }
 
 /**

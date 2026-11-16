@@ -7,6 +7,7 @@ import KNOWN from "../data/known-addresses.json";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40); // 40-hex address helper
 const ROOT = A(1), N2 = A(2), N3 = A(3), N4 = A(4), TOKEN = A(9);
+const ID = (chainId, a) => `${chainId}:${a}`; // store node id (= vis node id)
 
 // Canned Etherscan responses keyed by `action`. Includes a FAILED tx (must be
 // dropped) and a token transfer (distinct contract).
@@ -170,11 +171,11 @@ test("display filters hide edges live without touching the store", async () => {
     i18n: { t: (k) => k },
     getAddressFormat: () => "short",
   });
-  store.addNode(ROOT, { depth: 0, isRoot: true });
-  store.addNode(N2, { depth: 1 });
-  store.addNode(N4, { depth: 1 });
-  store.addEdge({ action: "txlist", group: "normal", color: "#000", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } }); // 1
-  store.addEdge({ action: "txlist", group: "normal", color: "#000", from: ROOT, to: N4, tx: { value: "5000000000000000000", hash: "0x2", tokenDecimal: "18" } }); // 5
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addNode("1", N4, { depth: 1 });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#000", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } }); // 1
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#000", from: ROOT, to: N4, tx: { value: "5000000000000000000", hash: "0x2", tokenDecimal: "18" } }); // 5
 
   expect(view.network.edges.get().length).toBe(2);
   view.setDisplayOptions({ minAmount: 3 });
@@ -192,10 +193,10 @@ test("edge bundling collapses parallel A->B edges; store keeps per-tx rows", asy
     i18n: { t: (k) => k },
     getAddressFormat: () => "short",
   });
-  store.addNode(ROOT, { depth: 0, isRoot: true });
-  store.addNode(N2, { depth: 1 });
-  store.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
-  store.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "2000000000000000000", hash: "0x2", tokenDecimal: "18" } });
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "2000000000000000000", hash: "0x2", tokenDecimal: "18" } });
 
   expect(view.network.edges.get().length).toBe(2);
   view.setBundling(true);
@@ -219,12 +220,12 @@ test("reset clears annotations; bundled arrows rebuild on prune (review fixes)",
   store.reset();
   expect(view.getAnnotations().length).toBe(0); // no stale annotations leak into next graph
 
-  store.addNode(ROOT, { depth: 0, isRoot: true });
-  store.addNode(N2, { depth: 1 });
-  store.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
   view.setBundling(true);
   expect(view.network.edges.get().length).toBe(1);
-  store.removeNodes([N2]);
+  store.removeNodes([ID("1", N2)]);
   expect(view.network.edges.get().length).toBe(0); // bundle rebuilt after the member was pruned
 });
 
@@ -423,19 +424,19 @@ test("workspace serialize -> parse -> loadSnapshot round-trips through the store
   const { GraphStore } = await import("../src/graphStore.js");
   const { serializeWorkspace, parseWorkspace } = await import("../src/workspace.js");
   const a = new GraphStore();
-  a.addNode(ROOT, { depth: 0, isRoot: true });
-  a.addNode(N2, { depth: 1 });
-  a.setAlias(N2, "friend");
-  a.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
+  a.addNode("1", ROOT, { depth: 0, isRoot: true });
+  a.addNode("1", N2, { depth: 1 });
+  a.setAlias(ID("1", N2), "friend");
+  a.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
 
-  const ws = serializeWorkspace({ chainId: "1", root: ROOT, nodes: a.listNodes(), edges: a.listEdges(), filters: {}, layout: "force", annotations: [] });
+  const ws = serializeWorkspace({ root: ROOT, nodes: a.listNodes(), edges: a.listEdges(), filters: {}, layout: "force", annotations: [] });
   const res = parseWorkspace(JSON.stringify(ws));
   expect(res.ok).toBe(true);
 
   const b = new GraphStore();
   b.loadSnapshot(res.data.nodes, res.data.edges);
   expect(b.stats()).toEqual({ nodes: 2, edges: 1 });
-  expect(b.getAlias(N2)).toBe("friend");
+  expect(b.getAlias(ID("1", N2))).toBe("friend");
   expect(b.checkInvariants().ok).toBe(true); // restored graph holds all invariants
 });
 
@@ -571,8 +572,8 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   expect(cat(demo.root)).toBe("sanctioned");                   // root node is a sanctioned entity
 
   // Peel chain: a >=3-node forwarding chain through the illustrative 0xf00d hops.
-  const peelHit = findPeelChains(demo.edges).some(
-    (p) => p.length >= 3 && p.includes("0xf00d000000000000000000000000000000000002")
+  const peelHit = findPeelChains(store.listEdges()).some(
+    (p) => p.length >= 3 && p.includes(ID("1", "0xf00d000000000000000000000000000000000002"))
   );
   expect(peelHit).toBe(true);
 
@@ -600,12 +601,12 @@ test("scan marks nodes with more history using a dashed border", async () => {
   }
   // first = the network main.js created (other tests build throwaway views)
   const nodes = window.vis.Network.first.nodes.get();
-  expect(nodes.find((n) => n.id === ROOT).shapeProperties.borderDashes).toEqual([4, 3]);
-  expect(nodes.find((n) => n.id === N2).shapeProperties.borderDashes).toBe(false);
-  const rc = nodes.find((n) => n.id === ROOT).color;
+  expect(nodes.find((n) => n.id === ID("1", ROOT)).shapeProperties.borderDashes).toEqual([4, 3]);
+  expect(nodes.find((n) => n.id === ID("1", N2)).shapeProperties.borderDashes).toBe(false);
+  const rc = nodes.find((n) => n.id === ID("1", ROOT)).color;
   expect(rc.border).toBe("#e8eef7");
   expect(typeof rc.background).toBe("string");
-  expect(nodes.find((n) => n.id === N2).color?.border).not.toBe("#e8eef7");
+  expect(nodes.find((n) => n.id === ID("1", N2)).color?.border).not.toBe("#e8eef7");
   $("maxTxPerAddress").value = "20";
 });
 
@@ -692,7 +693,7 @@ async function freshScan(maxTx) {
   await until(() => /Done/.test($("status").textContent || ""));
   expect($("status").textContent).toContain("Done");
 }
-const openRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ROOT], edges: [] });
+const openRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ID("1", ROOT)], edges: [] });
 const loadBtn = () => $("detailsContent").querySelectorAll("button")[1];
 const txlistUrls = () => apiUrls.filter((u) => new URL(u).searchParams.get("action") === "txlist");
 const lastTxlist = () => new URL(txlistUrls().at(-1)).searchParams;
@@ -785,7 +786,8 @@ test("saved workspace records the graph's chain, not the selector's", async () =
     setChain("137");
     $("saveBtn").click();
     expect(captured).not.toBeNull();
-    expect(JSON.parse(await captured.text()).chainId).toBe("1");
+    const ws = JSON.parse(await captured.text());
+    expect(ws.version === 3 && ws.graph.nodes.every((n) => n.chainId === "1")).toBe(true);
   } finally {
     URL.createObjectURL = orig.create;
     URL.revokeObjectURL = orig.revoke;
@@ -898,10 +900,10 @@ test("demo sets the graph chain: switching the selector blocks its load button",
     $("resetBtn").click();
     $("demoBtn").click();
     await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
-    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
     expect(loadBtn().disabled).toBe(false); // "Load transactions" — demo has no cursors
     setChain("137");
-    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
     expect(loadBtn().disabled).toBe(true);
     expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
   } finally {
@@ -914,7 +916,7 @@ test("risk, labels and CSV category stay on the graph's chain after switching th
   let captured = null;
   URL.createObjectURL = (b) => ((captured = b), "blob:x");
   URL.revokeObjectURL = () => {};
-  const openDemoRoot = () => window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+  const openDemoRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
   const csv = async () => {
     captured = null;
     $("exportCsvBtn").click();
@@ -931,7 +933,7 @@ test("risk, labels and CSV category stay on the graph's chain after switching th
     const before = await csv();
     expect(before).toContain("flag.sanctioned"); // edge to a chain-1 OFAC-listed recipient
     const demoLabel = () => {
-      const n = window.vis.Network.first.nodes.get().find((x) => x.id === DEMO_ROOT);
+      const n = window.vis.Network.first.nodes.get().find((x) => x.id === ID("1", DEMO_ROOT));
       return `${n.label}|${n.title}`;
     };
     const label = demoLabel();
@@ -961,7 +963,7 @@ test("load on a demo graph shows the sampling banner and reports failed requests
       String(url).includes("data/")
         ? realFetch(url, init)
         : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
-    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
     loadBtn().click();
     await waitLoaded();
     expect($("status").textContent).toContain("Loaded 0 new transfers");
@@ -1021,7 +1023,7 @@ test("detect chain: a curated chain-1 address selects Ethereum with no API call"
   }
 });
 
-async function loadAsDemo(ws) {
+async function loadAsDemo(ws, done = /Demo workspace loaded/) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (u, init) => (String(u).includes("demo-workspace")
     ? { ok: true, status: 200, headers: { get: () => null }, json: async () => ws }
@@ -1029,7 +1031,7 @@ async function loadAsDemo(ws) {
   try {
     $("resetBtn").click();
     $("demoBtn").click();
-    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    await until(() => done.test($("logContent").textContent || ""));
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1099,10 +1101,10 @@ test("a '*'-only OFAC address is labeled, badged, sourced and risk-scored on a n
       nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: STAR_ONLY, depth: 1, isRoot: false, alias: null }],
       edges: [wsEdge({ hash: "0xs1", to: STAR_ONLY, symbol: "POL" })],
     });
-    const node = window.vis.Network.first.nodes.get().find((n) => n.id === STAR_ONLY);
+    const node = window.vis.Network.first.nodes.get().find((n) => n.id === ID("137", STAR_ONLY));
     expect(`${node.label}|${node.title}`).toContain("(OFAC SDN)");
     expect(`${node.label}|${node.title}`).toContain("⛔");
-    window.vis.Network.first._on.click[0]({ nodes: [STAR_ONLY], edges: [] });
+    window.vis.Network.first._on.click[0]({ nodes: [ID("137", STAR_ONLY)], edges: [] });
     expect($("detailsContent").textContent).toContain("OFAC SDN list, published");
     expect($("detailsContent").textContent).toContain("sanctioned entity");
   } finally {
@@ -1160,9 +1162,10 @@ test("a view refresh fully restyles an edge whose flags appeared after it was dr
     getEdgeFlags: () => flags,
   });
   try {
+    const e = wsEdge({ hash: "0xr1", action: "tokentx", group: "token", symbol: "USDT", tokenContract: "0x" + "e".repeat(40) });
     store.loadSnapshot(
-      [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: N2, depth: 1, isRoot: false, alias: null }],
-      [wsEdge({ hash: "0xr1", action: "tokentx", group: "token", symbol: "USDT", tokenContract: "0x" + "e".repeat(40) })],
+      [{ chainId: "1", address: ROOT, depth: 0, isRoot: true, alias: null }, { chainId: "1", address: N2, depth: 1, isRoot: false, alias: null }],
+      [{ ...e, chainId: "1", key: `1|${e.key}` }],
     );
     const edge = () => window.vis.Network.last.edges.get()[0];
     expect(edge().label).not.toContain("ⓘ");
@@ -1198,6 +1201,23 @@ test("spam contracts follow the graph chain: '*' hidden everywhere, '137' only o
   } finally {
     $("hideSpamToggle").checked = false;
     $("hideSpamToggle").dispatchEvent(new window.Event("change"));
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a v2 workspace with no chain takes the selector's chain and says so; a newer version is refused, localized", async () => {
+  try {
+    setChain("137");
+    await loadAsDemo({ version: 2, root: ROOT, nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }], edges: [] });
+    expect($("logContent").textContent).toContain("Workspace had no chain; assumed Polygon.");
+    expect(window.vis.Network.first.nodes.getIds()).toContain(ID("137", ROOT));
+    expect($("chainSelect").value).toBe("137");
+
+    await loadAsDemo({ version: 4, graph: { nodes: [], edges: [] } }, /newer chainmap/);
+    expect($("logContent").textContent).toContain("This workspace was made by a newer chainmap — update the app to open it.");
+    expect($("logContent").textContent).not.toContain("Demo workspace loaded");
+  } finally {
     $("resetBtn").click();
     restoreForm();
   }

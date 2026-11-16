@@ -7,8 +7,10 @@ caller. The JSDoc in each `src/**` file is the authoritative per-symbol spec; th
 document is the cross-module map.
 
 Convention: modules marked **DOM-free** must not touch `document`/`window`/`vis`
-and must be unit-testable in Node (`bun test`). All addresses are **lowercased**
-and are the canonical node id. User/API strings never reach `innerHTML` unescaped.
+and must be unit-testable in Node (`bun test`). All addresses are **lowercased**;
+node id = `chainId:address`; an address alone is not an identity. Chain ids are
+decimal strings (`"1"`, `"42161"`) in every record. User/API strings never reach
+`innerHTML` unescaped.
 
 ---
 
@@ -58,6 +60,9 @@ Exports: `API_BASE`, `CHAINS: Chain[]`, `TX_TYPE_GROUPS`, `ROOT_COLOR`,
 - `escapeHtml(s): string`
 - `csvEscape(v): string`
 - `edgeDedupKey(action, tx): string` — `action|hash|from|to|contractAddress|tokenID|logIndex`; symbol is NOT a discriminator.
+- `parseChainId(v): string|null` — a safe non-negative integer number, or a `/^\d+$/` string whose value is a safe integer → `String(Number(v))` (`"007"` → `"7"`); everything else → `null`.
+- `nodeId(chainId, address): string` — `` `${chainId}:${lc(address)}` ``. Never parsed back: records carry `chainId` + `address`.
+- `edgeKey(chainId, action, tx): string` — `` `${chainId}|${edgeDedupKey(action, tx)}` `` (a hash replayed on two chains is two edges).
 - `isFailedTx(tx): boolean` — `isError==="1"` or `txreceipt_status==="0"`.
 - `formatTimestamp(unixSeconds, locale?): string`
 
@@ -85,33 +90,33 @@ Exports: `API_BASE`, `CHAINS: Chain[]`, `TX_TYPE_GROUPS`, `ROOT_COLOR`,
 
 `class GraphStore` — the ONLY mutation path; keeps sub-structures in sync; emits events.
 
-Data shapes:
-- `NodeRecord = { address, depth, isRoot, alias:string|null, history?:Record<action,HistoryEntry> }` — `history` is the per-action "Load older" cursor (see history.js); absent until a node has been fetched.
-- `EdgeRecord = { key, action, group, color, from, to, hash, symbol, tokenContract, tokenId, value, tokenDecimal, amountText, amountIndeterminate, hasData, methodId, methodArgs, rawInput, timeStamp, blockNumber }`
-- `EdgeInput = { action, group, color, from, to, tx }` (store computes key + amount)
+Data shapes (identity is chain-scoped — the same address on two chains is two independent nodes):
+- `NodeRecord = { id, chainId, address, depth, isRoot, alias:string|null, history?:Record<action,HistoryEntry> }` — `id = format.nodeId(chainId, address)`; `history` is the per-action "Load older" cursor (see history.js); absent until a node has been fetched.
+- `EdgeRecord = { key, chainId, action, group, color, from, to, fromId, toId, hash, symbol, tokenContract, tokenId, value, tokenDecimal, amountText, amountIndeterminate, hasData, methodId, methodArgs, rawInput, timeStamp, blockNumber }` — `from`/`to` stay lowercased **addresses**; `fromId`/`toId` = `nodeId(chainId, from|to)` are derived by the store; `key = format.edgeKey(chainId, action, tx)`.
+- `EdgeInput = { chainId, action, group, color, from, to, tx }` (store computes key + amount + ids). The native ticker of a non-token edge is `CHAINS[…].native` of `input.chainId`, `""` for a chain not in `CHAINS`.
 
-Mutations: `addNode(address, {depth?,isRoot?}) → NodeRecord` (merge = min depth, sticky root);
-`addEdge(EdgeInput) → EdgeRecord|null` (null on dup); `setAlias(address, alias|null)`;
-`setHistory(address, action, entry:HistoryEntry)` (replaces that action's cursor; emits `node:update`; no-op if node absent);
-`removeNodes(addresses[]) → {removedNodes,removedEdges}`; `reset()`.
+Mutations: `addNode(chainId, address, {depth?,isRoot?}) → NodeRecord` (merge = min depth, sticky root);
+`addEdge(EdgeInput) → EdgeRecord|null` (null on dup); both throw `TypeError` when `parseChainId(chainId)` is null (never defaulted).
+`setAlias(id, alias|null)`; `setHistory(id, action, entry:HistoryEntry)` (replaces that action's cursor; emits `node:update`; no-op if node absent);
+`removeNodes(ids[]) → {removedNodes,removedEdges}`; `reset()`; `loadSnapshot(nodes, edges)` (see Stage D below). `setNativeSymbol` is removed.
 
-Reads: `getNode`, `hasNode`, `getAlias`, `hasEdgeKey`, `listNodes`, `listEdges`, `stats() → {nodes,edges}`.
+Reads (ids looked up exactly as given, no lowercasing): `getNode(id)`, `hasNode(id)`, `getAlias(id)`, `hasEdgeKey`, `listNodes`, `listEdges`, `stats() → {nodes,edges}`, `chains() → string[]` (distinct chain ids, numeric ascending; backed by a per-chain node count kept by add/remove/reset/loadSnapshot).
 
-Integrity: `checkInvariants() → {ok, errors[]}`.
+Integrity: `checkInvariants() → {ok, errors[]}` — edgeKeys↔edges parity; `node.id === nodeId(node.chainId, node.address)`; `edge.fromId === nodeId(edge.chainId, edge.from)` and that node exists (same for `toId`), so an edge never joins two chains; `edge.key` starts with `edge.chainId + "|"`; every `chainId` matches `/^\d+$/`; chain counts equal the counts recomputed from nodes.
 
 Events (via `subscribe(handler) → unsubscribe`):
-`StoreEvent = {type:'node:add'|'node:update', node} | {type:'node:remove', address} | {type:'edge:add', edge} | {type:'edge:remove', key} | {type:'alias:set', address, alias} | {type:'reset'}`.
+`StoreEvent = {type:'node:add'|'node:update', node} | {type:'node:remove', id} | {type:'edge:add', edge} | {type:'edge:remove', key} | {type:'alias:set', id, alias} | {type:'reset'}`.
 
 ## scanner.js — DOM-free (stub → Stage B)
 
 - `runScan(RunScanOptions): Promise<ScanSummary>`
-  - `RunScanOptions = { client, store, limiter, root, maxDepth, maxTxPerAddress, safetyCap, types:TxTypeInfo[], signal, onProgress?, onLog? }`
+  - `RunScanOptions = { client, store, limiter, chainId, root, maxDepth, maxTxPerAddress, safetyCap, types:TxTypeInfo[], signal, onProgress?, onLog? }` — `chainId` (required, decimal; invalid → rejects before any fetch) is the chain the client fetches from; every ingested node/edge is tagged with it. BFS sets stay keyed by address (a run never leaves its chain).
   - `ScanProgress = { current, depth, maxDepth, processed, queued, apiCalls, nodes, edges, skipped, failed }`
   - `ScanSummary = { root, processed, apiCalls, nodes, edges, skipped, failed, capped, stopped, sampled:true, perAddressLimit, maxDepth, errors[] }`
   - Contract: enqueue-dedup + safetyCap **at enqueue**; drop failed txs; depth ≥ maxDepth added-not-expanded; real cancel via `signal`; explicit sampling.
 - `selectedTypes({normal,internal,token}): TxTypeInfo[]`
 - `loadOlder(LoadOlderOptions): Promise<LoadOlderResult>` — one older page per selected type for one node, by block cursor.
-  - `LoadOlderOptions = { client, store, limiter, address, types:TxTypeInfo[], maxTxPerAddress, signal?, onLog? }`
+  - `LoadOlderOptions = { client, store, limiter, chainId, address, types:TxTypeInfo[], maxTxPerAddress, signal?, onLog? }` — operates on node `nodeId(chainId, lc(address))`; the caller builds `client` for that node's chain.
   - `LoadOlderResult = { apiCalls, newEdges, newNodes, failed, skipped, errors, planRequired, stopped, allDone }`; `errors` = per-type fetch errors (aborts excluded); `allDone` = every selected type's cursor is done.
   - Contract: same ingest path as `runScan` (failed-tx drop, endpoint validation); new counterparties land at depth+1 and are **not** expanded; a fetch error leaves that type's cursor untouched (never marked done); `runScan` records the first-load cursor (replace, not merge) per expanded node.
 - Log entries flow as `{ level:'info'|'error', key, params? }` — localized by `ui.createLogger` via i18n.
@@ -211,19 +216,26 @@ Contract extensions (additive, backward-compatible):
 
 New i18n keys: `filters.label`, `filters.minAmount.label`, `filters.hideZero`, `filters.hideSpam` (en+fr). New DOM ids: `minAmount`, `hideZeroToggle`, `hideSpamToggle`.
 
-D1.2 (edge bundling) shipped: `display.bundleEdges(edges)→BundledEdge[]`, view `setBundling(on)`/`getEdgeData(id)`, `ui.renderBundleDetails`.
+D1.2 (edge bundling) shipped: `display.bundleEdges(edges)→BundledEdge[]`, view `setBundling(on)`/`getEdgeData(id)`, `ui.renderBundleDetails`. Bundles key on `` `${fromId}|${toId}|${contract}|${symbol}` `` (never span chains); `BundledEdge` carries `chainId, fromId, toId` and `from`/`to` stay addresses.
 
 ## Stage D additions (Feature Layer 2)
 
 New DOM-free modules:
-- **workspace.js**: `WORKSPACE_VERSION=2`, `serializeWorkspace({chainId,root,nodes,edges,filters,layout,annotations})→object`, `parseWorkspace(json|string)→{ok,data}|{ok,error}` (sanitizes untrusted file input; never throws).
+- **workspace.js**: `WORKSPACE_VERSION=3`.
+  - `serializeWorkspace({root,nodes,edges,filters,layout,annotations}) → { version:3, root, graph:{nodes,edges}, filters, layout, annotations }` — no top-level `chainId` (an input `chainId` is ignored); every record carries its own `chainId`.
+  - `parseWorkspace(json|string, {fallbackChainId?}) → { ok:true, data:{ version:3, root, nodes, edges, filters, layout, annotations, assumedChainId:string|null } } | { ok:false, error, errorKey? }` (sanitizes untrusted file input; never throws).
+    - `version > 3` → refused, `errorKey:"error.workspaceTooNew"`.
+    - `version === 3` → reads `graph.nodes`/`graph.edges` (both arrays required); drops a node whose `chainId` fails `parseChainId`; drops an edge with a bad `chainId`, a key not prefixed `chainId|`, or an endpoint `nodeId(chainId, from|to)` not among the parsed nodes.
+    - anything else → strict v2 migration: one chain `parseChainId(obj.chainId ?? fallbackChainId)` (null → refused, `"workspace chainId must be a decimal chain id"`) is stamped on EVERY record (per-record `chainId` ignored, so a v2 file can never produce mixed chains); each edge key becomes `chainId + "|" + key` (prefixed, not recomputed). `assumedChainId` = that chain only when the file had no `chainId`.
+    - `id`/`fromId`/`toId` in a file are never trusted — `graphStore.loadSnapshot` recomputes them.
 - **dryRun.js**: `estimateScan({firstHopNeighbors,maxDepth,typesCount,rps,maxTxPerAddress,safetyCap})→{addresses,apiCalls,seconds}` (rough upper bound, capped by safetyCap).
-- **sinkFaucet.js**: `classifyHubs(nodes,edges,{minDegree=6,ratio=4})→Map<addr,'sink'|'faucet'>` (distinct-counterparty degree, self-loops ignored), `hubDim(kind)→number`.
+- **sinkFaucet.js**: `classifyHubs(nodes,edges,{minDegree=6,ratio=4})→Map<nodeId,'sink'|'faucet'>` (reads `n.id`, `e.fromId`/`e.toId`; distinct-counterparty degree, self-loops ignored; hubs are per chain), `hubDim(kind)→number`.
+- **roundTrips.js**: `findCycleNodes(nodes, edges) → Set<nodeId>` (Tarjan SCC over `n.id`, `e.fromId`/`e.toId`; a cycle never crosses chains).
 
 Contract extensions:
-- `graphStore.loadSnapshot(nodes, edges)` — replace all state from a snapshot; emits reset→node:add→edge:add; drops edges with missing endpoints (invariants hold).
+- `graphStore.loadSnapshot(nodes, edges)` — replace all state from a snapshot; emits reset→node:add→edge:add; recomputes `id`/`fromId`/`toId`; drops nodes with an invalid `chainId`, and edges with an invalid `chainId`, a key not prefixed `chainId|`, or an endpoint missing on that chain (invariants hold).
 - `display.passesFilters` gains `minTime`/`maxTime` (UNIX secs; unknown-timestamp edges not excluded); `filtersActive` accounts for them.
-- `GraphView` gains `setLayout(mode)`, `refreshHubs()`, `addAnnotation(text)`, `clearAnnotations()`, `getAnnotations()`, `setAnnotations(list)`. `createGraphView` deps gain optional `getHubKind(address)→('sink'|'faucet'|null)`. Annotations are `note:*` overlay nodes (not graph nodes; not in store/CSV).
+- `GraphView` gains `setLayout(mode)`, `refreshHubs()`, `addAnnotation(text)`, `clearAnnotations()`, `getAnnotations()`, `setAnnotations(list)`. `createGraphView` deps gain optional `getHubKind(id)→('sink'|'faucet'|null)` (by node id). vis node ids are store node ids; vis edge endpoints are `fromId`/`toId`; `hasRenderedNode(id)` / `focusNode(id)` take node ids. Annotations are `note:*` overlay nodes (not graph nodes; not in store/CSV).
 - `render/export.renderExportCanvas`/`exportPng`/`exportPdf` accept `annotations` (baked into the image).
 
 New i18n keys: filters.dateFrom/dateTo/hubs, form.layout.*, investigate.label, workspace.label, btn.addNote/clearNotes/estimate/save/load/demo, help.apiKey, log.workspaceSaved/workspaceLoaded/workspaceError/demoLoaded/estimate/notesCleared, details.bundleType/count/total, alias.notePrompt (en+fr, 134/134).
@@ -310,7 +322,7 @@ hidden or highlighted on screen.
     — detects "peel chain" / forwarding patterns: `A→B→C→…` where each intermediate node has
     exactly one distinct sender and one distinct recipient (`isPassThrough`) and forwards
     ~the same amount it just received (`sent/recv` within `[keepRatio, slack]`, default
-    `[0.9, 1.1]`), with time never running backward. Returns ordered address paths of at
+    `[0.9, 1.1]`), with time never running backward. Reads `e.fromId`/`e.toId`, so a chain never hops chains. Returns ordered node-id paths of at
     least `minLen` nodes (default 3). Amount basis: `edge.amountText` (nominal per-token
     magnitude, same basis as `display.edgeAmountNumber` — NOT fiat-normalized).
 

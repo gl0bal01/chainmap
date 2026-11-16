@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { runScan, loadOlder, selectedTypes } from "../src/scanner.js";
 import { TX_TYPE_GROUPS } from "../src/config.js";
+import { GraphStore } from "../src/graphStore.js";
 
 // -----------------------------------------------------------------------------
 // Injected fakes. Per the Stage B contract the scanner test must NOT import the
@@ -16,6 +17,8 @@ const B = addr("b");
 const C = addr("c");
 const D = addr("d");
 const E = addr("e");
+/** Node id on a chain (the store's identity); defaults to Ethereum. */
+const ID = (a, c = "1") => `${c}:${a}`;
 
 /** Fake limiter: run immediately, pass fn's result/rejection straight through. */
 const fakeLimiter = { run: (fn) => fn() };
@@ -37,7 +40,7 @@ function makeClient(responses = {}, throwOn = new Set()) {
   };
 }
 
-/** Fake store: records calls, mimics dedup so stats() is realistic. */
+/** Fake store: records calls, mimics dedup so stats() is realistic. Keyed by node id. */
 function makeStore() {
   const nodes = new Map();
   const edgeKeys = new Set();
@@ -49,21 +52,22 @@ function makeStore() {
     addEdgeCalls,
     _nodes: nodes,
     _edges: edges,
-    addNode(address, opts = {}) {
-      addNodeCalls.push({ address, ...opts });
-      const existing = nodes.get(address);
+    addNode(chainId, address, opts = {}) {
+      addNodeCalls.push({ chainId, address, ...opts });
+      const id = `${chainId}:${address}`;
+      const existing = nodes.get(id);
       if (existing) {
         if (typeof opts.depth === "number" && opts.depth < existing.depth) existing.depth = opts.depth;
         if (opts.isRoot) existing.isRoot = true;
         return existing;
       }
-      const rec = { address, depth: opts.depth ?? 0, isRoot: !!opts.isRoot, alias: null };
-      nodes.set(address, rec);
+      const rec = { id, chainId, address, depth: opts.depth ?? 0, isRoot: !!opts.isRoot, alias: null };
+      nodes.set(id, rec);
       return rec;
     },
     addEdge(input) {
       addEdgeCalls.push(input);
-      const key = [input.action, input.tx && input.tx.hash, input.from, input.to].join("|");
+      const key = [input.chainId, input.action, input.tx && input.tx.hash, input.from, input.to].join("|");
       if (edgeKeys.has(key)) return null;
       edgeKeys.add(key);
       const rec = { key, ...input };
@@ -74,9 +78,9 @@ function makeStore() {
       return { nodes: nodes.size, edges: edges.length };
     },
     historyCalls: [],
-    hasNode: (a) => nodes.has(a),
-    getNode: (a) => nodes.get(a),
-    removeNode: (a) => nodes.delete(a),
+    hasNode: (id) => nodes.has(id),
+    getNode: (id) => nodes.get(id),
+    removeNode: (id) => nodes.delete(id),
     setHistory(a, action, entry) {
       this.historyCalls.push({ a, action, entry });
       const n = nodes.get(a);
@@ -92,6 +96,7 @@ function baseOpts(overrides = {}) {
     client: overrides.client,
     store: overrides.store,
     limiter: fakeLimiter,
+    chainId: "1",
     root: R,
     maxDepth: 2,
     maxTxPerAddress: 20,
@@ -152,8 +157,8 @@ describe("runScan — BFS", () => {
     // A is fetched only if expanded; at depth 1 == maxDepth it must not be.
     expect(client.calls.map((c) => c.address)).toEqual([R]);
     // A is still added as a node; B (A's neighbor) is never discovered.
-    expect(store._nodes.has(A)).toBe(true);
-    expect(store._nodes.has(B)).toBe(false);
+    expect(store._nodes.has(ID(A))).toBe(true);
+    expect(store._nodes.has(ID(B))).toBe(false);
     expect(store.stats().nodes).toBe(2);
     // Both R and A are dequeued+processed.
     expect(summary.processed).toBe(2);
@@ -207,8 +212,8 @@ describe("runScan — BFS", () => {
     expect(summary.processed).toBe(2);
     expect(summary.capped).toBe(true);
     // B/C (and A's D/E) are still added as nodes, just never expanded.
-    expect(store._nodes.has(B)).toBe(true);
-    expect(store._nodes.has(C)).toBe(true);
+    expect(store._nodes.has(ID(B))).toBe(true);
+    expect(store._nodes.has(ID(C))).toBe(true);
   });
 
   test("failed txs (isError '1' / txreceipt_status '0') dropped + counted", async () => {
@@ -226,9 +231,9 @@ describe("runScan — BFS", () => {
     // Only the successful tx produces an edge (and its endpoints as nodes).
     expect(store.addEdgeCalls.length).toBe(1);
     expect(store.addEdgeCalls[0].to).toBe(C);
-    expect(store._nodes.has(A)).toBe(false);
-    expect(store._nodes.has(B)).toBe(false);
-    expect(store._nodes.has(C)).toBe(true);
+    expect(store._nodes.has(ID(A))).toBe(false);
+    expect(store._nodes.has(ID(B))).toBe(false);
+    expect(store._nodes.has(ID(C))).toBe(true);
   });
 
   test("invalid endpoints skipped + counted (bad to, bad from)", async () => {
@@ -256,7 +261,7 @@ describe("runScan — BFS", () => {
 
     expect(store.addEdgeCalls.length).toBe(1);
     expect(store.addEdgeCalls[0].to).toBe(C);
-    expect(store._nodes.has(C)).toBe(true);
+    expect(store._nodes.has(ID(C))).toBe(true);
   });
 
   test("pre-aborted signal -> stopped summary, minimal work", async () => {
@@ -271,7 +276,7 @@ describe("runScan — BFS", () => {
     expect(summary.apiCalls).toBe(0);
     expect(client.calls.length).toBe(0);
     // Root was still seeded as a node.
-    expect(store._nodes.has(R)).toBe(true);
+    expect(store._nodes.has(ID(R))).toBe(true);
     expect(store.stats().nodes).toBe(1);
   });
 
@@ -342,28 +347,28 @@ describe("scan cursors", () => {
     const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 10), tx(R, A, 9, { hash: "0xz" })] });
     const store = makeStore();
     await runScan(baseOpts({ client, store, maxDepth: 1, maxTxPerAddress: 2 }));
-    expect(store.getNode(R).history.txlist).toEqual({ oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 });
-    expect(store.getNode(A).history).toBeUndefined();
+    expect(store.getNode(ID(R)).history.txlist).toEqual({ oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 });
+    expect(store.getNode(ID(A)).history).toBeUndefined();
   });
 
   test("runScan replaces an existing entry instead of merging", async () => {
     const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 10)] });
     const store = makeStore();
-    store.addNode(R, { depth: 0, isRoot: true });
-    store.getNode(R).history = { txlist: { oldestBlock: "5", blockPage: 0, pageSize: 0, done: true, count: 40 } };
+    store.addNode("1", R, { depth: 0, isRoot: true });
+    store.getNode(ID(R)).history = { txlist: { oldestBlock: "5", blockPage: 0, pageSize: 0, done: true, count: 40 } };
     await runScan(baseOpts({ client, store, maxDepth: 1, maxTxPerAddress: 2 }));
-    expect(store.getNode(R).history.txlist).toEqual({ oldestBlock: "10", blockPage: 0, pageSize: 0, done: true, count: 1 });
+    expect(store.getNode(ID(R)).history.txlist).toEqual({ oldestBlock: "10", blockPage: 0, pageSize: 0, done: true, count: 1 });
   });
 });
 
 describe("loadOlder", () => {
   const tx = (from, to, block, extra = {}) => ({ from, to, hash: `0xh${from}${to}${block}`, blockNumber: String(block), ...extra });
   const done = { oldestBlock: "1", blockPage: 0, pageSize: 0, done: true, count: 5 };
-  const lo = (o) => loadOlder({ limiter: fakeLimiter, address: R, types: selectedTypes({ normal: true }), maxTxPerAddress: 2, ...o });
+  const lo = (o) => loadOlder({ limiter: fakeLimiter, chainId: "1", address: R, types: selectedTypes({ normal: true }), maxTxPerAddress: 2, ...o });
   const seeded = (history) => {
     const store = makeStore();
-    store.addNode(R, { depth: 1 });
-    if (history) store.getNode(R).history = history;
+    store.addNode("1", R, { depth: 1 });
+    if (history) store.getNode(ID(R)).history = history;
     return store;
   };
 
@@ -379,11 +384,11 @@ describe("loadOlder", () => {
   test("passes inclusive endblock and advances", async () => {
     const store = seeded({ txlist: { oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 } });
     const dup = tx(R, A, 9);
-    store.addEdge({ action: "txlist", from: R, to: A, tx: dup });
+    store.addEdge({ chainId: "1", action: "txlist", from: R, to: A, tx: dup });
     const client = makeClient({ [`${R}|txlist`]: [dup, tx(R, B, 7)] });
     const r = await lo({ client, store });
     expect(client.calls[0].endblock).toBe(9);
-    expect(store.getNode(R).history.txlist.oldestBlock).toBe("7");
+    expect(store.getNode(ID(R)).history.txlist.oldestBlock).toBe("7");
     expect(r.newEdges).toBe(1);
   });
 
@@ -391,7 +396,7 @@ describe("loadOlder", () => {
     const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 5)] });
     const store = seeded();
     await lo({ client, store });
-    expect(store.getNode(A).depth).toBe(2);
+    expect(store.getNode(ID(A)).depth).toBe(2);
     expect(client.calls.every((c) => c.address === R)).toBe(true);
   });
 
@@ -406,7 +411,7 @@ describe("loadOlder", () => {
     const client = makeClient({ [`${R}|txlist`]: [tx(R, A, 8), tx(R, B, 7, { isError: "1" })] });
     const store = seeded();
     const r = await lo({ client, store });
-    expect(store.getNode(R).history.txlist.oldestBlock).toBe("7");
+    expect(store.getNode(ID(R)).history.txlist.oldestBlock).toBe("7");
     expect(r.newEdges).toBe(1);
     expect(r.failed).toBe(1);
   });
@@ -418,8 +423,8 @@ describe("loadOlder", () => {
     const logs = [];
     const r = await lo({ client, store, types: selectedTypes({ normal: true }).concat(TX_TYPE_GROUPS.token.slice(0, 1)), onLog: (e) => logs.push(e) });
     expect(r.errors).toBe(1);
-    expect(store.getNode(R).history.txlist).toEqual(entry);
-    expect(store.getNode(R).history.tokentx.oldestBlock).toBe("3");
+    expect(store.getNode(ID(R)).history.txlist).toEqual(entry);
+    expect(store.getNode(ID(R)).history.tokentx.oldestBlock).toBe("3");
     expect(logs.map((l) => l.key)).toEqual(["error.fetch"]);
   });
 
@@ -444,7 +449,7 @@ describe("loadOlder", () => {
     const r = await lo({ client, store, signal: c.signal });
     expect(client.calls.length).toBe(0);
     expect(r.stopped).toBe(true);
-    expect(store.getNode(R).history).toBeUndefined();
+    expect(store.getNode(ID(R)).history).toBeUndefined();
   });
 
   test("stops if node removed mid-load", async () => {
@@ -452,12 +457,12 @@ describe("loadOlder", () => {
     const store = seeded();
     client.fetchAction = async (address, action) => {
       client.calls.push({ address, action });
-      store.removeNode(R);
+      store.removeNode(ID(R));
       return [tx(R, A, 5)];
     };
     const r = await lo({ client, store, types: selectedTypes({ normal: true, internal: true }) });
     expect(client.calls.length).toBe(1);
-    expect(store.hasNode(R)).toBe(false);
+    expect(store.hasNode(ID(R))).toBe(false);
     expect(r.newEdges).toBeGreaterThanOrEqual(0);
     expect(r.newNodes).toBeGreaterThanOrEqual(0);
   });
@@ -476,7 +481,7 @@ describe("loadOlder", () => {
     expect(r.stopped).toBe(true);
     expect(r.errors).toBe(0); // an abort is not a failed request
     expect(logs).toEqual([]);
-    expect(store.getNode(R).history).toBeUndefined();
+    expect(store.getNode(ID(R)).history).toBeUndefined();
   });
 
   test("empty types never reads as allDone", async () => {
@@ -491,5 +496,44 @@ describe("loadOlder", () => {
     const r = await lo({ client, store: makeStore() });
     expect(client.calls.length).toBe(0);
     expect(r).toMatchObject({ apiCalls: 0, allDone: false, stopped: false });
+  });
+});
+
+describe("chain-scoped scans", () => {
+  const row = (from, to, hash, block) => ({ from, to, hash, blockNumber: String(block) });
+
+  test("runScan tags every node and edge with its chainId", async () => {
+    const store = new GraphStore();
+    await runScan(baseOpts({ client: makeClient({ [`${R}|txlist`]: [row(R, A, "0x1", 5)] }), store, chainId: "8453", maxDepth: 1 }));
+    expect(store.listNodes().map((n) => n.id).sort()).toEqual([`8453:${R}`, `8453:${A}`]); // "0x11…" sorts before "0xaa…"
+    expect(store.listEdges().every((e) => e.chainId === "8453" && e.key.startsWith("8453|"))).toBe(true);
+  });
+
+  test("root scanned on chain 1 then 8453: two roots, a replayed hash kept on both", async () => {
+    const store = new GraphStore();
+    for (const chainId of ["1", "8453"]) {
+      await runScan(baseOpts({ client: makeClient({ [`${R}|txlist`]: [row(R, A, "0xreplayed", 5)] }), store, chainId, maxDepth: 1 }));
+    }
+    expect(store.listNodes().filter((n) => n.isRoot).map((n) => n.chainId).sort()).toEqual(["1", "8453"]);
+    expect(store.stats()).toEqual({ nodes: 4, edges: 2 });
+    expect(store.checkInvariants().ok).toBe(true);
+  });
+
+  test("runScan without a chainId rejects before any fetch", async () => {
+    const client = makeClient();
+    await expect(runScan(baseOpts({ client, store: new GraphStore(), chainId: undefined }))).rejects.toThrow();
+    expect(client.calls.length).toBe(0);
+  });
+
+  test("loadOlder({chainId, address}) touches only that chain's node", async () => {
+    const store = new GraphStore();
+    const entry = { oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 };
+    for (const c of ["1", "8453"]) { store.addNode(c, R, { depth: 0, isRoot: true }); store.setHistory(`${c}:${R}`, "txlist", entry); }
+    const client = makeClient({ [`${R}|txlist`]: [row(R, B, "0x2", 7)] });
+    await loadOlder({ client, store, limiter: fakeLimiter, chainId: "8453", address: R, types: selectedTypes({ normal: true }), maxTxPerAddress: 2 });
+    expect(store.getNode(`1:${R}`).history.txlist).toEqual(entry);
+    expect(store.getNode(`8453:${R}`).history.txlist.oldestBlock).toBe("7");
+    expect(store.hasNode(`8453:${B}`)).toBe(true);
+    expect(store.hasNode(`1:${B}`)).toBe(false);
   });
 });

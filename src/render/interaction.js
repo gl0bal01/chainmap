@@ -25,9 +25,9 @@ function allPositions(network) {
  * @param {{
  *   container: HTMLElement,
  *   i18n: import('../i18n.js').I18n,
- *   onNodeSelect: (address:string)=>void,
+ *   onNodeSelect: (id:string)=>void,
  *   onEdgeSelect: (edgeKey:string)=>void,
- *   onAliasEdit: (address:string)=>void,
+ *   onAliasEdit: (id:string)=>void,
  *   onLog: (entry:{level:'info'|'error', key:string, params?:object})=>void
  * }} deps
  * @returns {{ detach: () => void }}
