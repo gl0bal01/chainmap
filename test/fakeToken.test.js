@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
 import { normalizeSymbol, buildCanonicalIndex, isFakeToken } from "../src/fakeToken.js";
 
 const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
@@ -20,7 +21,7 @@ test("normalizeSymbol: NFKC full-width, Cyrillic/Greek look-alikes, ₮, whitesp
   expect(normalizeSymbol("UЅDТ")).toBe("USDT"); // Cyrillic Ѕ, Т
   expect(normalizeSymbol("USDΤ")).toBe("USDT"); // Greek Τ
   expect(normalizeSymbol("USD₮")).toBe("USDT"); // ₮
-  expect(normalizeSymbol(" usdt​ ")).toBe("USDT");
+  expect(normalizeSymbol(" usdt\u200b ")).toBe("USDT");
   expect(normalizeSymbol("USDC.e")).toBe("USDCE");
   expect(normalizeSymbol(undefined)).toBe("");
   expect(normalizeSymbol(123)).toBe("");
@@ -64,4 +65,30 @@ test("untrusted inputs never throw", () => {
   expect(isFakeToken(tx({ tokenContract: undefined }), "1", idx)).toBe(false);
   expect(isFakeToken(tx({ tokenContract: OTHER }), "1", undefined)).toBe(false);
   expect(buildCanonicalIndex(null).size).toBe(0);
+});
+
+test("combining marks and control chars cannot bypass matching", () => {
+  expect(normalizeSymbol("U\u0301SDT")).toBe("USDT");
+  expect(normalizeSymbol("\u00DASDT")).toBe("USDT");
+  expect(normalizeSymbol("US\u1E0AT")).toBe("USDT");
+  expect(normalizeSymbol("U\u0338SDT")).toBe("USDT");
+  expect(normalizeSymbol("USDC\u0000")).toBe("USDC");
+  expect(isFakeToken(tx({ symbol: "U\u0301SDT", tokenContract: OTHER }), "1", idx)).toBe(true);
+});
+
+test("real shipped data: no canonical token is ever flagged fake", () => {
+  const real = JSON.parse(readFileSync(new URL("../data/known-addresses.json", import.meta.url), "utf8"));
+  const ri = buildCanonicalIndex(real);
+  let n = 0;
+  for (const [chain, rows] of Object.entries(real)) {
+    if (chain === "*") continue;
+    for (const [addr, row] of Object.entries(rows)) {
+      if (row.category !== "token" || !row.symbol) continue;
+      for (const symbol of [row.symbol, row.symbol.toLowerCase()]) {
+        expect(isFakeToken({ action: "tokentx", symbol, tokenContract: addr }, chain, ri)).toBe(false);
+        n++;
+      }
+    }
+  }
+  expect(n).toBeGreaterThan(0);
 });

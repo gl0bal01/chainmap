@@ -21,10 +21,12 @@ const CONFUSABLES = {
 export function normalizeSymbol(s) {
   if (typeof s !== "string") return "";
   return s
+    .normalize("NFKD") // decompose, so combining marks can be stripped (NFKC would recompose "U"+acute)
+    .replace(/\p{M}/gu, "")
     .normalize("NFKC")
     .toUpperCase()
     .replace(/./gu, (c) => CONFUSABLES[c] ?? c)
-    .replace(/[\s\p{P}\p{Cf}]/gu, "");
+    .replace(/[\s\p{P}\p{Cf}\p{Cc}]/gu, "");
 }
 
 export function buildCanonicalIndex(data) {
