@@ -126,6 +126,7 @@ export default {
   "legend.riskInfo": "Signal info (approbation / destinataire caché / faux jeton)",
   "legend.roundtrip": "Aller-retour (cycle)",
   "legend.age": "Âge de l'arête (ancien → récent)",
+  "legend.deposit": "Dépôt probable sur une plateforme (heuristique)",
 
   // --- sidebar: details -----------------------------------------------------
   "details.title": "Détails",
@@ -187,6 +188,18 @@ export default {
   "details.risk": "Risque",
   "details.summary": "Résumé",
   "details.flags": "Signaux de risque",
+  "details.deposit": "Dépôt sur plateforme",
+  "deposit.badge": "🏦 dépôt probable → {label}",
+  "deposit.tooltip": "🏦 dépôt probable → {label} (heuristique)",
+  "deposit.of": "Adresse de dépôt probable de {label} (heuristique)",
+  "deposit.swept": "{swept} transferts sortants sur {outgoing} envoyés vers ce portefeuille",
+  "deposit.share": "{pct} % des sorties en {symbol}",
+  "deposit.delay": "Reversé dans les {delay} suivant la dernière entrée de fonds ({timed} reversements datés sur {swept})",
+  "deposit.noInflow": "Aucune entrée de fonds vue avant le reversement dans les données échantillonnées",
+  "deposit.sampled": "Fondé uniquement sur les transactions échantillonnées ; à vérifier auprès de la plateforme.",
+  "duration.m": "{n} min",
+  "duration.h": "{n} h",
+  "duration.d": "{n} j",
   "risk.high": "Élevé",
   "risk.med": "Moyen",
   "risk.low": "Faible",
@@ -198,6 +211,7 @@ export default {
   "risk.approval": "approbation de jeton illimitée",
   "risk.sanctioned": "entité sanctionnée",
   "risk.known": "entité identifiée",
+  "risk.deposit": "adresse de dépôt probable d'une plateforme",
 
   // --- edge decode: call summary + risk flags --------------------------------
   "summary.transfer": "Transfert {amount} → {recipient}",

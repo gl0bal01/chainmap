@@ -542,6 +542,70 @@ test("node details render a Source provenance row only when getKnownSource retur
   expect(xss.textContent).toContain(payload); // present as inert text
 });
 
+test("node details render the Exchange deposit row from evidence (textContent only)", async () => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const node = { address: ROOT, depth: 1, isRoot: false, alias: null };
+  const evil = '<img src=x onerror="alert(1)">';
+  const dep = {
+    walletId: ID("1", N2), wallet: N2, label: evil, swept: 9, outgoing: 10,
+    assets: [{ symbol: "ETH", contract: "", sharePct: 100 }, { symbol: evil, contract: TOKEN, sharePct: 93 }],
+    maxDelaySec: 5400, timedSweeps: 7,
+  };
+  const render = (deposit) => {
+    const box = document.createElement("div");
+    ui.renderNodeDetails(box, node, { i18n, explorer: "etherscan.io", onRename: () => {}, deposit });
+    return box;
+  };
+  const box = render(dep);
+  expect(box.querySelector("img")).toBeNull();
+  const txt = box.textContent;
+  expect(txt).toContain("Exchange deposit");
+  expect(txt).toContain(`Likely deposit address of ${evil} (heuristic)`);
+  expect(txt).toContain("Forwarded 9 of 10 outgoing transfers to it");
+  expect(txt).toContain("100% of the ETH outflow");
+  expect(txt).toContain(`93% of the ${evil} outflow`);
+  expect(txt).toContain("Swept within 2 h of the latest inflow (7 of 9 sweeps timed)");
+  expect(txt).toContain("Based only on the sampled transactions; verify with the exchange.");
+  const untimed = render({ ...dep, maxDelaySec: null, timedSweeps: 0 }).textContent;
+  expect(untimed).toContain("No inflow seen before the sweep in the sampled data");
+  expect(untimed).not.toContain("Swept within");
+  expect(render(null).textContent).not.toContain("Exchange deposit");
+});
+
+test("graph view appends the deposit line + tooltip from getDeposit; refreshNodes re-applies; French", async () => {
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { createGraphView } = await import("../src/render/network.js");
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const store = new GraphStore();
+  let dep = null;
+  const view = createGraphView(document.createElement("div"), store, {
+    i18n, getAddressFormat: () => "short", getDeposit: (id) => (id === ID("1", N2) ? dep : null),
+  });
+  try {
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("1", N2, { depth: 1 });
+    const item = (id) => view.network.nodes.get(id);
+    expect(item(ID("1", N2)).label).not.toContain("🏦");
+    dep = { walletId: ID("1", N3), wallet: N3, label: "Binance 14 (hot wallet)", swept: 1, outgoing: 1, assets: [], maxDelaySec: null, timedSweeps: 0 };
+    view.refreshNodes([ID("1", N2), "1:0xmissing"]); // unknown id: skipped, no throw
+    expect(item(ID("1", N2)).label.endsWith("\n🏦 likely deposit → Binance 14 (hot wallet)")).toBe(true);
+    expect(item(ID("1", N2)).title).toContain("🏦 likely deposit → Binance 14 (hot wallet) (heuristic)");
+    expect(item(ID("1", ROOT)).label).not.toContain("🏦");
+    i18n.setLocale("fr");
+    view.refreshLabels();
+    expect(item(ID("1", N2)).label).toContain("dépôt probable");
+  } finally {
+    view.destroy();
+  }
+});
+
 test("demo workspace showcases every investigator overlay (6 categories, all 5 risk flags, peel chain, NFT) and holds store invariants", async () => {
   const { parseWorkspace } = await import("../src/workspace.js");
   const { GraphStore } = await import("../src/graphStore.js");
