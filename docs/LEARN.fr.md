@@ -259,7 +259,7 @@ réunir dans un **dossier de preuves** pour que vous, ou un lecteur, puissiez v�
 fichiers n'ont pas changé depuis l'export.
 
 **Ce que le journal enregistre.** Une entrée par tentative de requête Etherscan (une nouvelle
-tentative est une entrée à part) : l'heure (UTC), la chaîne, l'action, les paramètres de la
+tentative est une entrée à part ; une tentative annulée avec **Arrêter** n'est pas consignée) : l'heure (UTC), la chaîne, l'action, les paramètres de la
 requête **sans votre clé d'API**, le statut HTTP, le nombre de lignes reçues, le **SHA-256 du
 corps brut de la réponse** et une issue (ok, nouvelle tentative, erreur, sans réponse). Seule
 l'empreinte est conservée, jamais la réponse : le journal reste léger et ne contient aucune
@@ -272,14 +272,15 @@ aussi enregistré dans les espaces de travail.
 `chainmap-evidence-<heure UTC>.zip` :
 
 - `graph.csv` et `graph.png` (le PNG est omis s'il dépasserait le plafond de pixels, et le
-  manifeste l'indique dans `omitted`), qui montrent tous deux le graphe complet, avec leur
-  provenance (pied de page du PNG, ligne 1 du CSV) ;
+  manifeste l'indique dans `omitted`), qui montrent tous deux le graphe complet, quels que soient
+  les filtres à l'écran, avec leur provenance (pied de page du PNG, ligne 1 du CSV) ;
 - `workspace.json`, qui permet de recharger le graphe ;
 - `query-log.json` ;
 - `MANIFEST.json` : version de l'appli, heure d'export, chaînes, racines, taille du graphe,
   réglages d'échantillonnage, fenêtre de récupération, instantané des adresses connues,
   mises en garde et SHA-256 de chaque fichier ;
-- `SHA256SUMS` : les mêmes empreintes dans un format que les outils standards savent contrôler.
+- `SHA256SUMS` : les mêmes empreintes que `MANIFEST.json`, plus celle de `MANIFEST.json`
+  lui-même, dans un format que les outils standards savent contrôler.
 
 **Comment le vérifier.**
 
@@ -306,8 +307,12 @@ l'empreinte du zip doit redonner la même valeur.
   détection de chaîne, « vérifier les autres chaînes »), et supprimer des nœuds ne supprime
   pas les entrées du journal.
 - **« Partiel ».** Si une partie du graphe vient de la démo, d'un espace de travail enregistré
-  sans journal, ou si d'anciennes entrées ont été écartées à la limite du journal, le pied de
-  page et le manifeste signalent qu'une partie du graphe n'a pas de récupération journalisée.
+  sans journal (ou avec des entrées de journal invalides), ou si d'anciennes entrées ont été
+  écartées à la limite du journal, le pied de page et le manifeste signalent qu'une partie du
+  graphe n'a aucune récupération consignée au journal. Sinon, `retrieval.fullyLogged` vaut
+  `true` dans le manifeste. Cela signifie seulement que rien n'a été écarté ni laissé hors
+  journal ; cela ne veut pas dire que les données sont complètes : des requêtes ont pu
+  échouer, des scans ont pu être arrêtés, et les données sont échantillonnées.
 - **Libellés et heuristiques : des signaux, pas des faits.** Libellés connus, signaux de
   risque, jetons imités, marques de dépôt probable (aussi dessinées dans les PNG/PDF) et liens
   de même clé sont des pistes à corroborer. Les libellés connus viennent d'un instantané

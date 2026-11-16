@@ -229,7 +229,7 @@ edited? chainmap keeps a **query log** and can pack everything into an **evidenc
 that you, or a reader, can check the files were not changed after export.
 
 **What the query log records.** One entry per Etherscan request attempt (a retry is its own
-entry): time (UTC), chain, action, the request parameters **without your API key**, HTTP
+entry; an attempt cancelled with **Stop** is not logged): time (UTC), chain, action, the request parameters **without your API key**, HTTP
 status, number of rows returned, the **SHA-256 of the raw response body**, and an outcome
 (ok, retried, error, no response). Only the hash is kept, never the response itself: the log
 stays small and holds no response data, yet anyone holding the same raw response can check
@@ -239,13 +239,14 @@ panel to read it, or use **Export query log (.json)**. The log is also saved ins
 **What the bundle holds.** **Evidence bundle (.zip)** downloads `chainmap-evidence-<UTC time>.zip`:
 
 - `graph.csv` and `graph.png` (the PNG is left out if it would exceed the pixel cap, and the
-  manifest says so under `omitted`), both showing the full graph, with provenance (footer on
-  the PNG, line 1 of the CSV);
+  manifest says so under `omitted`), both showing the full graph regardless of on-screen
+  filters, with provenance (footer on the PNG, line 1 of the CSV);
 - `workspace.json`, which reloads the graph;
 - `query-log.json`;
 - `MANIFEST.json`: app version, export time, chains, roots, graph size, sampling settings,
   retrieval window, the known-address snapshot, the caveats, and the SHA-256 of each file;
-- `SHA256SUMS`: the same hashes in a format standard tools check.
+- `SHA256SUMS`: the same hashes as `MANIFEST.json`, plus the hash of `MANIFEST.json` itself,
+  in a format standard tools check.
 
 **How to verify it.**
 
@@ -269,8 +270,11 @@ third party: later, hashing the zip again must give the same value.
   that added no graph data (scan estimate, chain detection, "check other chains"), and
   deleting nodes does not delete log entries.
 - **"Partial".** If part of the graph came from the demo, or from a workspace saved without a
-  query log, or if old log entries were dropped at the log limit, the footer and the manifest
-  say that part of the graph has no logged retrieval.
+  query log (or with invalid log entries), or if old log entries were dropped at the log
+  limit, the footer and the manifest say that part of the graph has no logged retrieval.
+  Otherwise the manifest's `retrieval.fullyLogged` is `true`. That only means nothing was
+  dropped or left unlogged; it does not mean the data is complete: requests may have failed,
+  scans may have been stopped, and the data is sampled.
 - **Labels and heuristics are signals, not facts.** Known labels, risk flags, imitation-token
   marks, likely-deposit marks (also drawn in the PNG/PDF) and same-key links are leads to
   corroborate. Known labels come from a dated snapshot, recorded in the manifest.
