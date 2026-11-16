@@ -17,7 +17,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
   `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) only while you tick the opt-in
   **Show USD values** box — enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **795 unit/integration tests** on the DOM-free core.
+- **798 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -198,7 +198,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 795 unit + integration tests
+bun test        # 798 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:
