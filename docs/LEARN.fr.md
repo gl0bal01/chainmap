@@ -204,7 +204,7 @@ sorties vont presque toutes vers **un seul portefeuille connu** d'une plateforme
 probablement une adresse de dépôt de celle-ci : c'est la piste à porter auprès de la
 plateforme dans une demande de conformité.
 
-chainmap marque une telle adresse « dépôt probable → <portefeuille> » quand tout ceci est vrai :
+chainmap marque une telle adresse « dépôt probable → `<portefeuille>` » quand tout ceci est vrai :
 
 - **Ses propres transactions ont été récupérées**, natives comme jetons. Sinon ses sorties
   dans le graphe ne sont que ce que les requêtes d'autres nœuds ont laissé voir, et elle n'est

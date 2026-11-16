@@ -86,7 +86,7 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   *explainable* per-node risk score.
 - **Likely exchange deposit addresses** (🏦) — an address whose sampled outflow went almost
   entirely (>= 90 % of transfers and of each swept asset's value) to one known exchange hot
-  wallet is marked "likely deposit → <wallet>", with its evidence in the details panel and in
+  wallet is marked "likely deposit → `<wallet>`", with its evidence in the details panel and in
   the CSV (`likely_deposit_of`, `deposit_evidence`). A heuristic lead for a compliance request,
   never an attribution. Only addresses whose own transactions were fetched are judged, and only
   wallets listed in `data/` are recognized.

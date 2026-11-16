@@ -96,7 +96,7 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
 - **Adresses de dépôt probables d'une plateforme d'échange** (🏦) — une adresse dont les
   sorties échantillonnées sont allées presque toutes (>= 90 % des transferts et de la valeur de
   chaque actif balayé) vers un même portefeuille chaud connu d'une plateforme est marquée
-  « dépôt probable → <portefeuille> », avec ses indices dans le panneau de détails et dans le
+  « dépôt probable → `<portefeuille>` », avec ses indices dans le panneau de détails et dans le
   CSV (`likely_deposit_of`, `deposit_evidence`). Une piste heuristique pour une demande de
   conformité, jamais une attribution. Seules les adresses dont les propres transactions ont été
   récupérées sont jugées, et seuls les portefeuilles listés dans `data/` sont reconnus.

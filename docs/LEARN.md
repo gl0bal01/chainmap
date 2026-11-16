@@ -184,7 +184,7 @@ exchange's hot wallets. So an address whose outflow goes almost entirely to **on
 exchange wallet** is probably a deposit address of that exchange, and that is the lead you
 take to the exchange in a compliance request.
 
-chainmap marks such an address "likely deposit → <wallet>" when all of this holds:
+chainmap marks such an address "likely deposit → `<wallet>`" when all of this holds:
 
 - **Its own transactions were fetched**, both native and token ones. Otherwise its outflows
   in the graph are only what other nodes' fetches happened to show, and it is never judged.
