@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  v2 dev entry. CSP: no inline SCRIPT; only runtime fetch host is api.etherscan.io.
+  v2 dev entry. CSP: no inline SCRIPT; runtime fetch hosts: api.etherscan.io, and coins.llama.fi only while "Show USD values" is ticked.
   Libraries vendored locally (no CDN). style-src allows inline for vis runtime styles.
   Layout: graph is the primary surface; controls (left) + info (right) are collapsible
   panels toggled from the app bar, so the map can go full-bleed.
@@ -16,7 +16,7 @@
   script-src 'self';
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:;
-  connect-src 'self' https://api.etherscan.io;
+  connect-src 'self' https://api.etherscan.io https://coins.llama.fi;
   font-src 'self';
   object-src 'none';
   base-uri 'self';

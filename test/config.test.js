@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { CHAINS, PROBE_CHAIN_IDS, KNOWN_CATEGORIES } from "../src/config.js";
+import { CHAINS, PROBE_CHAIN_IDS, KNOWN_CATEGORIES, PRICE_API, PRICE_FETCH, LLAMA_CHAINS, STORAGE_KEYS } from "../src/config.js";
 
 // explorer must be a bare host: no scheme, no path/slash (config.js builds
 // `https://<explorer>/address/...` and `/tx/...` links directly from it).
@@ -147,5 +147,29 @@ describe("APP_VERSION", () => {
   test("matches package.json", async () => {
     const { APP_VERSION } = await import("../src/config.js");
     expect(APP_VERSION).toBe(JSON.parse(await Bun.file("package.json").text()).version);
+  });
+});
+
+describe("price config", () => {
+  test("PRICE_API and PRICE_FETCH carry the spec values", () => {
+    expect(PRICE_API).toBe("https://coins.llama.fi");
+    expect(PRICE_FETCH).toEqual({ rps: 1, maxUrlChars: 8000, timeoutMs: 15000, maxRetries: 3, backoffBaseMs: 2000,
+      bucketSec: 3600, searchWidth: "30m", windowSec: 1800, minConfidence: 0.9 });
+  });
+  test("LLAMA_CHAINS covers exactly the CHAINS mainnets (no testnet)", () => {
+    const mainnets = CHAINS.filter((c) => !c.name.includes("(testnet)")).map((c) => String(c.id)).sort();
+    expect(Object.keys(LLAMA_CHAINS).sort()).toEqual(mainnets); // 33 ids
+  });
+  test("LLAMA_CHAINS pins the special rows", () => {
+    expect(LLAMA_CHAINS["1"]).toEqual({ slug: "ethereum", native: [{ coin: "coingecko:ethereum" }] });
+    expect(LLAMA_CHAINS["137"]).toEqual({ slug: "polygon", native: [
+      { before: 1725926400, coin: "coingecko:matic-network" }, { coin: "coingecko:polygon-ecosystem-token" }] });
+    expect(LLAMA_CHAINS["252"]).toEqual({ slug: "fraxtal", native: null });
+    expect(LLAMA_CHAINS["4352"]).toEqual({ slug: null, native: [{ coin: "coingecko:memecore" }] });
+    expect(LLAMA_CHAINS["204"].slug).toBe("op_bnb");
+    expect(LLAMA_CHAINS["50"].native).toEqual([{ coin: "coingecko:xdce-crowd-sale" }]);
+  });
+  test("no STORAGE_KEYS entry for USD (never persisted)", () => {
+    expect(Object.keys(STORAGE_KEYS).concat(Object.values(STORAGE_KEYS)).some((k) => /usd|price/i.test(k))).toBe(false);
   });
 });
