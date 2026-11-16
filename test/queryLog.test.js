@@ -82,6 +82,7 @@ describe("queryLog", () => {
     const l = createQueryLog();
     await l.add(rec({ body: bytes() }));
     await l.add(rec({ at: at(1) }));
+    await l.add(rec({ at: at(2), action: "token1155tx", params: { ...P, action: "token1155tx" } })); // digits in a real action
     const s = sanitizeQueryLog({ ...l.toJSON(), unloggedData: false });
     expect(s.entries).toEqual(l.entries());
     expect(s.invalid).toBe(0);

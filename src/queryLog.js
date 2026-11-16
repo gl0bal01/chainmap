@@ -13,7 +13,7 @@ export const PARAM_KEYS = ["chainid", "module", "action", "address", "startblock
 export const OUTCOMES = ["ok", "retry", "error", "network"];
 
 const AT_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$/;
-const ACTION_RE = /^[a-z]{1,32}$/;
+const ACTION_RE = /^[a-z0-9]{1,32}$/; // token1155tx has digits
 const PARAM_RE = /^[0-9A-Za-z]{0,66}$/;
 const SHA_RE = /^[0-9a-f]{64}$/;
 

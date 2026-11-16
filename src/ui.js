@@ -582,7 +582,7 @@ export function renderQueryLog(container, entries, { i18n, dropped, unloggedData
     cell(e.at.slice(0, 19).replace("T", " "));
     cell(e.chainId);
     cell(e.action);
-    cell(shortAddress(e.address), e.address);
+    cell(shortAddress(e.params.address), e.params.address);
     cell(`${e.params.page}/${e.params.offset}`);
     cell(e.httpStatus ?? "—");
     cell(e.rows ?? "—");
