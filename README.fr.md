@@ -14,10 +14,11 @@ choix. Puis il superpose des outils d'enquête : filtres, regroupement d'arêtes
 appels de contrat, détection de cycles, hubs puits/source et score de risque par nœud.
 
 - **Entièrement côté client** — aucun backend, aucune étape de build, aucune télémétrie.
-- **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
-  contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
+- **Votre clé API et vos données restent dans votre navigateur.** Le seul site contacté est
+  `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
+  case facultative **Afficher les valeurs en USD** — imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **679 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **797 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -140,6 +141,16 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   s'il était masqué par un filtre/hub-hide. Le bouton rend la recherche accessible sur
   **mobile / tactile**, où il n'y a pas de raccourci clavier. Ctrl/Cmd+Flèche déplace la
   sélection vers le nœud le plus proche dans cette direction.
+- **Valeurs historiques en USD (facultatif)** — cochez **Afficher les valeurs en USD**
+  (décochée à chaque chargement de page, jamais enregistrée) pour obtenir une *estimation* de
+  la valeur en USD de chaque transfert dans le panneau de détails de l'arête et dans la
+  dernière colonne du CSV, `usd_value` : le prix DefiLlama à moins d'1 h de la transaction ×
+  le montant exact en jetons (BigInt). Inconnu, en attente ou non valorisé reste vide, jamais
+  `0`. Les NFT, transferts de valeur nulle, faux jetons, jetons de la liste de spam, contrats
+  examinés, transferts aux données inconnues, testnets et chaînes non prises en charge ne sont
+  jamais valorisés. Chaque requête
+  de prix figure dans le journal des requêtes. Voir
+  [LEARN §11](docs/LEARN.fr.md#estimations-en-usd).
 - **Honnête par conception** — montants en entiers (jamais de virgule flottante), tx
   échouées écartées, échantillonnage signalé partout. La mise en garde d'échantillonnage
   s'applique à toutes les fonctionnalités ci-dessus : superpositions, signaux et détection
@@ -185,10 +196,14 @@ pour les contrats de modules figés.
 ## Confidentialité, sécurité et éthique
 
 - **Rien ne quitte votre navigateur** hormis les appels à `api.etherscan.io` — aucun backend,
-  proxy, analytics ou balise tierce. Vérifiez-le dans DevTools → Réseau.
+  proxy, analytics ou balise tierce. Seule exception, facultative : uniquement tant que
+  **Afficher les valeurs en USD** est cochée, `coins.llama.fi` (DefiLlama) reçoit des
+  identifiants de contrats de jetons (ou de monnaies natives) et des heures arrondies à
+  l'heure, jamais les adresses que vous examinez, un hash de transaction ni votre clé API.
+  Vérifiez-le dans DevTools → Réseau.
 - **Bibliothèques vendorisées** (`vis-network`, `jsPDF`) — sans CDN — épinglées avec
   **Subresource Integrity**. Une **CSP** stricte limite `script-src` à `'self'` et
-  `connect-src` à l'API Etherscan.
+  `connect-src` à l'API Etherscan et à `coins.llama.fi`.
 - **La clé d'API n'est jamais écrite dans un export, un journal ou un nom de fichier.** Le
   journal des requêtes ne garde que les paramètres de la requête sans la clé et un SHA-256 de
   chaque réponse, jamais les corps de réponse.
@@ -209,7 +224,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 679 tests unitaires + d'intégration
+bun test        # 797 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :

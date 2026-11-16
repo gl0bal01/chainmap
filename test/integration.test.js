@@ -7,6 +7,7 @@ import KNOWN from "../data/known-addresses.json";
 import V2 from "./fixtures/workspace-v2.json";
 import { PROBE_CHAIN_IDS, APP_VERSION } from "../src/config.js";
 import { sha256Hex } from "../src/queryLog.js";
+import { USD_CAVEAT } from "../src/evidence.js";
 import EN from "../src/locales/en.js";
 import { readZip } from "./fixtures/readZip.js";
 
@@ -38,10 +39,31 @@ const SPAM_FIXTURE = { "*": [SPAM_STAR], "137": [SPAM_137] };
 // When set, API fetches wait on it (abortable via the request signal) so a test
 // can hold a scan/load in flight deterministically.
 let apiGate = null;
+// coins.llama.fi is never contacted: priceStub answers every price request and records whether
+// the USD box was on when it was sent. priceGate holds price requests like apiGate.
+const priceCalls = [];
+let priceGate = null;
+const PRICE_TABLE = { "coingecko:ethereum": 2000 };
+async function priceStub(u, init) {
+  priceCalls.push({ url: u, init, boxOn: document.getElementById("usdToggle")?.checked === true });
+  if (priceGate) {
+    await new Promise((resolve, reject) => {
+      priceGate.then(resolve);
+      init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+    });
+  }
+  const coins = {};
+  for (const [coin, tss] of Object.entries(JSON.parse(new URL(u).searchParams.get("coins")))) {
+    coins[coin] = { prices: tss.map((ts) => ({ timestamp: ts + 60, price: PRICE_TABLE[coin] ?? 1, confidence: 0.99 })) };
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify({ coins }));
+  return { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => bytes.buffer };
+}
 
 function stubFetch() {
   globalThis.fetch = async (url, init) => {
     const u = String(url);
+    if (u.startsWith("https://coins.llama.fi/")) return priceStub(u, init);
     // Local bundled datasets (known-addresses / spam-tokens / demo-workspace): serve the real files.
     if (u.includes("data/")) {
       const path = u.replace(/^\.?\//, "");
@@ -726,9 +748,9 @@ test("demo marks the illustrative deposit: badge, tooltip, details row, risk rea
     expect(txt).toContain("likely exchange deposit address");
     const lines = (await captureCsv()).split("\n");
     expect(lines[0]).toContain("likely_deposit_of is a heuristic");
-    expect(lines[1].endsWith(",chain_id,likely_deposit_of,deposit_evidence")).toBe(true);
+    expect(lines[1].endsWith(",chain_id,likely_deposit_of,deposit_evidence,usd_value")).toBe(true);
     const row = lines.find((l) => l.startsWith(`node,${DEPOSIT},`));
-    expect(row.endsWith(`,1,Binance 14 (hot wallet),wallet=${BINANCE14};swept=1/1;share=ETH:100%;max_delay_s=600`)).toBe(true);
+    expect(row.endsWith(`,1,Binance 14 (hot wallet),wallet=${BINANCE14};swept=1/1;share=ETH:100%;max_delay_s=600,`)).toBe(true);
   } finally {
     $("resetBtn").click();
   }
@@ -765,7 +787,7 @@ test("pruning the hot wallet removes the mark and its details row; reset + reloa
     expect($("detailsContent").textContent).not.toContain("Exchange deposit");
     const lines = (await captureCsv()).split("\n");
     expect(lines[0]).not.toContain("likely_deposit_of");
-    expect(lines.find((l) => l.startsWith(`node,${DEPOSIT},`)).endsWith(",1,,")).toBe(true);
+    expect(lines.find((l) => l.startsWith(`node,${DEPOSIT},`)).endsWith(",1,,,")).toBe(true);
   } finally {
     $("resetBtn").click();
     restoreForm();
@@ -1270,13 +1292,13 @@ test("detect chain: a curated chain-1 address selects Ethereum with no API call"
   }
 });
 
-async function loadAsDemo(ws, done = /Demo workspace loaded/) {
+async function loadAsDemo(ws, done = /Demo workspace loaded/, reset = true) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (u, init) => (String(u).includes("demo-workspace")
     ? { ok: true, status: 200, headers: { get: () => null }, json: async () => ws }
     : realFetch(u, init));
   try {
-    $("resetBtn").click();
+    if (reset) $("resetBtn").click();
     $("demoBtn").click();
     await until(() => done.test($("logContent").textContent || ""));
   } finally {
@@ -1751,12 +1773,12 @@ test("CSV: chain_id on every row, per-chain flags, multi-chain caveat", async ()
     expect(lines[1].startsWith("row_type,")).toBe(true);
     const data = lines.filter((l) => /^(node|edge),/.test(l));
     expect(data.length).toBe(6);
-    for (const l of data) expect(/,(1|56),,$/.test(l)).toBe(true);
+    for (const l of data) expect(/,(1|56),,,$/.test(l)).toBe(true);
     const m1 = lines.find((l) => l.includes("0xm1")), m2 = lines.find((l) => l.includes("0xm2"));
     expect(m1).toContain("flag.mixer");
-    expect(m1.endsWith(",1,,")).toBe(true);
+    expect(m1.endsWith(",1,,,")).toBe(true);
     expect(m2).not.toContain("flag.mixer");
-    expect(m2.endsWith(",56,,")).toBe(true);
+    expect(m2.endsWith(",56,,,")).toBe(true);
   } finally {
     $("resetBtn").click();
     restoreForm();
@@ -2106,7 +2128,7 @@ test("chain filter: shown at 2 chains, hides one chain's nodes and edges, store 
     expect(net.edges.get().some((e) => e.id.startsWith("42161|"))).toBe(false);
     expect(net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length).toBe(n1);
     expect(net.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(e1);
-    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161,,"));
+    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161,,,"));
     expect(rows.length).toBe(3);
     URL.createObjectURL = (b) => ((captured = b), "blob:x");
     URL.revokeObjectURL = () => {};
@@ -2331,6 +2353,82 @@ test("renderQueryLog: empty / dropped / unlogged notes", async () => {
   expect(c.textContent).toContain("7 older entries were dropped (log limit 5000).");
   expect(c.textContent).toContain("Part of this graph was not retrieved under this log");
   expect(c.textContent).not.toContain("No Etherscan request logged");
+});
+
+const usdEdge = (over = {}) => ({
+  key: "k", action: "txlist", group: "normal", from: ROOT, to: N2, hash: "0x1",
+  symbol: "ETH", amountText: "5", amountIndeterminate: false, tokenContract: "", tokenId: "",
+  value: "5", timeStamp: "1700000000", blockNumber: "1", hasData: false, ...over,
+});
+const usdRender = async (usd, over = {}, locale = "en") => {
+  const { ui, i18n } = await qlogEnv();
+  i18n.setLocale(locale);
+  const el = document.createElement("div");
+  ui.renderEdgeDetails(el, usdEdge(over), { i18n, explorer: null, getAlias: () => null, usd });
+  return { el, i18n };
+};
+
+test("usd row: ok shows grouped estimate + unit hint", async () => {
+  const EN = (await import("../src/locales/en.js")).default;
+  const at = 1700002860;
+  const usd = { state: "ok", text: "1234567.50", price: 2000, at, confidence: 0.99 };
+  const { el } = await usdRender(usd);
+  const t = el.textContent;
+  expect(t).toContain(EN["usd.label"]);
+  expect(t).toContain("≈ 1,234,567.50 USD");
+  expect(t).toContain("2000 USD per ETH");
+  expect(t).toContain(new Date(at * 1000).toISOString().slice(0, 16).replace("T", " "));
+  expect(t).toContain("0.99");
+  const fr = await usdRender(usd, {}, "fr");
+  expect(fr.el.textContent).toMatch(/1\D234\D567,50/);
+});
+
+test("usd row: states", async () => {
+  const EN = (await import("../src/locales/en.js")).default;
+  for (const [usd, key] of [
+    [{ state: "pending" }, "usd.pending"], [{ state: "none" }, "usd.unknown"],
+    [{ state: "error" }, "usd.error"], [{ state: "skip", reason: "root" }, "usd.skip.root"],
+  ]) {
+    const { el } = await usdRender(usd);
+    expect(el.textContent).toContain(EN[key]);
+    expect(el.textContent).not.toContain("0.00");
+  }
+  const { el } = await usdRender({ state: "ok", text: "1.00", price: 1, at: 1700000000, confidence: null });
+  expect(el.textContent).toContain("confidence —");
+});
+
+test("usd row absent when usd null/undefined", async () => {
+  const EN = (await import("../src/locales/en.js")).default;
+  for (const usd of [null, undefined]) {
+    const { el } = await usdRender(usd);
+    expect(el.textContent).not.toContain(EN["usd.label"]);
+  }
+});
+
+test("usd row: hostile symbol stays text", async () => {
+  const { el } = await usdRender({ state: "ok", text: "1.00", price: 1, at: 1700000000, confidence: 1 }, { symbol: "<img src=x onerror=alert(1)>" });
+  expect(el.querySelector("img")).toBeNull();
+});
+
+test("query log price row", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const coins = JSON.stringify({ "ethereum:0xaa": [1700000000], "ethereum:0xbb": [1700000000] });
+  const priceEntry = {
+    at: "2026-11-16T10:01:00.000Z", source: "defillama", chainId: null, action: "batchHistorical",
+    params: { coins, searchWidth: "30m" }, httpStatus: 200, rows: 2, sha256: "cd".repeat(32), outcome: "ok",
+  };
+  const c = document.createElement("div");
+  ui.renderQueryLog(c, [qEntry(1), priceEntry], { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  const rows = c.querySelectorAll("tbody tr");
+  const cells = [...rows[0].querySelectorAll("td")];
+  expect(cells[1].textContent).toBe("DefiLlama");
+  expect(cells[2].textContent).toBe("batchHistorical");
+  expect(cells[3].textContent).toBe("2");
+  expect(cells[3].title).toBe(coins);
+  expect(cells[4].textContent).toBe("—");
+  const eth = [...rows[1].querySelectorAll("td")];
+  expect(eth[1].textContent).toBe("1");
+  expect(eth[4].textContent).toBe("1/20");
 });
 
 test("shell has the bundle + query-log controls", () => {
@@ -2659,5 +2757,393 @@ test("PNG and PDF exports carry the provenance footer and the live view's deposi
   } finally {
     window.jspdf = origPdf;
     $("resetBtn").click();
+  }
+});
+
+// ---- P6 USD values (opt-in): main.js wiring ----
+const UH = (n) => "0x" + "f".repeat(63) + n; // distinct 66-char tx hashes
+const USD_TS = "1600000000"; // hour 1599998400; the canned scan's 1700000000 falls in another hour
+const usdTok = (hash, symbol, contract, over = {}) =>
+  v3Edge({ hash, action: "tokentx", group: "token", color: "#4fd67a", symbol, tokenContract: contract, timeStamp: USD_TS, ...over });
+const USD_E = {
+  native: v3Edge({ hash: UH(1), value: "1000000000000000000", tokenDecimal: "", timeStamp: USD_TS }),
+  tok: usdTok(UH(2), "FOO", N3, { value: "5000000" }),
+  fake: usdTok(UH(3), "USDT", A(7)),
+  spam: usdTok(UH(4), "SPAMX", SPAM_STAR),
+  rootTok: usdTok(UH(5), "RT", ROOT),
+  nft: usdTok(UH(6), "NFT", A(8), { action: "tokennfttx", tokenId: "7", tokenDecimal: "0", value: "1" }),
+  zero: v3Edge({ hash: UH(7), to: N3, value: "0", timeStamp: USD_TS }),
+};
+const usdWs = (extraNodes = []) =>
+  v3ws([v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node("1", N2), v3Node("1", N3), ...extraNodes], Object.values(USD_E));
+const CANON_USDT = Object.keys(KNOWN["1"]).find((a) => KNOWN["1"][a].category === "token" && KNOWN["1"][a].symbol === "USDT");
+const tick = (on) => {
+  $("usdToggle").checked = on;
+  $("usdToggle").dispatchEvent(new window.Event("change"));
+};
+const holdPrices = () => {
+  let release;
+  priceGate = new Promise((r) => (release = r));
+  return () => {
+    priceGate = null;
+    release();
+  };
+};
+const usdDone = () => logCount(/USD estimates:/g);
+const coinsOf = (call) => JSON.parse(new URL(call.url).searchParams.get("coins"));
+const pairsOf = (call) => Object.entries(coinsOf(call)).flatMap(([coin, tss]) => tss.map((ts) => `${coin}@${ts}`));
+const openEdge = (hash) => {
+  window.vis.Network.first._on.click[0]({ nodes: [], edges: [edgeByHash(hash).id] });
+  return $("detailsContent").textContent;
+};
+// Local data settled (known addresses + spam list), then a fresh epoch holding `ws`.
+async function usdLoad(ws = usdWs()) {
+  await knownLoaded();
+  await until(() => spamLoads > 0);
+  await dropWorkspace(JSON.stringify(ws));
+}
+// Tick the box and wait for the drained queue's log.usdDone line; returns the calls it made.
+async function tickAndDrain() {
+  const n = usdDone(), c = priceCalls.length;
+  tick(true);
+  await until(() => usdDone() > n);
+  expect(usdDone()).toBe(n + 1);
+  return priceCalls.slice(c);
+}
+// DefiLlama rows of the open query-log panel, as cell texts.
+const QL_OUTCOME = 8;
+const openQueryLogPanel = () => {
+  $("queryLogPanel").open = true;
+  $("queryLogPanel").dispatchEvent(new window.Event("toggle"));
+};
+const priceRows = () => [...$("queryLogContent").querySelectorAll("tbody tr")]
+  .map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent))
+  .filter((cells) => cells[1] === "DefiLlama");
+const bundleManifest = async () =>
+  JSON.parse(dec(readZip(await withDownloads(bundleBytes)).find((f) => f.name === "MANIFEST.json").bytes));
+const usdRestore = (release = () => {}) => {
+  release();
+  tick(false);
+  priceGate = null;
+  $("queryLogPanel").open = false;
+  $("resetBtn").click();
+  restoreForm();
+};
+
+test("usd: box off by default — scan, details, CSV, bundle, workspace load and demo make zero coins.llama.fi requests", async () => {
+  const n = priceCalls.length;
+  try {
+    expect($("usdToggle").checked).toBe(false);
+    await knownLoaded();
+    await freshScan("20");
+    const scanDetails = openEdge("0xaaa");
+    const scanCsv = await captureCsv();
+    expect((await bundleManifest()).prices).toBeNull(); // never ticked, no price entry in the log
+    await dropWorkspace(JSON.stringify(usdWs()));
+    const wsDetails = openEdge(USD_E.native.hash);
+    const wsCsv = await captureCsv();
+    await loadAsDemo(usdWs());
+    const demoDetails = openEdge(USD_E.tok.hash);
+    expect(priceCalls.length).toBe(n);
+    for (const text of [scanDetails, wsDetails, demoDetails, scanCsv, wsCsv]) {
+      expect(text).not.toContain(EN["usd.label"]);
+      expect(text).not.toContain("usd priced");
+    }
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: ticking prices the graph; URLs carry only coin ids, hour buckets and searchWidth", async () => {
+  try {
+    await usdLoad();
+    const calls = await tickAndDrain();
+    expect(calls.length).toBeGreaterThan(0);
+    const coinIds = new Set(["coingecko:ethereum", "ethereum:" + N3]);
+    const hashes = Object.values(USD_E).map((e) => e.hash);
+    for (const c of calls) {
+      const u = new URL(c.url);
+      expect(u.origin).toBe("https://coins.llama.fi");
+      expect(u.pathname).toBe("/batchHistorical");
+      expect([...u.searchParams.keys()]).toEqual(["coins", "searchWidth"]);
+      expect(u.searchParams.get("searchWidth")).toBe("30m");
+      for (const [coin, tss] of Object.entries(coinsOf(c))) {
+        expect(coinIds.has(coin)).toBe(true);
+        for (const ts of tss) expect(ts % 3600).toBe(0);
+      }
+      const low = c.url.toLowerCase();
+      for (const s of [ROOT, N2, ...hashes, "testkey", "apikey"]) expect(low).not.toContain(s);
+      expect(Object.keys(c.init).sort()).toEqual(["cache", "credentials", "referrerPolicy", "signal"]);
+      expect(c.init).toMatchObject({ credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store" });
+    }
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: imitation, spam, root, NFT and zero transfers are never requested; the canonical contract never sent", async () => {
+  try {
+    expect(CANON_USDT).toBeTruthy();
+    await usdLoad();
+    await tickAndDrain();
+    for (const c of priceCalls) {
+      for (const a of [A(7), A(8), CANON_USDT, SPAM_STAR, ROOT]) expect(c.url.toLowerCase()).not.toContain(a.toLowerCase());
+    }
+    expect(openEdge(USD_E.fake.hash)).toContain(EN["usd.skip.imitation"]);
+    expect(openEdge(USD_E.spam.hash)).toContain(EN["usd.skip.spam"]);
+    expect(openEdge(USD_E.rootTok.hash)).toContain(EN["usd.skip.root"]);
+    expect(openEdge(USD_E.nft.hash)).toContain(EN["usd.skip.nft"]);
+    expect(openEdge(USD_E.zero.hash)).toContain(EN["usd.skip.zero"]);
+    const native = openEdge(USD_E.native.hash);
+    expect(native).toContain(EN["usd.label"]);
+    expect(native).toContain("≈ 2,000.00 USD");
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: CSV usd_value last column and line-1 counts; MANIFEST prices block", async () => {
+  try {
+    await usdLoad();
+    const calls = await tickAndDrain();
+    const lines = (await captureCsv()).split("\n");
+    expect(lines[1].endsWith(",usd_value")).toBe(true);
+    const row = (e) => lines.find((l) => l.includes(e.hash));
+    expect(row(USD_E.native).endsWith(",2000.00")).toBe(true);
+    expect(row(USD_E.tok).endsWith(",5.00")).toBe(true);
+    for (const k of ["fake", "spam", "rootTok", "nft", "zero"]) expect([k, row(USD_E[k]).endsWith(",")]).toEqual([k, true]);
+    expect(lines[0]).toContain("usd priced 2 of 2 priceable transfers");
+
+    const files = await withDownloads(async (dl) => readZip(await bundleBytes(dl)));
+    const file = (name) => JSON.parse(dec(files.find((f) => f.name === name).bytes));
+    const m = file("MANIFEST.json");
+    expect(m.prices).toEqual({
+      source: "DefiLlama (https://coins.llama.fi)", estimate: true, shown: true, note: expect.any(String),
+      queries: calls.length, priced: 2, priceable: 2,
+    });
+    expect(m.caveats).toContain(USD_CAVEAT);
+    const logged = file("query-log.json").entries.filter((e) => e.source === "defillama");
+    expect(logged.length).toBe(calls.length);
+    expect(logged.every((e) => e.chainId === null)).toBe(true);
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: store untouched by pricing", async () => {
+  try {
+    await usdLoad();
+    const net = () => window.vis.Network.first;
+    const snap = () => JSON.stringify([net().edges.get().map((e) => e.data), net().nodes.get()]);
+    const before = snap();
+    await tickAndDrain();
+    expect(snap()).toBe(before);
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: untick mid-request aborts and never shows; re-tick re-requests only reverted pairs", async () => {
+  let release = () => {};
+  const outcome = QL_OUTCOME;
+  try {
+    await usdLoad();
+    const done = new Set((await tickAndDrain()).flatMap(pairsOf)); // ok/none from here on
+    expect(done.size).toBe(2);
+    tick(false);
+    // A scan into the same graph (same epoch) adds the canned 1 ETH transfer, in another hour. Box off: no request.
+    const c0 = priceCalls.length;
+    $("apiKey").value = "TESTKEY";
+    $("address").value = ROOT;
+    $("depth").value = "1";
+    $("startBtn").click();
+    await until(() => !$("startBtn").disabled);
+    expect(edgeByHash("0xaaa")).toBeTruthy();
+    expect(priceCalls.length).toBe(c0);
+
+    openQueryLogPanel();
+    expect(openEdge(USD_E.native.hash)).not.toContain(EN["usd.label"]);
+    release = holdPrices();
+    tick(true);
+    expect(openEdge(USD_E.native.hash)).toContain("≈ 2,000.00 USD"); // cached, logged in this epoch
+    await until(() => priceCalls.length > c0);
+    const held = priceCalls.slice(c0);
+    expect(held.map(pairsOf).flat().some((p) => done.has(p))).toBe(false);
+    tick(false); // aborts the held request
+    await until(() => priceRows().some((cells) => cells[outcome] === EN["queryLog.outcome.network"]));
+    expect(priceRows().filter((cells) => cells[outcome] === EN["queryLog.outcome.network"]).length).toBe(1);
+    expect($("detailsContent").textContent).not.toContain(EN["usd.label"]);
+    release();
+
+    const c1 = priceCalls.length;
+    const again = await tickAndDrain();
+    expect(c1).toBe(c0 + held.length);
+    expect(again.length).toBeGreaterThan(0);
+    const reverted = new Set(held.flatMap(pairsOf));
+    for (const p of again.flatMap(pairsOf)) {
+      expect(done.has(p)).toBe(false);
+      expect(reverted.has(p)).toBe(true);
+    }
+    expect(openEdge("0xaaa")).toContain("≈ 2,000.00 USD");
+    // On → off: the log keeps the price requests, so MANIFEST still says so, with nothing shown.
+    tick(false);
+    const m = await bundleManifest();
+    expect(m.prices).toMatchObject({ shown: false, priced: null, priceable: null, queries: priceRows().length });
+    expect(m.prices.queries).toBeGreaterThan(0);
+    expect(m.caveats).not.toContain(USD_CAVEAT);
+  } finally {
+    usdRestore(release);
+  }
+});
+
+test("usd: workspace load while on clears the cache and logs only in the new epoch", async () => {
+  let release = () => {};
+  try {
+    await usdLoad();
+    release = holdPrices();
+    const c0 = priceCalls.length;
+    tick(true);
+    await until(() => priceCalls.length > c0);
+    const n = usdDone(), c1 = priceCalls.length;
+    expect(c1).toBe(c0 + 1);
+    await dropWorkspace(JSON.stringify(usdWs())); // clear() aborts the held request; the new graph is requested at once
+    expect(priceCalls.length).toBeGreaterThan(c1);
+    release();
+    await until(() => usdDone() > n);
+    expect(usdDone()).toBe(n + 1);
+    // The workspace has no query log: every entry is a price request of the new epoch, the aborted one dropped.
+    expect(qlogTitle()).toBe(`Query log (${priceCalls.length - c1})`);
+    expect($("usdToggle").checked).toBe(true);
+  } finally {
+    usdRestore(release);
+  }
+});
+
+test("usd: non-root node contract is sent; unsendable once a root; requested again once that root is deleted", async () => {
+  try {
+    await usdLoad();
+    const calls = await tickAndDrain();
+    expect(calls.some((c) => Object.hasOwn(coinsOf(c), "ethereum:" + N3))).toBe(true);
+    const n = usdDone(), c1 = priceCalls.length;
+    // N3 becomes a root on chain 137 only: a root on ANY chain is never sent (R5).
+    await dropWorkspace(JSON.stringify(usdWs([v3Node("137", N3, { depth: 0, isRoot: true })])));
+    await until(() => usdDone() > n);
+    expect(priceCalls.length).toBeGreaterThan(c1);
+    for (const c of priceCalls.slice(c1)) expect(c.url.toLowerCase()).not.toContain(N3);
+    expect(openEdge(USD_E.tok.hash)).toContain(EN["usd.skip.root"]);
+    // Pruning the 137 root makes the token priceable again: it is requested, never left "fetching…".
+    const n2 = usdDone(), c2 = priceCalls.length;
+    window.vis.Network.first.setSelection({ nodes: [ID("137", N3)] });
+    $("deleteNodesBtn").click();
+    await until(() => usdDone() > n2);
+    expect(priceCalls.slice(c2).some((c) => Object.hasOwn(coinsOf(c), "ethereum:" + N3))).toBe(true);
+    expect(openEdge(USD_E.tok.hash)).toContain("≈ 5.00 USD");
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: never persisted", async () => {
+  try {
+    await usdLoad();
+    await tickAndDrain();
+    for (const s of [localStorage, sessionStorage]) {
+      for (let i = 0; i < s.length; i++) expect(`${s.key(i)}=${s.getItem(s.key(i))}`).not.toMatch(/usd/i);
+    }
+    const saved = await withDownloads(async (dl) => JSON.parse(await (await nextBlob(dl, "saveBtn")).text()));
+    const { queryLog: ql, ...rest } = saved;
+    const keys = (o) => (o && typeof o === "object" ? Object.entries(o).flatMap(([k, v]) => [k, ...keys(v)]) : []);
+    expect(keys(rest).filter((k) => /usd/i.test(k))).toEqual([]);
+    expect(ql.entries.some((e) => e.source === "defillama")).toBe(true);
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: reset, workspace and demo with the box on renew the price epoch; scanned edges are requested", async () => {
+  const ethScan = "coingecko:ethereum@" + Math.round(1700000000 / 3600) * 3600; // the canned 1 ETH transfer's pair
+  // `resets`: the action clicks Reset, which clears the logger.
+  const drained = async (action, resets = false) => {
+    const n = resets ? 0 : usdDone(), c = priceCalls.length;
+    await action();
+    await until(() => usdDone() > n);
+    expect(usdDone()).toBe(n + 1);
+    return priceCalls.slice(c);
+  };
+  try {
+    await knownLoaded();
+    await until(() => spamLoads > 0);
+    openQueryLogPanel();
+    tick(true);
+    // A scan with the box on: its edges are requested as they land (freshScan resets first, box on).
+    const first = await drained(() => freshScan("20"), true);
+    expect(first.flatMap(pairsOf)).toContain(ethScan);
+    expect(priceRows().length).toBe(first.length);
+    // Reset + the same scan: the pair is requested again (the cache went with the epoch), logged in the new one.
+    const second = await drained(() => freshScan("20"), true);
+    expect(second.flatMap(pairsOf)).toContain(ethScan);
+    expect(priceRows().length).toBe(second.length);
+    expect(openEdge("0xaaa")).toContain("≈ 2,000.00 USD");
+    // Workspace load, then the same graph as a demo with no reset in between: the demo alone renews the epoch.
+    const ws = await drained(() => dropWorkspace(JSON.stringify(usdWs())));
+    expect(priceRows().length).toBe(ws.length);
+    expect(logCount(/Demo workspace loaded/g)).toBe(0);
+    const demo = await drained(() => loadAsDemo(usdWs(), undefined, false));
+    expect(demo.flatMap(pairsOf).sort()).toEqual(ws.flatMap(pairsOf).sort());
+    expect(priceRows().length).toBe(demo.length);
+    expect(qlogTitle()).toBe(`Query log (${demo.length})`);
+    expect(openEdge(USD_E.native.hash)).toContain("≈ 2,000.00 USD");
+  } finally {
+    usdRestore();
+  }
+});
+
+test("usd: a contract that becomes a root while its request is queued is never sent (allowed re-check)", async () => {
+  let release = () => {};
+  const cannedTok = CANNED.tokentx;
+  try {
+    await usdLoad(v3ws([v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node("1", N2), v3Node("1", N3)], [USD_E.native]));
+    release = holdPrices();
+    const c0 = priceCalls.length;
+    tick(true);
+    await until(() => priceCalls.length > c0); // request 1 (native) held in flight
+    expect(priceCalls.length).toBe(c0 + 1);
+    // A same-epoch scan adds a FOO transfer of contract N3: its pair goes pending, queued behind request 1.
+    CANNED.tokentx = [{ from: ROOT, to: N2, value: "5000000", hash: "0xn3tok", tokenSymbol: "FOO", tokenDecimal: "6", contractAddress: N3, timeStamp: "1700000002", blockNumber: "102" }];
+    $("apiKey").value = "TESTKEY";
+    $("address").value = ROOT;
+    $("depth").value = "1";
+    $("startBtn").click();
+    await until(() => !$("startBtn").disabled && edgeByHash("0xn3tok"));
+    await until(() => openEdge("0xn3tok").includes(EN["usd.pending"]));
+    expect(openEdge("0xn3tok")).toContain(EN["usd.pending"]);
+    expect(priceCalls.length).toBe(c0 + 1);
+    // N3 is scanned as a root before its queued request is sent.
+    $("address").value = N3;
+    $("startBtn").click();
+    await until(() => !$("startBtn").disabled);
+    expect(openEdge("0xn3tok")).toContain(EN["usd.skip.root"]);
+    const n = usdDone();
+    release();
+    await until(() => usdDone() > n);
+    expect(usdDone()).toBe(n + 1);
+    expect(priceCalls.length).toBeGreaterThan(c0 + 1); // the queued request still ran, without N3
+    for (const c of priceCalls.slice(c0)) expect(c.url.toLowerCase()).not.toContain(N3);
+  } finally {
+    CANNED.tokentx = cannedTok;
+    usdRestore(release);
+  }
+});
+
+// Keep LAST: pins "box off → zero requests" across the whole suite.
+test("usd: every coins.llama.fi request happened while the box was on", () => {
+  expect(priceCalls.length).toBeGreaterThan(0);
+  expect(priceCalls.every((c) => c.boxOn)).toBe(true);
+  // only coin ids leave: never the API key, nor any tx hash of the suite's canned scan or USD fixtures
+  const hashes = [...CANNED.txlist, ...CANNED.tokentx].map((t) => t.hash).concat([1, 2, 3, 4, 5, 6, 7].map(UH));
+  for (const { url } of priceCalls) {
+    const u = url.toLowerCase();
+    expect(u.includes("testkey") || u.includes("apikey")).toBe(false);
+    for (const h of hashes) expect(new RegExp(h + "(?![0-9a-f])").test(u)).toBe(false);
   }
 });

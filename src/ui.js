@@ -13,6 +13,7 @@ import { formatTimestamp, formatUnits, isValidAddress, shortAddress } from "./fo
 import { TX_TYPE_GROUPS } from "./config.js";
 import { methodName } from "./selectors.js";
 import { summarizeCall, decodeCalldataWords, decodeInputText } from "./abiDecode.js";
+import { formatUsdDisplay } from "./usdPrice.js";
 import { flagsForEdge } from "./riskFlags.js";
 import { delayParts } from "./depositDetect.js";
 
@@ -290,6 +291,25 @@ export function renderNodeDetails(container, node, deps) {
  *   getKnownLabel/getCategory/isFakeToken are optional (graceful when absent — e.g.
  *   Feature Layer 1 known-address data not yet loaded). A null `explorer` omits the Link row.
  */
+function usdValueNode(usd, edge, i18n) {
+  const box = document.createElement("div");
+  if (usd.state === "ok") {
+    box.textContent = i18n.t("usd.value", { amount: formatUsdDisplay(usd.text, i18n.getLocale()) });
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = i18n.t("usd.unit", {
+      price: String(usd.price), symbol: edge.symbol,
+      at: new Date(usd.at * 1000).toISOString().slice(0, 16).replace("T", " "),
+      confidence: usd.confidence ?? "—",
+    });
+    box.appendChild(document.createElement("br"));
+    box.appendChild(hint);
+  } else {
+    box.textContent = i18n.t(usd.state === "skip" ? "usd.skip." + usd.reason : "usd." + (usd.state === "none" ? "unknown" : usd.state));
+  }
+  return box;
+}
+
 export function renderEdgeDetails(container, edge, deps) {
   const { i18n, explorer, getAlias } = deps;
   container.replaceChildren();
@@ -306,6 +326,7 @@ export function renderEdgeDetails(container, edge, deps) {
     amountText += ` (${i18n.t("details.decimalsUnknown")})`;
   }
   table.appendChild(detailRow(i18n.t("details.amount"), amountText));
+  if (deps.usd) table.appendChild(detailRow(i18n.t("usd.label"), usdValueNode(deps.usd, edge, i18n)));
   table.appendChild(detailRow(i18n.t("details.data"), edge.hasData ? i18n.t("details.dataYes") : i18n.t("details.no")));
   if (edge.hasData && edge.methodId) {
     const name = methodName(edge.methodId); // decoded 4-byte selector, or null if unknown
@@ -580,10 +601,19 @@ export function renderQueryLog(container, entries, { i18n, dropped, unloggedData
       if (title) td.title = title;
     };
     cell(e.at.slice(0, 19).replace("T", " "));
-    cell(e.chainId);
-    cell(e.action);
-    cell(shortAddress(e.params.address), e.params.address);
-    cell(`${e.params.page ?? "—"}/${e.params.offset ?? "—"}`);
+    if (e.source === "defillama") {
+      let count = "—";
+      try { count = Object.keys(JSON.parse(e.params.coins)).length; } catch { /* keep "—" */ }
+      cell(i18n.t("queryLog.priceSource"));
+      cell(e.action);
+      cell(count, e.params.coins);
+      cell("—");
+    } else {
+      cell(e.chainId);
+      cell(e.action);
+      cell(shortAddress(e.params.address), e.params.address);
+      cell(`${e.params.page ?? "—"}/${e.params.offset ?? "—"}`);
+    }
     cell(e.httpStatus ?? "—");
     cell(e.rows ?? "—");
     cell(e.sha256 ? e.sha256.slice(0, 12) : "—", e.sha256 || "");

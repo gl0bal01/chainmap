@@ -183,6 +183,67 @@ export const FETCH = {
   page: 1,
 };
 
+/** DefiLlama historical-price API (opt-in "Show USD values"; only coin ids + hour-rounded timestamps are sent). */
+export const PRICE_API = "https://coins.llama.fi";
+
+/** Price fetch tuning (usdPrice service). */
+export const PRICE_FETCH = {
+  rps: 1,
+  maxUrlChars: 8000, // free tier 414s beyond 9000
+  timeoutMs: 15_000,
+  maxRetries: 3,
+  backoffBaseMs: 2000,
+  maxRetryWaitMs: 60_000, // a server Retry-After never holds a request longer
+  bucketSec: 3600,
+  searchWidth: "30m",
+  windowSec: 1800,
+  minConfidence: 0.9,
+};
+
+const ETH = [{ coin: "coingecko:ethereum" }];
+/**
+ * chainId -> DefiLlama slug (token coin ids) + ordered native coin list (first entry whose `before` is absent
+ * or later than the tx time wins). Mainnets only; testnets are absent (no USD).
+ * slug null: no DefiLlama slug (MemeCore) -> no token pricing. native null: no reliable native price
+ * (Fraxtal gas token switched frxETH -> FRAX on a disputed date, prices differ ~1000x).
+ * @type {Record<string, { slug: string|null, native: Array<{ before?: number, coin: string }>|null }>}
+ */
+export const LLAMA_CHAINS = {
+  1: { slug: "ethereum", native: ETH },
+  56: { slug: "bsc", native: [{ coin: "coingecko:binancecoin" }] },
+  137: { slug: "polygon", native: [{ before: 1725926400, coin: "coingecko:matic-network" }, { coin: "coingecko:polygon-ecosystem-token" }] },
+  42161: { slug: "arbitrum", native: ETH },
+  10: { slug: "optimism", native: ETH },
+  8453: { slug: "base", native: ETH },
+  43114: { slug: "avax", native: [{ coin: "coingecko:avalanche-2" }] },
+  59144: { slug: "linea", native: ETH },
+  81457: { slug: "blast", native: ETH },
+  199: { slug: "bittorrent", native: [{ coin: "coingecko:bittorrent" }] },
+  42220: { slug: "celo", native: [{ coin: "coingecko:celo" }] },
+  252: { slug: "fraxtal", native: null },
+  100: { slug: "xdai", native: [{ coin: "coingecko:xdai" }] },
+  5000: { slug: "mantle", native: [{ coin: "coingecko:mantle" }] },
+  4352: { slug: null, native: [{ coin: "coingecko:memecore" }] },
+  1284: { slug: "moonbeam", native: [{ coin: "coingecko:moonbeam" }] },
+  1285: { slug: "moonriver", native: [{ coin: "coingecko:moonriver" }] },
+  204: { slug: "op_bnb", native: [{ coin: "coingecko:binancecoin" }] },
+  167000: { slug: "taiko", native: ETH },
+  50: { slug: "xdc", native: [{ coin: "coingecko:xdce-crowd-sale" }] },
+  33139: { slug: "apechain", native: [{ coin: "coingecko:apecoin" }] },
+  480: { slug: "wc", native: ETH },
+  146: { slug: "sonic", native: [{ coin: "coingecko:sonic-3" }] },
+  130: { slug: "unichain", native: ETH },
+  2741: { slug: "abstract", native: ETH },
+  80094: { slug: "berachain", native: [{ coin: "coingecko:berachain-bera" }] },
+  143: { slug: "monad", native: [{ coin: "coingecko:monad" }] },
+  999: { slug: "hyperliquid", native: [{ coin: "coingecko:hyperliquid" }] },
+  747474: { slug: "katana", native: ETH },
+  1329: { slug: "sei", native: [{ coin: "coingecko:sei-network" }] },
+  988: { slug: "stable", native: [{ coin: "coingecko:tether" }] },
+  9745: { slug: "plasma", native: [{ coin: "coingecko:plasma" }] },
+  4326: { slug: "megaeth", native: ETH },
+};
+
 /** localStorage keys (the only persistence; never leaves the browser). */
 export const STORAGE_KEYS = {
   apiKey: "etherscanApiKey",

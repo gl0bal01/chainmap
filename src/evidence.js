@@ -3,7 +3,7 @@
 // SHA256SUMS, query-log document, zip assembly. DOM-free.
 // =============================================================================
 
-import { APP_VERSION } from "./config.js";
+import { APP_VERSION, PRICE_API } from "./config.js";
 import { sha256Hex, windowOf } from "./queryLog.js";
 import { createZip } from "./zip.js";
 
@@ -18,6 +18,8 @@ export const CAVEATS = [
   "SHA-256 hashes give tamper evidence, not proof of time or authorship.",
   "retrieval.fullyLogged = true only means no log entry was dropped and no part of the graph came from an unlogged source (demo or a workspace without a query log); it does not mean the data is complete: requests may have failed, scans may have been stopped, and the data is sampled.",
 ];
+export const USD_CAVEAT =
+  "USD values are estimates: a DefiLlama price within 1 hour of each transaction multiplied by the exact token amount; blank when unknown, pending or not priced (NFT, zero-value, imitation, spam-list, root contract, unknown data, unsupported chain).";
 export const PARTIAL_CAVEAT =
   "Part of this graph has no logged retrieval (demo, a workspace saved without a query log, or dropped log entries).";
 
@@ -35,16 +37,21 @@ export function knownDataSnapshot(knownData) {
   return { entries, ofacPublished };
 }
 
+// Price (defillama) entries carry a `source`; Etherscan entries never do.
+const fromEtherscan = (es) => es.filter((e) => e.source === undefined);
+
 export function retrievalSummary(state) {
-  if (!state.entries.length) return null;
-  const w = windowOf(state.entries);
+  const es = fromEtherscan(state.entries);
+  if (!es.length) return null;
+  const w = windowOf(es);
   return {
-    queries: state.entries.length, dropped: state.dropped, first: w.first, last: w.last,
+    queries: es.length, dropped: state.dropped, first: w.first, last: w.last,
     fullyLogged: state.dropped === 0 && state.unloggedData === false,
   };
 }
 
-export function observedSampling(entries) {
+export function observedSampling(all) {
+  const entries = fromEtherscan(all);
   const uniq = (xs) => [...new Set(xs.filter((x) => x !== undefined))];
   return {
     pageSizes: uniq(entries.map((e) => e.params.offset)).sort((a, b) => a - b),
@@ -56,6 +63,9 @@ export function observedSampling(entries) {
 export async function buildManifest(input) {
   const files = [];
   for (const f of input.files) files.push({ name: f.name, bytes: f.bytes.length, sha256: await sha256Hex(f.bytes) });
+  const p = input.prices;
+  const caveats = input.retrieval && input.retrieval.fullyLogged ? [...CAVEATS] : [...CAVEATS, PARTIAL_CAVEAT];
+  if (p?.shown) caveats.push(USD_CAVEAT);
   return {
     format: "chainmap-evidence/1",
     app: { name: "chainmap", version: APP_VERSION },
@@ -66,7 +76,14 @@ export async function buildManifest(input) {
     sampling: input.sampling,
     retrieval: input.retrieval,
     data: input.data,
-    caveats: input.retrieval && input.retrieval.fullyLogged ? CAVEATS : [...CAVEATS, PARTIAL_CAVEAT],
+    prices: p && (p.shown || p.queries > 0)
+      ? {
+        source: "DefiLlama (" + PRICE_API + ")", estimate: true, shown: p.shown,
+        note: "USD values are estimates: DefiLlama price within 1 hour of each transaction, multiplied by the exact token amount; blank when unknown.",
+        queries: p.queries, priced: p.priced, priceable: p.priceable,
+      }
+      : null,
+    caveats,
     files,
     omitted: input.omitted,
   };

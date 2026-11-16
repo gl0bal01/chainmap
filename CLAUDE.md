@@ -21,7 +21,7 @@ python3 -m http.server 8000   # open http://localhost:8000/
 Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 
 ```bash
-bun test        # 679 tests
+bun test        # 797 tests
 ```
 
 `vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
@@ -47,6 +47,7 @@ DOM-free, Node-testable modules (pure logic; the heart of the app):
 - `depositDetect.js` — `findDeposits` exchange-deposit heuristic, `delayParts`.
 - `roundTrips.js` — Tarjan SCC cycle detection. `sinkFaucet.js` — hub classification.
 - `selectors.js` + `abiDecode.js` — 4-byte method selectors + ABI head decoder.
+- `usdPrice.js` — opt-in USD estimates: `priceKeyFor` (the only gate on what reaches DefiLlama), exact BigInt valuation, `usdForEdge`, price service.
 - `riskScore.js` — explainable per-node risk. `blockchainDetect.js` — chain-by-format detection.
 - `knownAddresses.js` (`knownEntry`: chain-specific then `"*"`), `fakeToken.js` (imitation-token detection), `workspace.js` (save/load), `dryRun.js` (scan estimate).
 - `queryLog.js` (request log, `sanitizeQueryLog`), `zip.js` (store-only zip + CRC-32), `evidence.js` (caveats, manifest, SHA256SUMS, footer lines, zip assembly).
@@ -69,7 +70,7 @@ Frozen module contracts live in `INTERFACES.md`.
 - **Filters/overlays are a display projection** over the store mirror (vis DataViews) — the store keeps the full graph so CSV/detail stay complete.
 - **Sampling is explicit**: scans fetch the latest N per address (page 1, sort desc, offset N), extendable per node via **Load older** (block cursor on `NodeRecord.history`) — not full history, surfaced in UI + exports. A graph can hold several chains: a scan on another chain adds a root on that chain, and Load older uses the node's own chain. Never present sampled data as complete.
 - **i18n**: no hardcoded UI text in logic. Modules emit `{level, key, params}`; `ui`+`i18n` render it. en/fr key sets must stay at parity (a test enforces it).
-- **Security**: strict CSP (script-src 'self', connect-src limited to api.etherscan.io); user/API strings reach the DOM via `textContent`/escaped only; no inline `onclick`.
+- **Security**: strict CSP (script-src 'self', connect-src limited to api.etherscan.io and coins.llama.fi); user/API strings reach the DOM via `textContent`/escaped only; no inline `onclick`.
 - Adding a chain / tx-type / selector = one entry in the relevant table
   (`config.js` / `selectors.js`); a known-address = one row in `data/sources/curated.json`, then rebuild (below). A new selector gets an entry in
   `SELECTORS` (signature) and, if its leading static args are worth naming, a matching
@@ -87,3 +88,4 @@ Frozen module contracts live in `INTERFACES.md`.
   OFAC import (curated rows use `ofacDesignated`). `"*"` = all EVM chains; every lookup goes
   through `knownEntry`. `token` rows are the per-chain canonical set that drives imitation-token
   detection — curate all legit same-symbol variants or none.
+- **USD is opt-in and derived**: the `#usdToggle` box is off at every load and never persisted; `priceKeyFor` alone decides what reaches `coins.llama.fi` (coin ids + hour-rounded times only; never imitation/spam/NFT/zero/root-contract); `usdForEdge` is the one valuation for details/CSV/manifest; box off = zero price requests; fail closed if the known-address or spam data did not load. It is a display projection like filters: it never mutates `graphStore`, and unknown/pending is blank, never `0`.

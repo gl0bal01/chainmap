@@ -8,14 +8,20 @@
 
 import { API_BASE, LIMITS } from "./config.js";
 import { parseChainId } from "./format.js";
+import { priceUrl } from "./usdPrice.js";
 
 export const PARAM_KEYS = ["chainid", "module", "action", "address", "startblock", "endblock", "page", "offset", "sort"];
+export const PRICE_PARAM_KEYS = ["coins", "searchWidth"];
 export const OUTCOMES = ["ok", "retry", "error", "network"];
 
 const AT_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$/;
 const ACTION_RE = /^[a-z0-9]{1,32}$/; // token1155tx has digits
 const PARAM_RE = /^[0-9A-Za-z]{0,66}$/;
 const SHA_RE = /^[0-9a-f]{64}$/;
+const WIDTH_RE = /^\d{1,4}[mhdw]?$/;
+const COIN_RE = /^(?:[a-z0-9_-]{1,40}:0x[0-9a-f]{40}|coingecko:[a-z0-9-]{1,64})$/;
+const MAX_COINS_CHARS = 8000;
+const MAX_COIN_KEYS = 400;
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -56,14 +62,20 @@ export function createQueryLog({ limit = LIMITS.queryLog } = {}) {
     async add(rec, epoch = gen) {
       try {
         const my = epoch;
+        const price = rec.source === "defillama";
         const params = {};
-        for (const k of PARAM_KEYS) if (rec.params && has(rec.params, k)) params[k] = String(rec.params[k]);
+        for (const k of price ? PRICE_PARAM_KEYS : PARAM_KEYS) if (rec.params && has(rec.params, k)) params[k] = String(rec.params[k]);
         let sha256 = null;
         if (rec.body) {
           try { sha256 = await sha256Hex(rec.body); } catch { sha256 = null; }
         }
         if (my !== gen) return; // clear()/load() ran since the request was issued or while hashing
-        list.push({
+        if (price) {
+          list.push({
+            at: rec.at, source: "defillama", chainId: null, action: "batchHistorical", params,
+            url: priceUrl(params.coins, params.searchWidth), httpStatus: rec.httpStatus, rows: rec.rows, sha256, outcome: rec.outcome,
+          });
+        } else list.push({
           at: rec.at, chainId: String(rec.chainId), action: rec.action, params,
           url: queryUrl(params), httpStatus: rec.httpStatus, rows: rec.rows, sha256, outcome: rec.outcome,
         });
@@ -107,18 +119,54 @@ function normAt(at) {
   return iso.slice(0, 19) === at.slice(0, 19) ? iso : null;
 }
 
+// coins: canonical compact JSON {coinId:[ts,...]} exactly as the price service builds it.
+function validCoins(coins) {
+  if (typeof coins !== "string" || coins.length > MAX_COINS_CHARS) return false;
+  let o;
+  try { o = JSON.parse(coins); } catch { return false; }
+  if (!isObj(o)) return false;
+  const keys = Object.keys(o);
+  if (keys.length < 1 || keys.length > MAX_COIN_KEYS) return false;
+  for (const k of keys) {
+    if (!COIN_RE.test(k) || !Array.isArray(o[k]) || !o[k].length) return false;
+    if (!o[k].every((v) => Number.isSafeInteger(v) && v >= 0)) return false;
+  }
+  return JSON.stringify(o) === coins;
+}
+
+// Shared response metadata checks (Etherscan and price entries).
+function validMeta(e) {
+  return (e.httpStatus === null || (Number.isInteger(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599)) &&
+    (e.rows === null || (Number.isInteger(e.rows) && e.rows >= 0)) &&
+    (e.sha256 === null || (typeof e.sha256 === "string" && SHA_RE.test(e.sha256))) &&
+    OUTCOMES.includes(e.outcome);
+}
+
+function rebuildPrice(e) {
+  const at = normAt(e.at);
+  const ok =
+    at !== null && e.chainId === null && e.action === "batchHistorical" &&
+    validMeta(e) &&
+    typeof e.params.searchWidth === "string" && WIDTH_RE.test(e.params.searchWidth) &&
+    validCoins(e.params.coins);
+  if (!ok) return null;
+  const params = { coins: e.params.coins, searchWidth: e.params.searchWidth };
+  return {
+    at, source: "defillama", chainId: null, action: "batchHistorical", params,
+    url: priceUrl(params.coins, params.searchWidth), httpStatus: e.httpStatus, rows: e.rows, sha256: e.sha256, outcome: e.outcome,
+  };
+}
+
 function rebuild(e) {
   if (!isObj(e) || !isObj(e.params)) return null;
+  if (has(e, "source")) return e.source === "defillama" ? rebuildPrice(e) : null;
   const chainId = parseChainId(e.chainId);
   const at = normAt(e.at);
   const ok =
     at !== null &&
     chainId !== null &&
     typeof e.action === "string" && ACTION_RE.test(e.action) &&
-    (e.httpStatus === null || (Number.isInteger(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599)) &&
-    (e.rows === null || (Number.isInteger(e.rows) && e.rows >= 0)) &&
-    (e.sha256 === null || (typeof e.sha256 === "string" && SHA_RE.test(e.sha256))) &&
-    OUTCOMES.includes(e.outcome);
+    validMeta(e);
   if (!ok) return null;
   const params = {};
   for (const k of PARAM_KEYS) {
