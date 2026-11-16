@@ -42,3 +42,19 @@ test("three chains give every pair in numeric chain order", () => {
   expect(sameAddressLinks([nd("8453", X), nd("10", X), nd("1", X)], new Map()).map((l) => [l.a, l.b]))
     .toEqual([[`1:${X}`, `10:${X}`], [`1:${X}`, `8453:${X}`], [`10:${X}`, `8453:${X}`]]);
 });
+
+test("txlist from on a chain absent from config gives no eoa evidence (fail closed)", () => {
+  const ev = addressEvidence([ed("999999", "txlist", X, Y)], CH);
+  expect(ev.size).toBe(0);
+  expect(sameAddressLinks([nd("1", X), nd("999999", X)], ev)[0].basis).toBe("address");
+});
+test("chain order is numeric, not string (56 before 137)", () => {
+  expect(sameAddressLinks([nd("137", X), nd("56", X)], new Map()).map((l) => [l.a, l.b]))
+    .toEqual([[`56:${X}`, `137:${X}`]]);
+});
+test("eoa on one chain makes every pair in a 3-chain group key", () => {
+  const ev = new Map([[`10:${X}`, "eoa"]]);
+  const links = sameAddressLinks([nd("1", X), nd("10", X), nd("8453", X)], ev);
+  expect(links.length).toBe(3);
+  expect(links.every((l) => l.basis === "key")).toBe(true);
+});
