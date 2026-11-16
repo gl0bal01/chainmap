@@ -21,7 +21,7 @@ python3 -m http.server 8000   # open http://localhost:8000/
 Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 
 ```bash
-bun test        # 598 tests
+bun test        # 679 tests
 ```
 
 `vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
@@ -49,6 +49,7 @@ DOM-free, Node-testable modules (pure logic; the heart of the app):
 - `selectors.js` + `abiDecode.js` — 4-byte method selectors + ABI head decoder.
 - `riskScore.js` — explainable per-node risk. `blockchainDetect.js` — chain-by-format detection.
 - `knownAddresses.js` (`knownEntry`: chain-specific then `"*"`), `fakeToken.js` (imitation-token detection), `workspace.js` (save/load), `dryRun.js` (scan estimate).
+- `queryLog.js` (request log, `sanitizeQueryLog`), `zip.js` (store-only zip + CRC-32), `evidence.js` (caveats, manifest, SHA256SUMS, footer lines, zip assembly).
 - `i18n.js` + `locales/{en,fr}.js` — flat key dictionaries; `applyTo(root)` translates `[data-i18n*]`.
 
 DOM / vis modules:
@@ -74,6 +75,7 @@ Frozen module contracts live in `INTERFACES.md`.
   `SELECTORS` (signature) and, if its leading static args are worth naming, a matching
   entry in `SELECTOR_PARAMS` (param names, in `selectors.js`) — `abiDecode.summarizeCall`
   and the CSV `decoded_amount`/`real_recipient` columns depend on those names being present.
+- **Evidence**: the query log stores request params without the key + SHA-256 of raw bodies; every export carries provenance; the bundle hashes exactly the bytes written; the API key is in no artifact.
 - **Risk flags** (`riskFlags.js`), **peel-chain** detection (`peelChain.js`), the
   **exchange-deposit mark** (`depositDetect.findDeposits`), and **hide
   faucets/sinks** (`sinkFaucet.shouldHideNode`) are display projections over the store

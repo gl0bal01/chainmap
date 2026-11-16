@@ -9,7 +9,7 @@
 // STAGE A: interface frozen. STAGE B: bodies implemented here.
 // =============================================================================
 
-import { formatTimestamp, formatUnits, isValidAddress } from "./format.js";
+import { formatTimestamp, formatUnits, isValidAddress, shortAddress } from "./format.js";
 import { TX_TYPE_GROUPS } from "./config.js";
 import { methodName } from "./selectors.js";
 import { summarizeCall, decodeCalldataWords, decodeInputText } from "./abiDecode.js";
@@ -542,4 +542,53 @@ export function createRequestIndicator(element, i18n) {
     element.textContent = i18n.t(active ? "privacy.indicator.active" : "privacy.indicator.idle");
   }
   return { setActive };
+}
+
+const QUERY_LOG_ROWS = 200;
+const QUERY_LOG_COLS = ["time", "chain", "action", "address", "page", "http", "rows", "sha256", "outcome"];
+
+/** Query-log table, newest first. Every value (all untrusted) goes in via textContent. */
+export function renderQueryLog(container, entries, { i18n, dropped, unloggedData, limit }) {
+  container.textContent = "";
+  const note = (text) => {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = text;
+    container.appendChild(p);
+  };
+  const n = entries.length;
+  if (n > QUERY_LOG_ROWS) note(i18n.t("queryLog.showing", { shown: QUERY_LOG_ROWS, n }));
+  if (dropped > 0) note(i18n.t("queryLog.dropped", { n: dropped, limit }));
+  if (unloggedData) note(i18n.t("queryLog.unlogged"));
+  if (!n) { note(i18n.t("queryLog.empty")); return; }
+
+  const wrap = document.createElement("div");
+  wrap.className = "qlog";
+  const table = document.createElement("table");
+  const headRow = table.createTHead().insertRow();
+  for (const c of QUERY_LOG_COLS) {
+    const th = document.createElement("th");
+    th.textContent = i18n.t("queryLog.col." + c);
+    headRow.appendChild(th);
+  }
+  const body = table.createTBody();
+  for (const e of entries.slice(-QUERY_LOG_ROWS).reverse()) {
+    const tr = body.insertRow();
+    const cell = (text, title) => {
+      const td = tr.insertCell();
+      td.textContent = text;
+      if (title) td.title = title;
+    };
+    cell(e.at.slice(0, 19).replace("T", " "));
+    cell(e.chainId);
+    cell(e.action);
+    cell(shortAddress(e.params.address), e.params.address);
+    cell(`${e.params.page ?? "—"}/${e.params.offset ?? "—"}`);
+    cell(e.httpStatus ?? "—");
+    cell(e.rows ?? "—");
+    cell(e.sha256 ? e.sha256.slice(0, 12) : "—", e.sha256 || "");
+    cell(i18n.t("queryLog.outcome." + e.outcome));
+  }
+  wrap.appendChild(table);
+  container.appendChild(wrap);
 }

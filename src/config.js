@@ -8,6 +8,7 @@
 
 /** Etherscan v2 unified multichain endpoint. The chain is chosen via `chainid`,
  *  not a different host — one host for every supported chain. */
+export const APP_VERSION = "1.3.0";
 export const API_BASE = "https://api.etherscan.io/v2/api";
 
 /**
@@ -168,6 +169,7 @@ export const LIMITS = {
   safetyCap:       { min: 1, max: 5000 },
   rps:             { min: 1, max: 30 },
   degreeThreshold: { min: 1, max: 1000 },
+  queryLog:        5000,
 };
 
 /** Etherscan fetch tuning (etherscanClient). */

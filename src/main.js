@@ -11,7 +11,7 @@
 // file only orchestrates — it never mutates vis DataSets directly.
 // =============================================================================
 
-import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS } from "./config.js";
+import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, APP_VERSION } from "./config.js";
 import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
@@ -34,12 +34,14 @@ import { methodName } from "./selectors.js";
 import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
+import { createQueryLog } from "./queryLog.js";
+import { CAVEATS, retrievalSummary, observedSampling, knownDataSnapshot, queryLogDocument, footerLines, fileStamp } from "./evidence.js";
 import { runScan, loadOlder, selectedTypes } from "./scanner.js";
 import { historyState } from "./history.js";
 import { createGraphView } from "./render/network.js";
 import { createPalette } from "./render/palette.js";
 import { attachInteractions, rotateGraph, selectHighDegree } from "./render/interaction.js";
-import { exportPng, exportPdf, exportCsv, triggerDownload } from "./render/export.js";
+import { exportPng, exportPdf, exportCsv, exportEvidenceBundle, triggerDownload } from "./render/export.js";
 import {
   renderNodeDetails,
   renderEdgeDetails,
@@ -49,6 +51,7 @@ import {
   renderTwinDetails,
   createStatus,
   createRequestIndicator,
+  renderQueryLog,
 } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -140,6 +143,24 @@ function recomputeDeposits() {
   if (!changed.length) return;
   view.refreshNodes(changed);
   if (currentDetail?.kind === "node" && changed.includes(currentDetail.id)) rerenderDetails();
+}
+
+// Query log (evidence exports): every Etherscan request any feature makes, keyed-out.
+// Reset clears it, a workspace load replaces it, the demo empties it; deleting nodes keeps it.
+const queryLog = createQueryLog();
+// The client's epoch is read at creation (one client per operation): a request still in
+// flight after a reset / workspace load / demo load is dropped, never logged in the new log.
+const makeClient = (apiKey, chainId) => {
+  const epoch = queryLog.epoch;
+  return createEtherscanClient({ apiKey, chainId, onQuery: (r) => queryLog.add(r, epoch).then(refreshQueryLogUi) });
+};
+// Title on every change; the table only while the panel is open.
+function refreshQueryLogUi() {
+  const entries = queryLog.entries();
+  $("queryLogTitle").textContent = t("queryLog.title", { n: entries.length });
+  if ($("queryLogPanel").open) {
+    renderQueryLog($("queryLogContent"), entries, { i18n, dropped: queryLog.dropped, unloggedData: queryLog.unloggedData, limit: LIMITS.queryLog });
+  }
 }
 
 const dateToEpoch = (v) => {
@@ -330,6 +351,7 @@ function refreshDynamicI18n() {
   if (indicator) indicator.setActive(scanning);
   renderAddressDetect();
   rerenderDetails();
+  refreshQueryLogUi();
 }
 
 function applyLocale() {
@@ -721,7 +743,7 @@ async function startScan() {
   if (refusal) return logger.log({ level: "error", ...refusal });
   const before = store.chains();
 
-  const client = createEtherscanClient({ apiKey, chainId });
+  const client = makeClient(apiKey, chainId);
 
   collapseControls(); // give the map the full surface once a scan begins
 
@@ -798,7 +820,7 @@ async function loadOlderFor(id) {
 
   const res = await withBusy(({ signal, limiter }) =>
     loadOlder({
-      client: createEtherscanClient({ apiKey, chainId: node.chainId }),
+      client: makeClient(apiKey, node.chainId),
       store,
       limiter,
       chainId: node.chainId,
@@ -830,6 +852,8 @@ function resetGraph() {
   status.clear();
   clearDetails();
   $("samplingBanner").hidden = true;
+  queryLog.clear();
+  refreshQueryLogUi();
 }
 
 // ---------------------------------------------------------------------------
@@ -855,7 +879,7 @@ let detectAbortController = null;
  */
 async function probeOneChain(chainId, address, signal) {
   const apiKey = $("apiKey").value.trim();
-  const client = createEtherscanClient({ apiKey, chainId });
+  const client = makeClient(apiKey, chainId);
   const [native, token] = await Promise.all([
     client.fetchAction(address, "txlist", { offset: 1, page: 1, sort: "desc", signal }),
     client.fetchAction(address, "tokentx", { offset: 1, page: 1, sort: "desc", signal }),
@@ -1004,6 +1028,18 @@ async function startDetectChain() {
 // ---------------------------------------------------------------------------
 // Feature Layer 2 — workspace / demo / estimate / annotations / hubs
 // ---------------------------------------------------------------------------
+// Provenance for one export: time, retrieval window from the query log, footer lines (UI language).
+function exportContext() {
+  const exportedAt = new Date().toISOString();
+  const retrieval = retrievalSummary(queryLog.toJSON());
+  return { exportedAt, retrieval, footer: footerLines({ t, appVersion: APP_VERSION, exportedAt, retrieval }) };
+}
+// The live view's badge line (network.js), baked into PNG/PDF.
+const depositBadge = (n) => {
+  const d = depositMap.get(n.id);
+  return d ? t("deposit.badge", { label: d.label }) : null;
+};
+
 function currentFilters() {
   return {
     minAmount: parseFloat($("minAmount").value) || 0,
@@ -1017,17 +1053,27 @@ function currentFilters() {
   };
 }
 
+// The ONE workspace / query-log text builders: Save and the evidence bundle write these exact bytes.
+const workspaceText = (savedAt) =>
+  JSON.stringify(
+    serializeWorkspace({
+      root: $("address").value.trim().toLowerCase() || null,
+      nodes: store.listNodes(),
+      edges: store.listEdges(),
+      filters: currentFilters(),
+      layout: $("layoutSelect").value,
+      annotations: view.getAnnotations(),
+      queryLog: queryLog.toJSON(),
+      provenance: { savedAt, appVersion: APP_VERSION, caveats: CAVEATS },
+    }),
+    null,
+    2
+  );
+const queryLogText = (exportedAt) => JSON.stringify(queryLogDocument(queryLog.toJSON(), exportedAt), null, 2);
+
 function saveWorkspace() {
   if (!store.stats().nodes) return logger.log({ level: "error", key: "log.exportEmpty" });
-  const ws = serializeWorkspace({
-    root: $("address").value.trim().toLowerCase() || null,
-    nodes: store.listNodes(),
-    edges: store.listEdges(),
-    filters: currentFilters(),
-    layout: $("layoutSelect").value,
-    annotations: view.getAnnotations(),
-  });
-  const url = URL.createObjectURL(new Blob([JSON.stringify(ws, null, 2)], { type: "application/json" }));
+  const url = URL.createObjectURL(new Blob([workspaceText(new Date().toISOString())], { type: "application/json" }));
   triggerDownload(url, "workspace.json");
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   logger.log({ level: "info", key: "log.workspaceSaved" });
@@ -1083,7 +1129,16 @@ function logWorkspaceRefusal(res) {
 function loadWorkspaceFromText(text) {
   const res = parseWorkspace(text, { fallbackChainId: $("chainSelect").value });
   if (!res.ok) return logWorkspaceRefusal(res);
-  if (!applyWorkspace(res.data)) return;
+  const ws = res.data;
+  if (!applyWorkspace(ws)) return;
+  // A file without a query log is "unknown", not "empty": its graph has no logged retrieval.
+  if (ws.queryLog) queryLog.load(ws.queryLog);
+  else {
+    queryLog.clear();
+    queryLog.markUnlogged();
+  }
+  if (ws.queryLogInvalid) logger.log({ level: "error", key: "log.queryLogInvalid", params: { n: ws.queryLogInvalid } });
+  refreshQueryLogUi();
   const s = store.stats();
   logger.log({ level: "info", key: "log.workspaceLoaded", params: { nodes: s.nodes, edges: s.edges } });
 }
@@ -1094,7 +1149,12 @@ async function loadDemo() {
     if (!resp.ok) throw new Error(String(resp.status));
     const res = parseWorkspace(await resp.json(), { fallbackChainId: $("chainSelect").value });
     if (!res.ok) return logWorkspaceRefusal(res);
-    if (applyWorkspace(res.data)) logger.log({ level: "info", key: "log.demoLoaded" });
+    if (!applyWorkspace(res.data)) return;
+    // The demo was never retrieved under this log, whatever the file holds.
+    queryLog.clear();
+    queryLog.markUnlogged();
+    refreshQueryLogUi();
+    logger.log({ level: "info", key: "log.demoLoaded" });
   } catch (e) {
     logger.log({ level: "error", key: "log.workspaceError", params: { error: String(e.message || e) } });
   }
@@ -1114,7 +1174,7 @@ async function runEstimate() {
   const safetyCap = clampInt($("safetyCap").value, LIMITS.safetyCap, DEFAULTS.safetyCap);
   const rps = clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps);
   const limiter = new RateLimiter(rps);
-  const client = createEtherscanClient({ apiKey, chainId });
+  const client = makeClient(apiKey, chainId);
   const root = address.toLowerCase();
 
   indicator.setActive(true);
@@ -1169,25 +1229,61 @@ function wireControls() {
   });
 
   const onLog = (e) => logger.log(e);
-  const addressFormat = () => $("addressFormat").value;
-  $("exportPngBtn").addEventListener("click", () =>
-    exportPng(view, store, { preset: $("exportResolution").value, addressFormat: addressFormat(), annotations: view.getAnnotations(), chainTag: getChainTag, twinLinks: view.getTwinLinks(), twinLabel: t("details.twinKey"), onLog })
-  );
+  // Image deps shared by PNG, PDF and the bundle's graph.png (footer = provenance band).
+  const imageDeps = (footer) => ({
+    preset: $("exportResolution").value,
+    addressFormat: $("addressFormat").value,
+    annotations: view.getAnnotations(),
+    chainTag: getChainTag,
+    twinLinks: view.getTwinLinks(),
+    twinLabel: t("details.twinKey"),
+    footer,
+    badge: depositBadge,
+    onLog,
+  });
+  $("exportPngBtn").addEventListener("click", () => exportPng(view, store, imageDeps(exportContext().footer)));
   $("exportPdfBtn").addEventListener("click", () =>
-    exportPdf(view, store, {
-      preset: $("exportResolution").value,
-      addressFormat: addressFormat(),
-      jsPDF: window.jspdf.jsPDF,
-      annotations: view.getAnnotations(),
-      chainTag: getChainTag,
-      twinLinks: view.getTwinLinks(),
-      twinLabel: t("details.twinKey"),
-      onLog,
-    })
+    exportPdf(view, store, { ...imageDeps(exportContext().footer), jsPDF: window.jspdf.jsPDF })
   );
-  $("exportCsvBtn").addEventListener("click", () =>
-    exportCsv(store, { onLog, ...flagCtx, deposits: depositMap })
-  );
+  $("exportCsvBtn").addEventListener("click", () => {
+    const { exportedAt, retrieval } = exportContext();
+    exportCsv(store, { onLog, ...flagCtx, deposits: depositMap, provenance: { exportedAt, retrieval } });
+  });
+  $("exportQueryLogBtn").addEventListener("click", () => {
+    const now = new Date();
+    const url = URL.createObjectURL(new Blob([queryLogText(now.toISOString())], { type: "application/json" }));
+    triggerDownload(url, `query-log-${fileStamp(now)}.json`);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    logger.log({ level: "info", key: "log.queryLogExported", params: { n: queryLog.entries().length } });
+  });
+  // Never rejects: exportEvidenceBundle logs its own failure (log.bundleFailed).
+  $("evidenceBundleBtn").addEventListener("click", () => {
+    const { exportedAt, retrieval, footer } = exportContext();
+    exportEvidenceBundle(view, store, {
+      ...imageDeps(footer),
+      ...flagCtx,
+      deposits: depositMap,
+      exportedAt,
+      retrieval,
+      workspaceText: workspaceText(exportedAt),
+      queryLogText: queryLogText(exportedAt),
+      manifest: {
+        chains: store.chains().map((c) => ({ chainId: c, name: chainLabel(c) })),
+        roots: store.listNodes().filter((n) => n.isRoot).map((n) => n.id),
+        sampling: {
+          formAtExport: {
+            maxDepth: clampInt($("depth").value, LIMITS.depth, DEFAULTS.depth),
+            maxTxPerAddress: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
+            safetyCap: clampInt($("safetyCap").value, LIMITS.safetyCap, DEFAULTS.safetyCap),
+            types: formTypes().map((x) => x.action),
+          },
+          observed: observedSampling(queryLog.entries()),
+        },
+        data: { knownAddresses: knownDataSnapshot(knownData) },
+      },
+    });
+  });
+  $("queryLogPanel").addEventListener("toggle", refreshQueryLogUi);
 
   // Noise-reduction filters (live display projection; store is untouched).
   $("minAmount").addEventListener("input", applyDisplayOptions);

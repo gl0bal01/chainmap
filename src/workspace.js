@@ -8,13 +8,16 @@
 // build the input for serializeWorkspace().
 //
 // v3 (written): { version:3, root, graph:{ nodes, edges }, filters, layout,
-// annotations } — every record carries its own `chainId`; no top-level chain.
+// annotations } plus optional `queryLog` and provenance (`savedAt`, `appVersion`,
+// `caveats`), still v3 — older readers ignore them. Every record carries its own
+// `chainId`; no top-level chain.
 // v2 and older (read only): strict migration — every record takes the file's
 // top-level `chainId` (or the caller's fallback), per-record fields ignored, so
 // a v2 file can never produce mixed chains. Newer than v3: refused.
 // =============================================================================
 
 import { lc, isValidAddress, parseChainId, nodeId } from "./format.js";
+import { sanitizeQueryLog } from "./queryLog.js";
 
 /** Bump when the on-disk workspace shape changes in a way older readers can't handle. */
 export const WORKSPACE_VERSION = 3;
@@ -51,6 +54,8 @@ function stripDangerousKeys(raw) {
  * @property {WorkspaceFilters} filters
  * @property {*} layout
  * @property {object[]} annotations
+ * @property {QueryLogState} [queryLog]   optional; written only when given
+ * @property {{savedAt:string, appVersion:string, caveats:string[]}} [provenance]  optional; spread as top-level fields
  */
 
 /**
@@ -63,6 +68,8 @@ function stripDangerousKeys(raw) {
  * @property {*} layout
  * @property {object[]} annotations
  * @property {string|null} assumedChainId  v2 file had no chainId and the fallback was used
+ * @property {{entries:object[], dropped:number, unloggedData:boolean}|null} queryLog  null when the file has none
+ * @property {number} queryLogInvalid  query-log entries rejected by sanitizeQueryLog
  */
 
 /**
@@ -78,6 +85,9 @@ function stripDangerousKeys(raw) {
  * @param {WorkspaceFilters} [input.filters]
  * @param {*} [input.layout]
  * @param {object[]} [input.annotations]
+ * @param {QueryLogState} [input.queryLog]  written as `queryLog` when given
+ * @param {{savedAt:string, appVersion:string, caveats:string[]}} [input.provenance]
+ *   written as top-level `savedAt`/`appVersion`/`caveats` when given
  * @returns {Workspace}
  */
 export function serializeWorkspace(input) {
@@ -91,7 +101,7 @@ export function serializeWorkspace(input) {
       : {};
   const annotations = Array.isArray(src.annotations) ? [...src.annotations] : [];
 
-  return {
+  const out = {
     version: WORKSPACE_VERSION,
     root: src.root ?? null,
     graph: { nodes, edges },
@@ -99,6 +109,17 @@ export function serializeWorkspace(input) {
     layout: src.layout ?? null,
     annotations,
   };
+  if (src.queryLog) {
+    const q = src.queryLog;
+    out.queryLog = { entries: (q.entries || []).map((e) => ({ ...e })), dropped: q.dropped, unloggedData: q.unloggedData };
+  }
+  if (src.provenance) {
+    const p = src.provenance;
+    out.savedAt = p.savedAt;
+    out.appVersion = p.appVersion;
+    out.caveats = [...(p.caveats || [])];
+  }
+  return out;
 }
 
 /**
@@ -197,6 +218,15 @@ export function parseWorkspace(json, opts) {
   } else delete filters.hiddenChains;
   if (typeof filters.showTwins !== "boolean") delete filters.showTwins;
   const annotations = Array.isArray(obj.annotations) ? [...obj.annotations] : [];
+  // Query log is a trust boundary: sanitizeQueryLog rebuilds every entry.
+  // savedAt/appVersion/caveats are provenance only and are never copied into data.
+  let queryLog = null;
+  let queryLogInvalid = 0;
+  if (obj.queryLog !== undefined) {
+    const s = sanitizeQueryLog(obj.queryLog);
+    queryLog = { entries: s.entries, dropped: s.dropped, unloggedData: s.unloggedData };
+    queryLogInvalid = s.invalid;
+  }
 
   return {
     ok: true,
@@ -209,6 +239,8 @@ export function parseWorkspace(json, opts) {
       layout: obj.layout ?? null,
       annotations,
       assumedChainId: !v3 && obj.chainId == null ? fileChain : null,
+      queryLog,
+      queryLogInvalid,
     },
   };
 }

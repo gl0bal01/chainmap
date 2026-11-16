@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **598 unit/integration tests** on the DOM-free core.
+- **679 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -110,6 +110,13 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
 - **Chain detector** — paste any address; it tells you the chain family (or non-EVM) by format. Then click **Detect chain** to probe ~12 popular chains for on-chain activity and auto-select the one where the address is most active, showing where else it's active.
 - **Exports** — PNG, PDF, and CSV (with a sampling caveat baked in, plus decoded method,
   real recipient, decoded amount, and risk-flag columns per edge). Save/load workspaces.
+  PNG/PDF carry a provenance footer and the likely-deposit mark; the CSV carries it on line 1.
+- **Query log** — every Etherscan request is logged in memory (time, chain, request without
+  the API key, HTTP status, row count, SHA-256 of the raw response body, outcome) and shown in
+  a panel. Export it as `.json`; it is also saved inside workspaces.
+- **Evidence bundle** — one `.zip` (store-only) with `graph.csv`, `graph.png`, `workspace.json`,
+  `query-log.json`, a `MANIFEST.json` and a `SHA256SUMS` you check with `sha256sum -c`. The
+  zip's own SHA-256 is written in the app log for your case notes. Tamper evidence only.
 - **Search & keyboard navigation** — a **🔍 search button** in the top bar (or **Ctrl/Cmd+K**)
   opens a command palette that searches nodes by address / alias / known-label / category and
   transactions by hash / method (hybrid substring + fuzzy ranking); picking a result focuses +
@@ -164,6 +171,8 @@ frozen module contracts.
 - **Vendored libraries** (`vis-network`, `jsPDF`) — no CDN — pinned with **Subresource
   Integrity**. A strict **CSP** limits `script-src` to `'self'` and `connect-src` to the
   Etherscan API.
+- **The API key is never written to any export, log or filename.** The query log keeps only
+  the request parameters without the key and a SHA-256 of each response, never response bodies.
 - **No untrusted string reaches `innerHTML`** — aliases and API token symbols are rendered
   as DOM text nodes; the analysis is XSS-inert by construction.
 - **OSINT ethics:** the graph is a **sample**, not proof. Public-chain data is pseudonymous,
@@ -178,7 +187,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 598 unit + integration tests
+bun test        # 679 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:

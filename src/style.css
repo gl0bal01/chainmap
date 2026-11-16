@@ -348,3 +348,9 @@ details.card:not([open]) > summary.card-title { margin-bottom: 0; }
   #controlsChk:checked ~ main #controls { display: flex; transform: none; }
   #sidebarChk:checked ~ main #sidebar { display: flex; transform: none; }
 }
+
+.qlog-panel { margin-top: 8px; }
+.qlog-panel summary { cursor: pointer; font-size: 12px; }
+.qlog { overflow-x: auto; }
+.qlog table { border-collapse: collapse; font: 11px ui-monospace, monospace; white-space: nowrap; }
+.qlog th, .qlog td { padding: 2px 6px; text-align: left; border-bottom: 1px solid var(--border, #333); }

@@ -4,12 +4,17 @@ import { csvEscape, formatTimestamp } from "../src/format.js";
 import {
   buildCsvRows,
   computeExportSize,
+  csvText,
   exportCsv,
+  exportEvidenceBundle,
   exportPdf,
   exportPng,
   renderExportCanvas,
   triggerDownload,
 } from "../src/render/export.js";
+import { nodeLabel } from "../src/render/labels.js";
+import { sha256Hex } from "../src/queryLog.js";
+import { readZip } from "./fixtures/readZip.js";
 
 // ---------------------------------------------------------------------------
 // Minimal DOM shim so exportCsv's `triggerDownload` (anchor-click download) can
@@ -334,4 +339,286 @@ test("exportCsv forwards deps.deposits", () => {
   expect(lines[0]).toBe(SINGLE_CAVEAT + DEPOSIT_CAVEAT);
   expect(lines[0].startsWith('"')).toBe(false);
   expect(lines[2]).toContain("wallet=0xex;swept=9/10");
+});
+
+// ---------------------------------------------------------------------------
+// P5 evidence exports: CSV provenance, csvText, canvas footer/badge, bundle.
+// ---------------------------------------------------------------------------
+
+const EXPORTED_AT = "2026-11-16T10:15:30.123Z";
+const RETR = { queries: 3, dropped: 0, first: "2026-11-16T10:00:00.000Z", last: "2026-11-16T10:05:00.000Z", fullyLogged: true };
+const SIGNALS = "; labels/risk flags/imitation-token/likely-deposit/same-key marks are signals - not facts";
+const CSV_HEADER_LINE = "row_type,address,alias,depth,is_root,tx_type,from,to,amount,symbol,hash,block,date,method,method_sig,real_recipient,decoded_amount,risk_flags,chain_id,likely_deposit_of,deposit_evidence";
+const enc = (s) => new TextEncoder().encode(s);
+
+test("CSV line 1 provenance: exported + retrieved + signals, comma-free, header on line 2", () => {
+  const rows = buildCsvRows(makeFakeStore([withId(NODE_A)], []), { category: () => null, provenance: { exportedAt: EXPORTED_AT, retrieval: RETR } });
+  expect(rows[0][0]).toBe(SINGLE_CAVEAT + "; exported 2026-11-16T10:15:30.123Z UTC; retrieved 2026-11-16T10:00:00.000Z to 2026-11-16T10:05:00.000Z UTC (see query log)" + SIGNALS);
+  expect(rows[0][0].includes(",")).toBe(false);
+  expect(rows[1].join(",")).toBe(CSV_HEADER_LINE);
+});
+
+test("CSV line 1 provenance: retrieval unknown wording, still comma-free", () => {
+  const line = buildCsvRows(makeFakeStore([withId(NODE_A)], []), { category: () => null, provenance: { exportedAt: EXPORTED_AT, retrieval: null } })[0][0];
+  expect(line).toContain("; retrieval time unknown (no query log)");
+  expect(line).not.toContain("retrieved ");
+  expect(line.includes(",")).toBe(false);
+  expect(line.endsWith(SIGNALS)).toBe(true);
+});
+
+test("CSV line 1 provenance: partial retrieval is stated", () => {
+  const line = buildCsvRows(makeFakeStore([withId(NODE_A)], []), { category: () => null, provenance: { exportedAt: EXPORTED_AT, retrieval: { ...RETR, fullyLogged: false } } })[0][0];
+  expect(line).toContain("; retrieved 2026-11-16T10:00:00.000Z to 2026-11-16T10:05:00.000Z UTC (see query log); part of this graph has no logged retrieval");
+  expect(line.includes(",")).toBe(false);
+});
+
+/** Fake DOM + canvas + vis + URL for the canvas/bundle paths; restored in finally. */
+async function fakeCanvasEnv(run) {
+  const saved = {
+    document: globalThis.document, window: globalThis.window, raf: globalThis.requestAnimationFrame,
+    create: URL.createObjectURL, revoke: URL.revokeObjectURL,
+  };
+  const env = { divs: [], anchors: [], canvases: [], dataSets: [], blobs: [], fills: [], images: [] };
+  const ctx = {
+    font: "10px sans-serif", texts: [],
+    fillRect: (...a) => env.fills.push(a),
+    drawImage: (...a) => env.images.push(a),
+    fillText(text, x, y) { ctx.texts.push({ text, x, y, font: ctx.font }); },
+    measureText: (s) => ({ width: s.length * parseFloat(ctx.font) * 0.6 }),
+  };
+  env.ctx = ctx;
+  globalThis.document = {
+    body: { appendChild() {} },
+    createElement(tag) {
+      if (tag === "canvas") {
+        const c = { width: 0, height: 0, getContext: () => ctx, toDataURL: () => "data:image/png;base64,", toBlob: (cb) => cb(new Blob([Uint8Array.of(0x89, 0x50, 0x4e, 0x47)])) };
+        env.canvases.push(c);
+        return c;
+      }
+      const el = { style: {}, remove() {}, click() { if (tag === "a") env.anchors.push(el.download); } };
+      if (tag === "div") env.divs.push(el);
+      return el;
+    },
+  };
+  class DataSet {
+    constructor(items) { this.items = [...items]; env.dataSets.push(this); }
+    add(item) { this.items.push(item); }
+  }
+  class Network {
+    constructor(container) {
+      this.canvas = { frame: { canvas: { width: parseInt(container.style.width), height: parseInt(container.style.height) } } };
+    }
+    once(ev, cb) { if (ev === "afterDrawing") this.cb = cb; }
+    fit() { this.cb(); }
+    destroy() {}
+  }
+  globalThis.window = { vis: { DataSet, Network } };
+  globalThis.requestAnimationFrame = (cb) => cb();
+  URL.createObjectURL = (b) => { env.blobs.push(b); return "blob:fake"; };
+  URL.revokeObjectURL = () => {};
+  env.view = { getPositions: (ids) => Object.fromEntries(ids.map((i) => [i, { x: 0, y: 0 }])) };
+  try {
+    return await run(env);
+  } finally {
+    globalThis.document = saved.document;
+    globalThis.window = saved.window;
+    globalThis.requestAnimationFrame = saved.raf;
+    URL.createObjectURL = saved.create;
+    URL.revokeObjectURL = saved.revoke;
+  }
+}
+
+const blobBytes = async (b) => new Uint8Array(await b.arrayBuffer());
+const storeAB = () => ({ ...makeFakeStore([withId(NODE_A), withId(NODE_B)], [EDGE_1]), stats: () => ({ nodes: 2, edges: 1 }) });
+
+test("csvText bytes = exportCsv bytes (BOM included)", async () => {
+  const store = makeFakeStore([withId(NODE_A)], [EDGE_1]);
+  const ctx = { category: () => null, provenance: { exportedAt: EXPORTED_AT, retrieval: RETR } };
+  expect(csvText(store, ctx).startsWith("﻿")).toBe(true);
+  await fakeCanvasEnv(async (env) => {
+    exportCsv(store, { onLog: () => {}, ...ctx });
+    const bytes = await blobBytes(env.blobs[0]);
+    expect(bytes).toEqual(enc(csvText(store, ctx)));
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder().decode(bytes).split("\n")[0]).toContain("; exported 2026-11-16T10:15:30.123Z UTC");
+  });
+});
+
+test("badge line: appended to the node label only when badge() returns text", async () => {
+  const A = NODE_A.address;
+  await fakeCanvasEnv(async (env) => {
+    await renderExportCanvas(env.view, storeAB(), {
+      size: computeExportSize("hd", 2), addressFormat: "short",
+      badge: (n) => (n.address === A ? "🏦 likely deposit → Binance" : null),
+    });
+    const items = env.dataSets[0].items;
+    expect(items[0].label).toBe(nodeLabel(NODE_A, { addressFormat: "short", chainTag: null }) + "\n🏦 likely deposit → Binance");
+    expect(items[1].label).toBe(nodeLabel(NODE_B, { addressFormat: "short", chainTag: null }));
+  });
+});
+
+test("footer band is carved inside the size; long lines shrink, none is cut off", async () => {
+  const size = computeExportSize("hd", 2);
+  const footer = Array.from({ length: 6 }, (_, i) => String(i).repeat(i < 3 ? 140 : 260));
+  await fakeCanvasEnv(async (env) => {
+    const canvas = await renderExportCanvas(env.view, storeAB(), { size, addressFormat: "short", footer });
+    const fontPx = Math.max(12, Math.round(1920 / 120));
+    const band = 6 * Math.round(fontPx * 1.5) + fontPx;
+    expect(env.divs[0].style.height).toBe(1080 - band + "px");
+    expect(canvas.width).toBe(1920);
+    expect(canvas.height).toBe(1080);
+    const texts = env.ctx.texts;
+    expect(texts.map((t) => t.text)).toEqual(footer);
+    const pad = fontPx;
+    for (const t of texts) {
+      expect(t.text.length * parseFloat(t.font) * 0.6).toBeLessThanOrEqual(1920 - 2 * pad);
+      expect(t.y).toBeGreaterThanOrEqual(1080 - band);
+      expect(t.x).toBe(pad);
+    }
+    expect(parseFloat(texts[0].font)).toBe(fontPx); // 140 chars fit at full size
+    expect(parseFloat(texts[5].font)).toBeLessThan(fontPx); // 260 chars had to shrink
+    expect(parseFloat(texts[5].font)).toBeGreaterThanOrEqual(8);
+  });
+});
+
+test("no footer -> composite height = raw height, no text drawn", async () => {
+  const size = computeExportSize("hd", 2);
+  await fakeCanvasEnv(async (env) => {
+    const canvas = await renderExportCanvas(env.view, storeAB(), { size, addressFormat: "short" });
+    expect(env.divs[0].style.height).toBe(size.h + "px");
+    expect(canvas.height).toBe(size.h);
+    expect(env.ctx.texts).toEqual([]);
+  });
+});
+
+test("exportPng and exportPdf forward footer and badge to the canvas render", async () => {
+  const deps = { preset: "hd", addressFormat: "short", onLog: () => {}, footer: ["provenance line"], badge: () => "B!" };
+  class FakePdf { addImage() {} save() {} }
+  for (const run of [(env) => exportPng(env.view, storeAB(), deps), (env) => exportPdf(env.view, storeAB(), { ...deps, jsPDF: FakePdf })]) {
+    await fakeCanvasEnv(async (env) => {
+      await run(env);
+      expect(env.ctx.texts.map((t) => t.text)).toEqual(["provenance line"]);
+      expect(env.dataSets[0].items.every((n) => n.label.endsWith("\nB!"))).toBe(true);
+    });
+  }
+});
+
+const bundleDeps = (over = {}) => ({
+  preset: "hd", addressFormat: "short", footer: ["f1"], badge: () => null,
+  category: () => null, exportedAt: EXPORTED_AT, retrieval: RETR,
+  workspaceText: '{"version":3}', queryLogText: '{"entries":[]}',
+  manifest: { chains: [{ chainId: "1", name: "Ethereum" }], roots: ["1:" + NODE_A.address], sampling: {}, data: {} },
+  ...over,
+});
+
+test("bundle: no crypto.subtle -> log.bundleNoCrypto, nothing downloaded", async () => {
+  const savedCrypto = globalThis.crypto;
+  const logs = [];
+  try {
+    globalThis.crypto = {};
+    await fakeCanvasEnv(async (env) => {
+      await exportEvidenceBundle(env.view, storeAB(), bundleDeps({ onLog: (e) => logs.push(e) }));
+      expect(env.anchors).toEqual([]);
+      expect(env.blobs).toEqual([]);
+    });
+  } finally {
+    globalThis.crypto = savedCrypto;
+  }
+  expect(logs).toEqual([{ level: "error", key: "log.bundleNoCrypto" }]);
+});
+
+test("bundle: PNG omitted when capped, bundle still produced", async () => {
+  expect(computeExportSize("auto", 39).capped).toBe(true);
+  const nodes = Array.from({ length: 39 }, (_, i) => withId({ ...NODE_B, address: "0x" + String(i).padStart(40, "0") }));
+  const store = { ...makeFakeStore(nodes, []), stats: () => ({ nodes: 39, edges: 0 }) };
+  const logs = [];
+  await fakeCanvasEnv(async (env) => {
+    await exportEvidenceBundle(env.view, store, bundleDeps({ preset: "auto", onLog: (e) => logs.push(e) }));
+    expect(logs[0]).toEqual({ level: "error", key: "log.bundlePngOmitted", params: { pixels: computeExportSize("auto", 39).pixels } });
+    const members = readZip(await blobBytes(env.blobs[0]));
+    expect(members.map((m) => m.name)).toEqual(["graph.csv", "workspace.json", "query-log.json", "MANIFEST.json", "SHA256SUMS"]);
+    const manifest = JSON.parse(new TextDecoder().decode(members[3].bytes));
+    expect(manifest.omitted[0]).toEqual({ name: "graph.png", reason: "too-large" });
+    expect(env.dataSets).toEqual([]); // never rendered
+  });
+});
+
+test("bundle: happy path — six files, CSV bytes = csvText, stamped name, zip sha256 logged", async () => {
+  const logs = [];
+  const store = storeAB();
+  await fakeCanvasEnv(async (env) => {
+    await exportEvidenceBundle(env.view, store, bundleDeps({ onLog: (e) => logs.push(e) }));
+    const zipBytes = await blobBytes(env.blobs[0]);
+    expect(env.blobs[0].type).toBe("application/zip");
+    const members = readZip(zipBytes);
+    expect(members.map((m) => m.name)).toEqual(["graph.csv", "workspace.json", "graph.png", "query-log.json", "MANIFEST.json", "SHA256SUMS"]);
+    expect(members[0].bytes).toEqual(enc(csvText(store, { category: () => null, provenance: { exportedAt: EXPORTED_AT, retrieval: RETR } })));
+    expect(members[1].bytes).toEqual(enc('{"version":3}'));
+    expect(members[2].bytes).toEqual(Uint8Array.of(0x89, 0x50, 0x4e, 0x47));
+    expect(members[3].bytes).toEqual(enc('{"entries":[]}'));
+    const manifest = JSON.parse(new TextDecoder().decode(members[4].bytes));
+    expect(manifest.graph).toEqual({ nodes: 2, edges: 1 });
+    expect(manifest.retrieval).toEqual(RETR);
+    expect(manifest.omitted).toEqual([]);
+    expect(env.ctx.texts.map((t) => t.text)).toEqual(["f1"]); // footer reached the PNG
+    expect(env.anchors).toHaveLength(1);
+    expect(env.anchors[0]).toMatch(/^chainmap-evidence-\d{8}T\d{6}Z\.zip$/);
+    expect(env.anchors[0]).toBe("chainmap-evidence-20261116T101530Z.zip");
+    const done = logs.at(-1);
+    expect(done.key).toBe("log.bundleExported");
+    expect(done.params).toEqual({ sha256: await sha256Hex(zipBytes), files: 6 });
+  });
+});
+
+test("bundle: the store changing during the PNG render does not skew MANIFEST graph counts (all snapshotted at click)", async () => {
+  const nodes = [withId(NODE_A), withId(NODE_B)];
+  const edges = [EDGE_1];
+  const store = { listNodes: () => nodes, listEdges: () => edges, stats: () => ({ nodes: nodes.length, edges: edges.length }) };
+  await fakeCanvasEnv(async (env) => {
+    const create = document.createElement;
+    document.createElement = (tag) => {
+      const el = create(tag);
+      if (tag === "canvas") {
+        el.toBlob = (cb) => {
+          nodes.push(withId({ ...NODE_B, address: "0x" + "c".repeat(40) })); // a scan adds data mid-export
+          edges.push(EDGE_2);
+          setTimeout(() => cb(new Blob([Uint8Array.of(0x89)])), 0);
+        };
+      }
+      return el;
+    };
+    await exportEvidenceBundle(env.view, store, bundleDeps({ onLog: () => {} }));
+    const members = readZip(await blobBytes(env.blobs[0]));
+    const rows = new TextDecoder().decode(members[0].bytes).split("\n").slice(2);
+    const manifest = JSON.parse(new TextDecoder().decode(members[4].bytes));
+    expect(manifest.graph).toEqual({
+      nodes: rows.filter((r) => r.startsWith("node,")).length,
+      edges: rows.filter((r) => r.startsWith("edge,")).length,
+    });
+    expect(manifest.graph).toEqual({ nodes: 2, edges: 1 });
+  });
+});
+
+test("bundle: null toBlob or a render failure -> log.bundleFailed, nothing downloaded, never rejects", async () => {
+  const breakers = [
+    () => {
+      const create = document.createElement;
+      document.createElement = (tag) => {
+        const el = create(tag);
+        if (tag === "canvas") el.toBlob = (cb) => cb(null);
+        return el;
+      };
+    },
+    () => { window.vis.Network = class { constructor() { throw new Error("boom"); } }; },
+  ];
+  for (const breakIt of breakers) {
+    const logs = [];
+    await fakeCanvasEnv(async (env) => {
+      breakIt();
+      await expect(exportEvidenceBundle(env.view, storeAB(), bundleDeps({ onLog: (e) => logs.push(e) }))).resolves.toBeUndefined();
+      expect(env.anchors).toEqual([]);
+      expect(env.blobs).toEqual([]);
+    });
+    expect(logs).toEqual([{ level: "error", key: "log.bundleFailed" }]);
+  }
 });

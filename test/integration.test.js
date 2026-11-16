@@ -5,7 +5,10 @@ import { test, expect, beforeAll } from "bun:test";
 import { Window } from "happy-dom";
 import KNOWN from "../data/known-addresses.json";
 import V2 from "./fixtures/workspace-v2.json";
-import { PROBE_CHAIN_IDS } from "../src/config.js";
+import { PROBE_CHAIN_IDS, APP_VERSION } from "../src/config.js";
+import { sha256Hex } from "../src/queryLog.js";
+import EN from "../src/locales/en.js";
+import { readZip } from "./fixtures/readZip.js";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40); // 40-hex address helper
 const ROOT = A(1), N2 = A(2), N3 = A(3), N4 = A(4), TOKEN = A(9);
@@ -70,7 +73,7 @@ function stubFetch() {
       ok: true,
       status: 200,
       headers: { get: () => null },
-      json: async () => ({ status: result.length ? "1" : "0", message: result.length ? "OK" : "No transactions found", result: result.length ? result : "No transactions found" }),
+      arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: result.length ? "1" : "0", message: result.length ? "OK" : "No transactions found", result: result.length ? result : "No transactions found" })).buffer,
     };
   };
 }
@@ -903,9 +906,9 @@ const restoreForm = () => {
   $("maxTxPerAddress").value = "20";
   setChain("1");
 };
-async function freshScan(maxTx) {
+async function freshScan(maxTx, apiKey = "TESTKEY") {
   $("resetBtn").click();
-  $("apiKey").value = "TESTKEY";
+  $("apiKey").value = apiKey;
   $("address").value = ROOT;
   $("depth").value = "1";
   $("maxTxPerAddress").value = maxTx;
@@ -1185,7 +1188,8 @@ test("risk, labels and CSV category stay on the graph's chain after switching th
     setChain("137"); // no chain-137 entry for DEMO_ROOT
     openDemoRoot();
     expect($("detailsContent").textContent).toBe(risk);
-    expect(await csv()).toBe(before);
+    const noStamp = (text) => text.replace(/; exported \S+ UTC/, ""); // line 1 carries the export time
+    expect(noStamp(await csv())).toBe(noStamp(before));
     expect(demoLabel()).toBe(label);
   } finally {
     URL.createObjectURL = orig.create;
@@ -1205,7 +1209,7 @@ test("load on a demo graph shows the sampling banner and reports failed requests
     globalThis.fetch = async (url, init) =>
       String(url).includes("data/")
         ? realFetch(url, init)
-        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+        : { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: "0", message: "NOTOK", result: "Invalid API Key" })).buffer };
     window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
     loadBtn().click();
     await waitLoaded();
@@ -1663,7 +1667,7 @@ test("a load that fetches nothing leaves no phantom node", async () => {
     globalThis.fetch = async (url, init) =>
       String(url).includes("data/")
         ? realFetch(url, init)
-        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+        : { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: "0", message: "NOTOK", result: "Invalid API Key" })).buffer };
     const sel = $("detailsContent").querySelector("select");
     sel.value = "42161";
     sel.dispatchEvent(new window.Event("change"));
@@ -2167,7 +2171,7 @@ test("a Load on {chain} that finds no transactions removes the node and says so,
     globalThis.fetch = async (url, init) =>
       String(url).includes("data/") || !String(url).includes("chainid=42161")
         ? realFetch(url, init)
-        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "No transactions found", result: "No transactions found" }) };
+        : { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ status: "0", message: "No transactions found", result: "No transactions found" })).buffer };
     const sel = $("detailsContent").querySelector("select");
     sel.value = "42161";
     sel.dispatchEvent(new window.Event("change"));
@@ -2279,5 +2283,381 @@ test("palette edge subtitles name the chain once the graph spans 2 chains", asyn
   } finally {
     close();
     restoreForm();
+  }
+});
+
+// ---- query-log panel ----
+async function qlogEnv() {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const ui = await import("../src/ui.js");
+  return { ui, i18n: createI18n({ dictionaries: { en, fr }, locale: "en" }) };
+}
+const qEntry = (i, over = {}) => ({
+  at: `2026-11-16T10:00:${String(i % 60).padStart(2, "0")}.000Z`, chainId: "1", action: "txlist",
+  params: { address: A(1), page: 1, offset: 20 }, httpStatus: 200, rows: 3,
+  sha256: "ab".repeat(32), outcome: "ok", ...over,
+});
+
+test("renderQueryLog: rows newest first via textContent", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const c = document.createElement("div");
+  const evil = "<img src=x onerror=alert(1)>";
+  ui.renderQueryLog(c, [qEntry(1, { action: evil }), qEntry(2)], { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  const rows = c.querySelectorAll("tbody tr");
+  expect(rows.length).toBe(2);
+  expect(rows[0].textContent).toContain("10:00:02");
+  expect(c.querySelector("img")).toBeNull();
+  expect(rows[1].textContent).toContain(evil);
+  const sha = [...rows[0].querySelectorAll("td")].find((td) => td.title === "ab".repeat(32));
+  expect(sha.textContent.length).toBe(12);
+});
+
+test("renderQueryLog: 250 entries → 200 rows + showing note", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const c = document.createElement("div");
+  ui.renderQueryLog(c, Array.from({ length: 250 }, (_, i) => qEntry(i)), { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  expect(c.querySelectorAll("tbody tr").length).toBe(200);
+  expect(c.textContent).toContain("Showing the latest 200 of 250 requests.");
+});
+
+test("renderQueryLog: empty / dropped / unlogged notes", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const c = document.createElement("div");
+  ui.renderQueryLog(c, [], { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  expect(c.textContent).toContain("No Etherscan request logged in this session.");
+  ui.renderQueryLog(c, [qEntry(1)], { i18n, dropped: 7, unloggedData: true, limit: 5000 });
+  expect(c.textContent).toContain("7 older entries were dropped (log limit 5000).");
+  expect(c.textContent).toContain("Part of this graph was not retrieved under this log");
+  expect(c.textContent).not.toContain("No Etherscan request logged");
+});
+
+test("shell has the bundle + query-log controls", () => {
+  expect($("evidenceBundleBtn").textContent).toBe("Evidence bundle (.zip)");
+  expect($("exportQueryLogBtn")).not.toBeNull();
+});
+
+// ---- P5 evidence exports: main.js wiring (query log lifecycle, provenance, bundle) ----
+const QLOG_FILES = ["graph.csv", "workspace.json", "graph.png", "query-log.json", "MANIFEST.json", "SHA256SUMS"];
+const qlogTitle = () => $("queryLogTitle").textContent;
+const logCount = (re) => ($("logContent").textContent.match(re) || []).length;
+const dec = (u8) => new TextDecoder().decode(u8);
+const QL_ENTRY = {
+  at: "2026-11-16T10:00:00.000Z", chainId: "1", action: "txlist",
+  params: { chainid: "1", module: "account", action: "txlist", address: ROOT, startblock: "0", endblock: "99999999", page: "1", offset: "20", sort: "desc" },
+  httpStatus: 200, rows: 1, sha256: "ab".repeat(32), outcome: "ok",
+};
+const qlWs = (entries) => ({
+  ...v3ws([v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node("1", N2)], [v3Edge({ hash: "0xq1" })]),
+  queryLog: { entries, dropped: 0, unloggedData: false },
+});
+
+// Records every Blob URL and anchor download main.js triggers; restores the globals in finally.
+async function withDownloads(fn) {
+  const P = window.HTMLAnchorElement.prototype;
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL, ownClick: Object.hasOwn(P, "click"), click: P.click };
+  const dl = { blobs: [], names: [] };
+  URL.createObjectURL = (b) => (dl.blobs.push(b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  P.click = function () { dl.names.push(this.download); };
+  try {
+    return await fn(dl);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    if (orig.ownClick) P.click = orig.click; else delete P.click;
+  }
+}
+// Click `id` and wait for the Blob it downloads.
+async function nextBlob(dl, id) {
+  const n = dl.blobs.length;
+  $(id).click();
+  await until(() => dl.blobs.length > n);
+  expect(dl.blobs.length).toBe(n + 1);
+  return dl.blobs[n];
+}
+// Lets render/export.js draw on the fake vis network: afterDrawing fires on fit(), the vis canvas is
+// 100x60 and composite canvases are fakes whose toBlob yields 4 PNG-signature bytes. Footer text is recorded.
+async function withFakeExportCanvas(fn) {
+  const P = window.vis.Network.prototype;
+  const orig = { once: P.once, fit: P.fit, create: document.createElement };
+  const fx = { texts: [] };
+  const ctx = {
+    font: "10px sans-serif", fillRect() {}, drawImage() {},
+    fillText: (s) => fx.texts.push(s), measureText: (s) => ({ width: s.length }),
+  };
+  P.once = function (ev, cb) { if (ev === "afterDrawing") this._afterDrawing = cb; };
+  P.fit = function () { if (this._afterDrawing) this._afterDrawing(); };
+  Object.defineProperty(P, "canvas", { configurable: true, get: () => ({ frame: { canvas: { width: 100, height: 60 } } }) });
+  document.createElement = function (tag, ...rest) {
+    if (tag !== "canvas") return orig.create.call(this, tag, ...rest);
+    return {
+      width: 0, height: 0, getContext: () => ctx, toDataURL: () => "data:image/png;base64,",
+      toBlob: (cb) => cb(new Blob([Uint8Array.of(0x89, 0x50, 0x4e, 0x47)])),
+    };
+  };
+  try {
+    return await fn(fx);
+  } finally {
+    P.once = orig.once;
+    P.fit = orig.fit;
+    delete P.canvas;
+    delete document.createElement;
+    if (document.createElement !== orig.create) document.createElement = orig.create;
+  }
+}
+// Drop a workspace file on the graph and wait for its "Workspace loaded" line.
+async function dropWorkspace(text) {
+  const n = logCount(/Workspace loaded/g);
+  const ev = new window.Event("drop");
+  ev.dataTransfer = { files: [{ text: async () => text }] };
+  $("graph").dispatchEvent(ev);
+  await until(() => logCount(/Workspace loaded/g) > n);
+  expect(logCount(/Workspace loaded/g)).toBe(n + 1);
+}
+const bundleBytes = (dl) => withFakeExportCanvas(async () => new Uint8Array(await (await nextBlob(dl, "evidenceBundleBtn")).arrayBuffer()));
+
+test("API key appears in no artifact: log, workspace, CSV, query-log export, bundle, filenames, logger", async () => {
+  const KEY = "SECRETKEY_P5_TEST";
+  const prevKey = $("apiKey").value;
+  try {
+    await withDownloads(async (dl) => {
+      await freshScan("20", KEY);
+      expect(apiUrls.some((u) => u.includes(KEY))).toBe(true); // sanity: the key really was sent
+      const ws = await (await nextBlob(dl, "saveBtn")).text();
+      const csv = await (await nextBlob(dl, "exportCsvBtn")).text();
+      const ql = await (await nextBlob(dl, "exportQueryLogBtn")).text();
+      const saved = JSON.parse(ws);
+      const n = saved.queryLog.entries.length;
+      expect(n).toBeGreaterThan(0);
+      expect(saved.queryLog.entries.every((e) => e.url.startsWith("https://api.etherscan.io/v2/api?"))).toBe(true);
+      expect(JSON.parse(ql).entries.length).toBe(n);
+      expect($("logContent").textContent).toContain(`Query log exported (${n} entries).`);
+      // The bundle PNG and the PNG/PDF exports: record every footer line drawn on the canvas.
+      const origPdf = window.jspdf;
+      window.jspdf = { jsPDF: class { addImage() {} save() {} } };
+      let zip, footers;
+      try {
+        ({ zip, footers } = await withFakeExportCanvas(async (fx) => {
+          const z = new TextDecoder("latin1").decode(new Uint8Array(await (await nextBlob(dl, "evidenceBundleBtn")).arrayBuffer()));
+          await until(() => /Evidence bundle exported/.test($("logContent").textContent));
+          for (const [btn, done] of [["exportPngBtn", /Image \(PNG\) downloaded/g], ["exportPdfBtn", /PDF downloaded/g]]) {
+            const c = logCount(done);
+            $(btn).click();
+            await until(() => logCount(done) > c);
+          }
+          return { zip: z, footers: fx.texts.join("\n") };
+        }));
+      } finally {
+        window.jspdf = origPdf;
+      }
+      expect(footers.split("\n").length).toBeGreaterThanOrEqual(12); // 3 renders x >= 4 footer lines
+      expect(footers).toContain("logged requests:");
+      $("queryLogPanel").open = true;
+      const panel = $("queryLogContent").textContent;
+      expect(panel).toContain("0x111…1111"); // the requested address, from params
+      expect(dl.names).toEqual([
+        "workspace.json",
+        expect.stringMatching(/^graph-\d+\.csv$/),
+        expect.stringMatching(/^query-log-\d{8}T\d{6}Z\.json$/),
+        expect.stringMatching(/^chainmap-evidence-\d{8}T\d{6}Z\.zip$/),
+        expect.stringMatching(/^graph-\d+\.png$/),
+      ]);
+      const artifacts = { ws, csv, ql, zip, footers, names: dl.names.join("\n"), log: $("logContent").textContent, panel };
+      for (const [name, text] of Object.entries(artifacts)) {
+        expect([name, text.includes(KEY) || text.includes(KEY.slice(0, 9))]).toEqual([name, false]);
+      }
+    });
+  } finally {
+    $("queryLogPanel").open = false;
+    $("apiKey").value = prevKey;
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("evidence bundle from main: six verified files, complete retrieval, zip hash logged, shared text builders", async () => {
+  try {
+    await withDownloads(async (dl) => {
+      await freshScan("20");
+      const savedWs = await (await nextBlob(dl, "saveBtn")).text();
+      const zip = await bundleBytes(dl);
+      const files = readZip(zip);
+      expect(files.map((f) => f.name)).toEqual(QLOG_FILES);
+      const bytes = Object.fromEntries(files.map((f) => [f.name, f.bytes]));
+      const sums = dec(bytes.SHA256SUMS).trimEnd().split("\n");
+      expect(sums.map((l) => l.split("  ")[1])).toEqual(QLOG_FILES.slice(0, 5));
+      for (const l of sums) {
+        const [hex, name] = l.split("  ");
+        expect(await sha256Hex(bytes[name])).toBe(hex);
+      }
+      const m = JSON.parse(dec(bytes["MANIFEST.json"]));
+      expect(m.files.map((f) => f.name)).toEqual(QLOG_FILES.slice(0, 4));
+      for (const f of m.files) {
+        expect(f.sha256).toBe(await sha256Hex(bytes[f.name]));
+        expect(f.bytes).toBe(bytes[f.name].length);
+      }
+      expect(m.retrieval.fullyLogged).toBe(true);
+      expect(m.chains).toEqual([{ chainId: "1", name: "Ethereum" }]);
+      expect(m.roots).toEqual([ID("1", ROOT)]);
+      expect(m.sampling.formAtExport).toMatchObject({ maxDepth: 1, maxTxPerAddress: 20 });
+      expect(m.sampling.observed.actions).toContain("txlist");
+      expect(m.data.knownAddresses.entries).toBeGreaterThan(0);
+      await until(() => /Evidence bundle exported/.test($("logContent").textContent));
+      expect($("logContent").textContent).toContain(await sha256Hex(zip));
+      // One exportedAt for every member; workspace.json is the saved workspace's text builder (bytes equal but for savedAt).
+      const bundledWs = dec(bytes["workspace.json"]);
+      expect(JSON.parse(bundledWs).savedAt).toBe(m.exportedAt);
+      expect(savedWs.replace(JSON.parse(savedWs).savedAt, m.exportedAt)).toBe(bundledWs);
+      expect(JSON.parse(dec(bytes["query-log.json"])).exportedAt).toBe(m.exportedAt);
+      expect(dec(bytes["graph.csv"]).split("\n")[0]).toContain(`; exported ${m.exportedAt} UTC; retrieved ${m.retrieval.first} to ${m.retrieval.last} UTC`);
+    });
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("query log: reset clears it, workspace load restores it; delete-nodes keeps it; a locale switch re-renders it", async () => {
+  try {
+    await withDownloads(async (dl) => {
+      await freshScan("20");
+      const title = qlogTitle();
+      const n = Number((/^Query log \((\d+)\)$/.exec(title) || [])[1]);
+      expect(n).toBeGreaterThan(0);
+      window.vis.Network.first.setSelection({ nodes: [ID("1", N2)] });
+      $("deleteNodesBtn").click();
+      expect($("logContent").textContent).toContain("1 node(s) removed");
+      expect(qlogTitle()).toBe(title);
+      $("queryLogPanel").open = true;
+      expect($("queryLogContent").querySelectorAll("tbody tr").length).toBe(n);
+      expect($("queryLogContent").textContent).toContain("Time (UTC)");
+      $("langToggle").click();
+      await until(() => qlogTitle() !== title);
+      expect(qlogTitle()).toBe(`Journal des requêtes (${n})`);
+      expect($("queryLogContent").textContent).toContain("Heure (UTC)");
+      $("langToggle").click();
+      await until(() => qlogTitle() === title);
+      expect($("queryLogContent").textContent).toContain("Time (UTC)");
+      const saved = await (await nextBlob(dl, "saveBtn")).text();
+      $("resetBtn").click();
+      expect(qlogTitle()).toBe("Query log (0)");
+      expect($("queryLogContent").textContent).toContain("No Etherscan request logged in this session.");
+      await dropWorkspace(saved);
+      expect(qlogTitle()).toBe(title);
+      expect($("queryLogContent").querySelectorAll("tbody tr").length).toBe(n);
+    });
+  } finally {
+    $("queryLogPanel").open = false;
+    if (document.documentElement.getAttribute("lang") === "fr") $("langToggle").click();
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("demo empties the query log even when the file has one; demo → save → load stays partial", async () => {
+  const line1 = async (dl) => (await (await nextBlob(dl, "exportCsvBtn")).text()).split("\n")[0];
+  try {
+    await withDownloads(async (dl) => {
+      await loadAsDemo(qlWs([QL_ENTRY]));
+      expect(qlogTitle()).toBe("Query log (0)");
+      expect(await line1(dl)).toContain("; retrieval time unknown (no query log)");
+      const savedCopy = await (await nextBlob(dl, "saveBtn")).text();
+      expect(JSON.parse(savedCopy).queryLog).toEqual({ entries: [], dropped: 0, unloggedData: true });
+      await dropWorkspace(savedCopy);
+      expect(qlogTitle()).toBe("Query log (0)");
+      expect(await line1(dl)).toContain("; retrieval time unknown (no query log)");
+    });
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("invalid query-log entries in a loaded file are ignored and logged", async () => {
+  try {
+    $("resetBtn").click();
+    await dropWorkspace(JSON.stringify(qlWs([QL_ENTRY, { ...QL_ENTRY, at: "yesterday" }, { ...QL_ENTRY, sha256: "XYZ" }])));
+    expect($("logContent").textContent).toContain("2 invalid query-log entries in the file were ignored.");
+    expect(qlogTitle()).toBe("Query log (1)");
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("query log: an absent page/offset renders as —/—, never undefined", async () => {
+  try {
+    $("resetBtn").click();
+    const { page, offset, ...params } = QL_ENTRY.params;
+    await dropWorkspace(JSON.stringify(qlWs([{ ...QL_ENTRY, params }])));
+    expect(qlogTitle()).toBe("Query log (1)");
+    $("queryLogPanel").open = true;
+    $("queryLogPanel").dispatchEvent(new window.Event("toggle"));
+    const cells = [...$("queryLogContent").querySelectorAll("tbody tr td")].map((td) => td.textContent);
+    expect(cells[4]).toBe("—/—");
+    expect($("queryLogContent").textContent).not.toContain("undefined");
+  } finally {
+    $("queryLogPanel").open = false;
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("query log: a request in flight across a reset never lands in the new log", async () => {
+  let release = () => {};
+  try {
+    $("resetBtn").click();
+    $("apiKey").value = "TESTKEY";
+    $("address").value = ROOT;
+    const n = apiUrls.length;
+    release = gate();
+    $("estimateBtn").click(); // its first fetch is now held
+    await until(() => apiUrls.length > n);
+    $("resetBtn").click();
+    release();
+    await until(() => /Estimated: /.test($("logContent").textContent));
+    expect(qlogTitle()).toBe("Query log (0)");
+  } finally {
+    release();
+    $("apiKey").value = "";
+    $("address").value = "";
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("PNG and PDF exports carry the provenance footer and the live view's deposit badge", async () => {
+  await knownLoaded();
+  const origPdf = window.jspdf;
+  const pdfs = [];
+  try {
+    await withDownloads(async (dl) => {
+      $("resetBtn").click();
+      $("demoBtn").click();
+      const id = ID("1", DEPOSIT);
+      await until(() => badged(id));
+      const live = visNode(id).label.split("\n").find((l) => l.startsWith("🏦"));
+      expect(live).toBe("🏦 likely deposit → Binance 14 (hot wallet)");
+      window.jspdf = { jsPDF: class { addImage() {} save(name) { pdfs.push(name); } } };
+      await withFakeExportCanvas(async (fx) => {
+        for (const [btn, done] of [["exportPngBtn", /Image \(PNG\) downloaded/], ["exportPdfBtn", /PDF downloaded/]]) {
+          fx.texts.length = 0;
+          $(btn).click();
+          await until(() => done.test($("logContent").textContent));
+          expect(window.vis.Network.last.nodes.get(id).label.endsWith("\n" + live)).toBe(true);
+          expect(fx.texts.length).toBe(4);
+          const ver = APP_VERSION.replace(/\./g, "\\.");
+          expect(fx.texts[0]).toMatch(new RegExp(`^chainmap ${ver} — exported \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d UTC$`));
+          expect(fx.texts.slice(1)).toEqual([EN["export.footer.retrievalUnknown"], EN["export.footer.sampling"], EN["export.footer.signals"]]);
+        }
+      });
+      expect(pdfs.length).toBe(1);
+      expect(dl.names.some((n) => /^graph-\d+\.png$/.test(n))).toBe(true);
+    });
+  } finally {
+    window.jspdf = origPdf;
+    $("resetBtn").click();
   }
 });
