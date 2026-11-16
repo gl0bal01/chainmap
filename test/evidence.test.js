@@ -166,6 +166,7 @@ describe("price entries in evidence", () => {
       queries: 2, priced: 3, priceable: 5,
     });
     expect(m.caveats).toContain(USD_CAVEAT);
+    expect(USD_CAVEAT).toContain("(NFT, zero-value, imitation, spam-list, root contract, unknown data, unsupported chain)");
   });
   test("prices block when off but logged", async () => {
     const m = await buildManifest(mkInput({ prices: { shown: false, queries: 1, priced: null, priceable: null } }));

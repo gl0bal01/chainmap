@@ -19,7 +19,7 @@ export const CAVEATS = [
   "retrieval.fullyLogged = true only means no log entry was dropped and no part of the graph came from an unlogged source (demo or a workspace without a query log); it does not mean the data is complete: requests may have failed, scans may have been stopped, and the data is sampled.",
 ];
 export const USD_CAVEAT =
-  "USD values are estimates: a DefiLlama price within 1 hour of each transaction multiplied by the exact token amount; blank when unknown, pending or not priced (NFT, zero-value, imitation, spam-list, unsupported chain).";
+  "USD values are estimates: a DefiLlama price within 1 hour of each transaction multiplied by the exact token amount; blank when unknown, pending or not priced (NFT, zero-value, imitation, spam-list, root contract, unknown data, unsupported chain).";
 export const PARTIAL_CAVEAT =
   "Part of this graph has no logged retrieval (demo, a workspace saved without a query log, or dropped log entries).";
 

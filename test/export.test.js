@@ -660,7 +660,7 @@ describe("usd_value", () => {
     const rows = buildCsvRows(storeSix(), { category: () => null, usd, provenance: { exportedAt: EXPORTED_AT, retrieval: RETR } });
     expect(rows[0][0]).toContain("usd priced 2 of 5 priceable transfers");
     expect(rows[0][0].includes(",")).toBe(false);
-    const caveat = "; usd_value is an estimate (DefiLlama coins.llama.fi price within 1h of the transaction) - blank when unknown/unpriced/pending - amounts are exact in tokens; usd priced 2 of 5 priceable transfers (NFT/zero-value/imitation/spam-list/unsupported-chain transfers are never priced)";
+    const caveat = "; usd_value is an estimate (DefiLlama coins.llama.fi price within 1h of the transaction) - blank when unknown/unpriced/pending - amounts are exact in tokens; usd priced 2 of 5 priceable transfers (NFT/zero-value/imitation/spam-list/root-contract/unknown-data/unsupported-chain transfers are never priced)";
     expect(rows[0][0]).toContain(caveat + "; exported ");
     expect(csvText(storeSix(), { category: () => null, usd }).split("\n")[0].startsWith('"')).toBe(false);
   });

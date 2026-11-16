@@ -302,7 +302,7 @@ const depositEvidenceText = (d) =>
   `wallet=${d.wallet};swept=${d.swept}/${d.outgoing};share=${d.assets.map((a) => `${a.symbol}:${a.sharePct}%`).join(",")};max_delay_s=${d.maxDelaySec ?? "none"}`;
 
 const usdCaveatText = (k, m) =>
-  `; usd_value is an estimate (DefiLlama coins.llama.fi price within 1h of the transaction) - blank when unknown/unpriced/pending - amounts are exact in tokens; usd priced ${k} of ${m} priceable transfers (NFT/zero-value/imitation/spam-list/unsupported-chain transfers are never priced)`;
+  `; usd_value is an estimate (DefiLlama coins.llama.fi price within 1h of the transaction) - blank when unknown/unpriced/pending - amounts are exact in tokens; usd priced ${k} of ${m} priceable transfers (NFT/zero-value/imitation/spam-list/root-contract/unknown-data/unsupported-chain transfers are never priced)`;
 
 function provenanceText({ exportedAt, retrieval }) {
   return `; exported ${exportedAt} UTC` +

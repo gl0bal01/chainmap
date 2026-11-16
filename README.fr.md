@@ -147,7 +147,8 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   dernière colonne du CSV, `usd_value` : le prix DefiLlama à moins d'1 h de la transaction ×
   le montant exact en jetons (BigInt). Inconnu, en attente ou non valorisé reste vide, jamais
   `0`. Les NFT, transferts de valeur nulle, faux jetons, jetons de la liste de spam, contrats
-  examinés, testnets et chaînes non prises en charge ne sont jamais valorisés. Chaque requête
+  examinés, transferts aux données inconnues, testnets et chaînes non prises en charge ne sont
+  jamais valorisés. Chaque requête
   de prix figure dans le journal des requêtes. Voir
   [LEARN §11](docs/LEARN.fr.md#estimations-en-usd).
 - **Honnête par conception** — montants en entiers (jamais de virgule flottante), tx

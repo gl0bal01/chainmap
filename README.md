@@ -128,8 +128,8 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   never saved) to get an *estimate* of each transfer's USD value in the edge details panel and
   in a last CSV column `usd_value`: DefiLlama's price within 1 h of the transaction × the exact
   token amount (BigInt). Unknown, pending or unpriced is blank, never `0`. NFTs, zero-value,
-  imitation-token, spam-list and investigated-contract transfers, testnets and unsupported
-  chains are never priced. Every price request is in the query log. See
+  imitation-token, spam-list, investigated-contract and unknown-data transfers, testnets and
+  unsupported chains are never priced. Every price request is in the query log. See
   [LEARN §11](docs/LEARN.md#usd-estimates).
 - **Honest by design** — big-integer amounts (never floating point), failed txs dropped,
   and sampling surfaced everywhere. The sampling caveat applies to every feature above:
