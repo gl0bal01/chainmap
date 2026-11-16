@@ -16,7 +16,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
 - **Your API key and data stay in your browser.** The only site ever contacted is
   `api.etherscan.io`, enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **467 unit/integration tests** on the DOM-free core.
+- **472 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -77,13 +77,18 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
   forwarding chains where value hops through throwaway addresses), color-by-age,
   known-address labels (see below), mixer/bridge/sanctioned tagging (🌀/🌉/⛔ badges), and an
   *explainable* per-node risk score.
-- **Sourced known-address base** — ~580 labels (bridges, routers, mixers, exchanges, canonical
-  tokens, OFAC-sanctioned addresses) generated from the official OFAC SDN list (sanctions and
-  delistings stay current), the MIT superchain registry and a source-verified curated seed.
-  See [`data/README.md`](data/README.md).
+- **Sourced known-address base** — ~580 labels (bridges, routers, mixers, canonical tokens,
+  OFAC-sanctioned addresses, a few exchange hot wallets) generated from the official OFAC SDN
+  list (sanctions and delistings as of the last data rebuild; the OFAC publish date is shown in
+  each sanctioned entry's Source), the MIT superchain registry and a curated seed verified
+  against cited official pages, except 9 legacy explorer-label rows marked
+  `needs official source`. See [`data/README.md`](data/README.md).
 - **Imitation-token detection** — a transfer whose symbol mimics an official token (spoofed
   USDT/USDC, look-alike letters, invisible characters) from a non-official contract gets an
-  amber ⓘ flag and is hidden by the spam filter ("Hide known spam tokens").
+  amber ⓘ flag and is hidden by the spam filter ("Hide known spam tokens"). *Known limitation:*
+  legit but uncurated same-symbol contracts (e.g. Wormhole-wrapped USDC/WETH, PulseChain-bridged
+  WETH/WBTC on Ethereum) are flagged too: the flag means "not the official contract for this
+  symbol on this chain", a signal, not a verdict.
 - **Per-edge risk flags** — unlimited/blanket approvals, a hidden real recipient, and
   mixer/bridge/sanctioned counterparties are called out in the edge details panel and
   escalated on the graph in two visual tiers: danger (mixer/bridge/sanctioned, red ⚠) vs informational (approvals/hidden-recipient/imitation tokens, amber ⓘ). **Signals, not verdicts** — always
@@ -159,7 +164,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 467 unit + integration tests
+bun test        # 472 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:

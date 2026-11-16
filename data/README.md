@@ -40,10 +40,16 @@ GITHUB_TOKEN=$(gh auth token) bun run data:build --verify-sources # after editin
 - Needs network: the OFAC SDN file (~30 MB) and the superchain registry via
   GitHub. `GITHUB_TOKEN` avoids GitHub API rate limits; if the API refuses, the
   build stops with a message and writes nothing.
-- A truncated or unexpected OFAC download aborts the build (nothing written).
+- A truncated or unexpected OFAC download aborts the build (nothing written), and
+  so does a 0x address under a `Digital Currency Address` tag the parser does not
+  know yet (format drift, e.g. a new chain tag): extend the allowlist in
+  `parseOfacXml`, then rebuild.
 - `--verify-sources` is **mandatory after editing `data/sources/curated.json`**:
   it fetches each cited `source` URL and drops (and lists) every row whose page
-  does not contain the address.
+  does not contain the address. If a cited page cannot be fetched at all, the
+  build aborts and lists the URLs (nothing written): retry later or fix the
+  source, so a transient outage never shrinks the dataset.
+- The output is written to a temporary file, then renamed into place.
 - The build prints a report: OFAC publish date, skipped OFAC ids, counts per
   source / chain / category, rejected rows, rows needing a source, delistings.
 - CI never runs the build; it only tests the committed output.
@@ -56,7 +62,11 @@ Each row: `{ chainId: "1" | "*" | …, address, label, category, source, added, 
   the cited page. For JS-rendered pages, cite a raw/static file instead (e.g. the
   docs repo's markdown on raw.githubusercontent.com).
 - Never use explorer label clouds (Etherscan & co.), Arkham, Nansen, or datasets
-  under GPL, BUSL or non-commercial licences.
+  under GPL, BUSL or non-commercial licences for new rows.
+- **Disclosure:** 9 rows inherited from v1.1.0 (8 exchange hot wallets and the old
+  Ronin bridge) still cite an explorer public label. They are kept pending an
+  official source and marked `note: "needs official source"`; the build lists
+  them on every run.
 - Curated rows **never** say `sanctioned` (category or label text). For a
   designated entity use its base category plus `ofacDesignated: "YYYY-MM-DD"`;
   the build marks it ` (OFAC SDN)` while it is on the current SDN file and
@@ -73,9 +83,9 @@ Each row: `{ chainId: "1" | "*" | …, address, label, category, source, added, 
   becomes a `"*"` `sanctioned` entry.
 - **ethereum-optimism/superchain-registry** —
   `https://github.com/ethereum-optimism/superchain-registry`
-  (`superchain/extra/addresses/addresses.json` + `chainList.json`, pinned to the
-  commit recorded in each entry's `source`). L1 bridge contracts of
-  mainnet-parented OP chains. Used under the MIT License:
+  (`superchain/extra/addresses/addresses.json` + `chainList.json`, read at main
+  HEAD at build time; that commit's SHA is recorded in each entry's `source`).
+  L1 bridge contracts of mainnet-parented OP chains. Used under the MIT License:
 
   ```text
   MIT License
@@ -102,13 +112,16 @@ Each row: `{ chainId: "1" | "*" | …, address, label, category, source, added, 
   ```
 
 - **Hand-curated facts** (`data/sources/curated.json`) — public addresses copied
-  from official pages, cited per entry in `source`.
+  from official pages, cited per entry in `source`, except the 9 inherited
+  explorer-label rows marked `needs official source` (see §4).
 
 ## 6. Sanctions disclaimer
 
 `sanctioned` comes only from the OFAC SDN file, as of the publish date in the
-`"*"` entries' `source` ("OFAC SDN list, published YYYY-MM-DD"). It is a dated
-snapshot, not a live feed: **verify against the live SDN list before acting.**
+`"*"` entries' `source` ("OFAC SDN list, published YYYY-MM-DD"); a chain-specific
+entry that becomes `sanctioned` appends the same text to its own `source`. It is
+a dated snapshot of the last data rebuild, not a live feed: **verify against the
+live SDN list before acting.**
 
 ## 7. `spam-tokens.json`
 
@@ -122,3 +135,11 @@ Either a legacy array (treated as `"*"`) or a chain-keyed object:
 Contracts apply per chain (`"*"` = every chain); symbols match globally. It
 ships without contracts: no open, redistribution-safe spam-contract source
 exists.
+
+## 8. Known limitations
+
+- **Imitation tokens:** a token is flagged when its symbol matches a curated
+  `token` on that chain but its contract is not one of the curated ones. Legit
+  but uncurated same-symbol contracts (e.g. Wormhole-wrapped USDC/WETH,
+  PulseChain-bridged WETH/WBTC on Ethereum) are flagged too. The flag means "not
+  the official contract for this symbol on this chain": a signal, not a verdict.

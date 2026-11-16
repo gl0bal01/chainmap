@@ -173,7 +173,7 @@ parity test). Sections: `app`, `form`, `tx.type`, `btn`, `export`, `hint`,
 ## ui.js — DOM view helpers (stub → Stage B)
 
 - `renderNodeDetails(container, node, { i18n, explorer, onRename, risk?, getKnownSource?, history?, pageSize?, onLoadOlder?, busy?, loadBlocked? })` — `history` (`historyState` items + `labelKey`) adds the History row and a Load button that calls `onLoadOlder()`; the button is disabled while `busy`, when `loadBlocked` (`{key, params?}`, shown as a note) is set, or when every selected type is complete.
-- `renderEdgeDetails(container, edge, { i18n, explorer, getAlias })`
+- `renderEdgeDetails(container, edge, { i18n, explorer, getAlias, getKnownLabel?, getCategory?, isFakeToken? })` — the optional deps are absent-safe; `getCategory` and `isFakeToken` feed `flagsForEdge` for the risk-flags row.
 - `createLogger(container, i18n): { log(entry), clear() }`
 - `createStatus(element): { set(text), clear() }`
 - `createRequestIndicator(element, i18n): { setActive(active) }`
@@ -350,11 +350,13 @@ licenses are documented in `data/README.md` (not repeated here).
   scoped to their key, other strings are global symbols. `passesFilters` opts gain optional
   `isFakeToken(edge)`; `hideSpam` hides spam-list hits **and** imitation tokens.
 - **render/network.js** — `setDisplayOptions` accepts `isFakeToken`.
-- **ui.js** — `renderEdgeDetails` deps gain optional `isFakeToken` (shows the flag).
+- **ui.js** — `renderEdgeDetails` deps gain optional `isFakeToken(edge)` (absent-safe: no fake-token
+  flag when missing); it is passed to `flagsForEdge` and drives the risk-flags row.
 - **render/export.js** — `buildCsvRows`/`exportCsv` accept `isFakeToken`; `risk_flags` is now
   computed for every edge row.
 - `loadOlder` / node history are unaffected.
 - **scripts/known-addresses/pipeline.mjs** (dev-only, never run in CI or by the app) exports
   `parseOfacXml`, `parseSuperchain`, `mergeSources`, `serializeKnownData`, `verifyEntry`.
   Driven by `bun run data:build [--ofac <sdn.xml>] [--verify-sources]`, which merges OFAC SDN +
-  superchain registry (pinned commit) + `data/sources/curated.json` into `data/known-addresses.json`.
+  superchain registry (main HEAD at build time; SHA recorded in each `source`) +
+  `data/sources/curated.json` into `data/known-addresses.json`.

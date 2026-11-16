@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **467 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **472 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -83,13 +83,19 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   transfert où la valeur transite par des adresses jetables), coloration par ancienneté,
   libellés d'adresses connues, marquage mixeur/pont/sanctionné (badges 🌀/🌉/⛔) et un score
   de risque par nœud *explicable*.
-- **Base d'adresses connues sourcée** — environ 580 libellés (ponts, routeurs, mixeurs,
-  plateformes, jetons officiels, adresses sanctionnées par l'OFAC) générés à partir de la liste
-  SDN officielle de l'OFAC (sanctions et retraits restent à jour), du registre superchain (MIT)
-  et d'une base curée dont chaque source est vérifiée. Voir [`data/README.md`](data/README.md).
+- **Base d'adresses connues sourcée** — environ 580 libellés (ponts, routeurs, mixeurs, jetons
+  officiels, adresses sanctionnées par l'OFAC, quelques portefeuilles chauds de plateformes
+  d'échange) générés à partir de la liste SDN officielle de l'OFAC (sanctions et retraits à la
+  date de la dernière reconstruction des données ; la date de publication OFAC figure dans la
+  Source de chaque entrée sanctionnée), du registre superchain (MIT) et d'une base curée vérifiée
+  sur les pages officielles citées, sauf 9 anciennes lignes issues de libellés d'explorateur,
+  marquées `needs official source`. Voir [`data/README.md`](data/README.md).
 - **Détection des faux jetons** — un transfert dont le symbole imite un jeton officiel (faux
   USDT/USDC, lettres sosies, caractères invisibles) depuis un contrat non officiel reçoit un
-  drapeau ambre ⓘ et est masqué par le filtre spam (« Masquer tokens spam connus »).
+  drapeau ambre ⓘ et est masqué par le filtre spam (« Masquer tokens spam connus »). *Limite
+  connue :* des contrats légitimes de même symbole mais non curés (p. ex. USDC/WETH enveloppés
+  par Wormhole, WETH/WBTC pontés depuis PulseChain sur Ethereum) sont aussi signalés : le drapeau
+  signifie « pas le contrat officiel de ce symbole sur cette chaîne », un signal, pas un verdict.
 - **Signaux de risque par arête** — approbations illimitées/globales, destinataire réel
   caché, et contreparties mixeur/pont/sanctionné sont signalés dans le panneau de détails de
   l'arête et mis en évidence sur le graphe en deux niveaux visuels : danger (mixeur/pont/sanctionné, rouge ⚠) vs informatif (approbations/destinataire-caché/faux jetons, ambre ⓘ). **Des signaux, pas
@@ -172,7 +178,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 467 tests unitaires + d'intégration
+bun test        # 472 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :
