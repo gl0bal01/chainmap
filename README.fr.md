@@ -17,7 +17,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - **Votre clé API et vos données restent dans votre navigateur.** Le seul site jamais
   contacté est `api.etherscan.io`, imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **472 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **562 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -65,8 +65,18 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   reçoit une **bordure en pointillés** (historique supplémentaire disponible). Sélectionnez-le
   et utilisez **Charger les plus anciennes (+N)** dans le panneau de détails pour remonter dans le
   temps par numéro de bloc ; les nouvelles contreparties sont ajoutées mais pas explorées
-  automatiquement. Le curseur est sauvegardé dans l'espace de travail. Un graphe n'a qu'une
-  seule chaîne : scanner une autre chaîne dans un graphe non vide est refusé (videz-le d'abord).
+  automatiquement. Le curseur est sauvegardé dans l'espace de travail. Un graphe peut contenir
+  plusieurs chaînes : chaque nœud et chaque arête garde sa propre chaîne, et une même adresse sur
+  deux chaînes donne deux nœuds.
+- **Graphe multi-chaînes** — ajoutez une chaîne depuis le formulaire de scan ou la ligne
+  **Autres chaînes** d'un nœud. La même adresse sur deux chaînes donne deux nœuds. Un lien
+  pointillé **même clé** n'apparaît que si l'adresse a signé une transaction sur une chaîne
+  non-AA ; les paires « même adresse seulement » sont listées, jamais tracées. *Limite
+  connue :* sur les chaînes OP-stack/Arbitrum, le `txlist` d'Etherscan peut inclure des
+  transactions de dépôt/système L1→L2 dont l'émetteur est un contrat L1 aliasé, ce qui peut
+  passer pour « même clé » entre deux telles chaînes. Le lien est un indice, pas une preuve de
+  propriété commune. Absents de cette version : colorer les nœuds par chaîne et tracer les
+  liens « même adresse seulement ».
 - **Trois familles de tx** — normales, internes et transferts de jetons ERC-20/721/1155,
   chacune une arête colorée.
 - **Décodage du calldata** — sélecteurs 4 octets → noms de méthode lisibles + arguments de
@@ -178,7 +188,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 472 tests unitaires + d'intégration
+bun test        # 562 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :

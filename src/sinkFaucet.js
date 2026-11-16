@@ -3,7 +3,8 @@
 // addresses that behave like a SINK (receives from many, sends to ~none) or a
 // FAUCET (sends to many, receives from ~none) so the view can de-emphasize
 // them. Degree is counted over DISTINCT counterparties (not raw edge count)
-// so bundled/parallel edges between the same pair don't skew the ratio.
+// so bundled/parallel edges between the same pair don't skew the ratio. Works
+// over node ids (chain-scoped), so hubs are per chain.
 // No vis, no DOM — Node-testable.
 // =============================================================================
 
@@ -12,38 +13,38 @@
  */
 
 /**
- * Classify hub-like addresses from edge flow.
+ * Classify hub-like nodes from edge flow (`e.fromId` -> `e.toId`).
  *
- * inDeg(addr)  = number of DISTINCT addresses with an edge from -> addr
- * outDeg(addr) = number of DISTINCT addresses addr has an edge -> to
+ * inDeg(id)  = number of DISTINCT node ids with an edge from -> id
+ * outDeg(id) = number of DISTINCT node ids id has an edge -> to
  *
  * SINK   if inDeg  >= minDegree AND inDeg  >= outDeg * ratio (outDeg may be 0)
  * FAUCET if outDeg >= minDegree AND outDeg >= inDeg  * ratio (inDeg  may be 0)
  *
  * If an address qualifies as both by the math (only possible when inDeg and
  * outDeg are close under a low ratio), the larger side wins; ties favor sink.
- * Self-loops (from === to) are ignored entirely. Unclassified addresses are
+ * Self-loops (fromId === toId) are ignored entirely. Unclassified nodes are
  * omitted from the result.
  *
- * @param {import('./graphStore.js').NodeRecord[]} nodes  known graph nodes (candidate addresses)
- * @param {import('./graphStore.js').EdgeRecord[]} edges  graph edges (from/to lowercased addresses)
+ * @param {import('./graphStore.js').NodeRecord[]} nodes  known graph nodes (candidates, by `id`)
+ * @param {import('./graphStore.js').EdgeRecord[]} edges  graph edges (fromId/toId node ids)
  * @param {{ minDegree?:number, ratio?:number }} [opts]
- * @returns {Map<string, HubKind>} address -> 'sink' | 'faucet'
+ * @returns {Map<string, HubKind>} node id -> 'sink' | 'faucet'
  */
 export function classifyHubs(nodes, edges, opts) {
   const o = opts || {};
   const minDegree = typeof o.minDegree === "number" ? o.minDegree : 6;
   const ratio = typeof o.ratio === "number" ? o.ratio : 4;
 
-  /** @type {Map<string, Set<string>>} address -> distinct senders */
+  /** @type {Map<string, Set<string>>} node id -> distinct senders */
   const inSets = new Map();
-  /** @type {Map<string, Set<string>>} address -> distinct recipients */
+  /** @type {Map<string, Set<string>>} node id -> distinct recipients */
   const outSets = new Map();
 
   for (const e of edges || []) {
     if (!e) continue;
-    const from = String(e.from || "").toLowerCase();
-    const to = String(e.to || "").toLowerCase();
+    const from = e.fromId;
+    const to = e.toId;
     if (!from || !to || from === to) continue; // ignore self-loops
 
     let out = outSets.get(from);
@@ -55,26 +56,26 @@ export function classifyHubs(nodes, edges, opts) {
     inn.add(from);
   }
 
-  const addresses = new Set();
+  const ids = new Set();
   for (const n of nodes || []) {
-    if (n && n.address) addresses.add(String(n.address).toLowerCase());
+    if (n && n.id) ids.add(n.id);
   }
-  for (const a of inSets.keys()) addresses.add(a);
-  for (const a of outSets.keys()) addresses.add(a);
+  for (const a of inSets.keys()) ids.add(a);
+  for (const a of outSets.keys()) ids.add(a);
 
   const result = new Map();
-  for (const addr of addresses) {
-    const inDeg = inSets.has(addr) ? inSets.get(addr).size : 0;
-    const outDeg = outSets.has(addr) ? outSets.get(addr).size : 0;
+  for (const id of ids) {
+    const inDeg = inSets.has(id) ? inSets.get(id).size : 0;
+    const outDeg = outSets.has(id) ? outSets.get(id).size : 0;
     const isSink = inDeg >= minDegree && inDeg >= outDeg * ratio;
     const isFaucet = outDeg >= minDegree && outDeg >= inDeg * ratio;
 
     if (isSink && isFaucet) {
-      result.set(addr, inDeg >= outDeg ? "sink" : "faucet");
+      result.set(id, inDeg >= outDeg ? "sink" : "faucet");
     } else if (isSink) {
-      result.set(addr, "sink");
+      result.set(id, "sink");
     } else if (isFaucet) {
-      result.set(addr, "faucet");
+      result.set(id, "faucet");
     }
   }
   return result;

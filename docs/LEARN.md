@@ -128,6 +128,26 @@ Etherscan v2 exposes them through **one endpoint**, selected by a `chainid` para
 > mainnet vs testnet) it belongs to — you need transaction context. The chain detector
 > makes this limitation explicit.
 
+### Same key vs same address
+
+An EOA's signature proves that **one key** controls that address on every EVM chain, so the
+same EOA address on two chains is evidence of one key (same *owner* is still an inference).
+A **contract** at the same address is usually unrelated: Multicall3 and Permit2 sit at the
+same address everywhere, and anyone can deploy a different contract at an address you
+control on another chain. Example: in June 2022, Wintermute sent 20M OP on Optimism to its
+L1 Safe address; the Safe did not exist on Optimism, and an attacker deployed a Safe there
+and took the tokens.
+
+> **In chainmap:** the same address on two chains is two nodes. A dotted **same key** link is
+> drawn only when the address signed a normal transaction (`txlist`) on a chain that is not
+> natively account-abstracted. Pairs with no such evidence show up as "same address only —
+> likely unrelated" in the node's *Other chains* row and are never drawn.
+>
+> **Known limitation:** on OP-stack/Arbitrum chains Etherscan's `txlist` may include L1→L2
+> deposit/system transactions whose sender is an aliased L1 contract; that could read as
+> "same key" across two such chains. The link is a signal, not proof of common ownership.
+> Coloring nodes by chain and drawing "same address only" links are not in this version.
+
 ## 10. Investigation heuristics
 
 Turning data into leads. Real blockchains are noisy. chainmap encodes patterns

@@ -4,9 +4,12 @@
 import { test, expect, beforeAll } from "bun:test";
 import { Window } from "happy-dom";
 import KNOWN from "../data/known-addresses.json";
+import V2 from "./fixtures/workspace-v2.json";
+import { PROBE_CHAIN_IDS } from "../src/config.js";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40); // 40-hex address helper
 const ROOT = A(1), N2 = A(2), N3 = A(3), N4 = A(4), TOKEN = A(9);
+const ID = (chainId, a) => `${chainId}:${a}`; // store node id (= vis node id)
 
 // Canned Etherscan responses keyed by `action`. Includes a FAILED tx (must be
 // dropped) and a token transfer (distinct contract).
@@ -74,7 +77,7 @@ function stubFetch() {
 
 function stubVis() {
   class FakeDataSet {
-    constructor() { this.items = new Map(); }
+    constructor(init) { this.items = new Map(); if (init) this.add(init); }
     add(o) { for (const it of [].concat(o)) this.items.set(it.id, it); }
     update(o) { for (const it of [].concat(o)) this.items.set(it.id, { ...(this.items.get(it.id) || {}), ...it }); }
     remove(id) { for (const i of [].concat(id)) this.items.delete(i); }
@@ -85,7 +88,10 @@ function stubVis() {
   }
   class FakeDataView {
     constructor(ds, opts) { this.ds = ds; this.filter = (opts && opts.filter) || (() => true); }
-    get() { return this.ds.get().filter(this.filter); }
+    get(id) {
+      if (id !== undefined) { const it = this.ds.get(id); return it && this.filter(it) ? it : null; }
+      return this.ds.get().filter(this.filter);
+    }
     getIds() { return this.get().map((i) => i.id); }
     refresh() {}
     get length() { return this.get().length; }
@@ -100,7 +106,7 @@ function stubVis() {
     setOptions() {}
     getConnectedEdges(id) { return this.edges.get().filter((e) => e.from === id || e.to === id).map((e) => e.id); }
     getPositions(ids) { const o = {}; for (const id of ids || this.nodes.getIds()) o[id] = { x: 0, y: 0 }; return o; }
-    moveNode() {} fit() {} destroy() {} DOMtoCanvas(p) { return p; }
+    once() {} moveNode() {} fit() {} destroy() {} DOMtoCanvas(p) { return p; }
   }
   FakeNetwork.first = null;
   return { DataSet: FakeDataSet, DataView: FakeDataView, Network: FakeNetwork };
@@ -170,11 +176,11 @@ test("display filters hide edges live without touching the store", async () => {
     i18n: { t: (k) => k },
     getAddressFormat: () => "short",
   });
-  store.addNode(ROOT, { depth: 0, isRoot: true });
-  store.addNode(N2, { depth: 1 });
-  store.addNode(N4, { depth: 1 });
-  store.addEdge({ action: "txlist", group: "normal", color: "#000", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } }); // 1
-  store.addEdge({ action: "txlist", group: "normal", color: "#000", from: ROOT, to: N4, tx: { value: "5000000000000000000", hash: "0x2", tokenDecimal: "18" } }); // 5
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addNode("1", N4, { depth: 1 });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#000", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } }); // 1
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#000", from: ROOT, to: N4, tx: { value: "5000000000000000000", hash: "0x2", tokenDecimal: "18" } }); // 5
 
   expect(view.network.edges.get().length).toBe(2);
   view.setDisplayOptions({ minAmount: 3 });
@@ -192,10 +198,10 @@ test("edge bundling collapses parallel A->B edges; store keeps per-tx rows", asy
     i18n: { t: (k) => k },
     getAddressFormat: () => "short",
   });
-  store.addNode(ROOT, { depth: 0, isRoot: true });
-  store.addNode(N2, { depth: 1 });
-  store.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
-  store.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "2000000000000000000", hash: "0x2", tokenDecimal: "18" } });
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "2000000000000000000", hash: "0x2", tokenDecimal: "18" } });
 
   expect(view.network.edges.get().length).toBe(2);
   view.setBundling(true);
@@ -219,12 +225,12 @@ test("reset clears annotations; bundled arrows rebuild on prune (review fixes)",
   store.reset();
   expect(view.getAnnotations().length).toBe(0); // no stale annotations leak into next graph
 
-  store.addNode(ROOT, { depth: 0, isRoot: true });
-  store.addNode(N2, { depth: 1 });
-  store.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
   view.setBundling(true);
   expect(view.network.edges.get().length).toBe(1);
-  store.removeNodes([N2]);
+  store.removeNodes([ID("1", N2)]);
   expect(view.network.edges.get().length).toBe(0); // bundle rebuilt after the member was pruned
 });
 
@@ -423,19 +429,19 @@ test("workspace serialize -> parse -> loadSnapshot round-trips through the store
   const { GraphStore } = await import("../src/graphStore.js");
   const { serializeWorkspace, parseWorkspace } = await import("../src/workspace.js");
   const a = new GraphStore();
-  a.addNode(ROOT, { depth: 0, isRoot: true });
-  a.addNode(N2, { depth: 1 });
-  a.setAlias(N2, "friend");
-  a.addEdge({ action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
+  a.addNode("1", ROOT, { depth: 0, isRoot: true });
+  a.addNode("1", N2, { depth: 1 });
+  a.setAlias(ID("1", N2), "friend");
+  a.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1", tokenDecimal: "18" } });
 
-  const ws = serializeWorkspace({ chainId: "1", root: ROOT, nodes: a.listNodes(), edges: a.listEdges(), filters: {}, layout: "force", annotations: [] });
+  const ws = serializeWorkspace({ root: ROOT, nodes: a.listNodes(), edges: a.listEdges(), filters: {}, layout: "force", annotations: [] });
   const res = parseWorkspace(JSON.stringify(ws));
   expect(res.ok).toBe(true);
 
   const b = new GraphStore();
   b.loadSnapshot(res.data.nodes, res.data.edges);
   expect(b.stats()).toEqual({ nodes: 2, edges: 1 });
-  expect(b.getAlias(N2)).toBe("friend");
+  expect(b.getAlias(ID("1", N2))).toBe("friend");
   expect(b.checkInvariants().ok).toBe(true); // restored graph holds all invariants
 });
 
@@ -546,7 +552,9 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   const demo = JSON.parse(await Bun.file(new URL("../data/demo-workspace.json", import.meta.url)).text());
   const knownData = JSON.parse(await Bun.file(new URL("../data/known-addresses.json", import.meta.url)).text());
   const cat = (a) => knownCategory(a, "1", knownData);
-  const flagsOf = (hash) => flagsForEdge(demo.edges.find((e) => e.hash === hash), { category: cat });
+  const dNodes = demo.graph.nodes;
+  const dEdges = demo.graph.edges;
+  const flagsOf = (hash) => flagsForEdge(dEdges.find((e) => e.hash === hash), { category: cat });
 
   // Store invariants: every edge endpoint resolves to a node. A corrupted/typo'd
   // address would drop the edge (endpoint invariant) — this catches it.
@@ -555,10 +563,18 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   const store = new GraphStore();
   store.loadSnapshot(parsed.data.nodes, parsed.data.edges);
   expect(store.checkInvariants().ok).toBe(true);
-  expect(store.listEdges().length).toBe(demo.edges.length); // no edge silently dropped
+  expect(store.listEdges().length).toBe(dEdges.length); // no edge silently dropped
+  expect(demo.version).toBe(3);
+  expect(store.chains()).toEqual(["1", "42161"]);
+  const { addressEvidence, sameAddressLinks } = await import("../src/chainTwins.js");
+  const { CHAINS } = await import("../src/config.js");
+  const keyLinks = sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS)).filter((l) => l.basis === "key");
+  const F3 = "0xf00d000000000000000000000000000000000003";
+  expect(keyLinks.length).toBe(1);
+  expect(keyLinks[0]).toMatchObject({ address: F3, a: ID("1", F3), b: ID("42161", F3) });
 
   // All 6 known categories appear as labeled nodes (the demo's USDC is a canonical `token`).
-  const cats = new Set(demo.nodes.map((n) => cat(n.address)).filter(Boolean));
+  const cats = new Set(dNodes.filter((n) => n.chainId === "1").map((n) => cat(n.address)).filter(Boolean));
   for (const c of ["sanctioned", "mixer", "bridge", "exchange", "router", "token"]) {
     expect(cats.has(c)).toBe(true);
   }
@@ -571,20 +587,32 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   expect(cat(demo.root)).toBe("sanctioned");                   // root node is a sanctioned entity
 
   // Peel chain: a >=3-node forwarding chain through the illustrative 0xf00d hops.
-  const peelHit = findPeelChains(demo.edges).some(
-    (p) => p.length >= 3 && p.includes("0xf00d000000000000000000000000000000000002")
+  const peelHit = findPeelChains(store.listEdges()).some(
+    (p) => p.length >= 3 && p.includes(ID("1", "0xf00d000000000000000000000000000000000002"))
   );
   expect(peelHit).toBe(true);
 
   // NFT (ERC-721) edge present with a tokenId (dedup key carries tokenID).
-  const nft = demo.edges.find((e) => e.action === "tokennfttx");
+  const nft = dEdges.find((e) => e.action === "tokennfttx");
   expect(nft).toBeDefined();
   expect(nft.tokenId).toBe("8817");
 
   // Round-trip preserved: root <-> Uniswap (ETH out, USDC back).
   const uni = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
-  expect(demo.edges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
-  expect(demo.edges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+  expect(dEdges.some((e) => e.from === demo.root && e.to === uni)).toBe(true);
+  expect(dEdges.some((e) => e.from === uni && e.to === demo.root)).toBe(true);
+});
+
+test("demo shows the same-key hop", async () => {
+  $("resetBtn").click();
+  $("demoBtn").click();
+  for (let i = 0; i < 80 && !twins().length; i++) await sleep(25);
+  expect(twins().length).toBe(1);
+  expect($("legendTwinKey").hidden).toBe(false);
+  const F3 = "0xf00d000000000000000000000000000000000003";
+  const lab = (c) => window.vis.Network.first.nodes.get(ID(c, F3)).label;
+  expect(lab("1").endsWith("\nEthereum")).toBe(true);
+  expect(lab("42161").endsWith("\nArbitrum One")).toBe(true);
 });
 
 test("scan marks nodes with more history using a dashed border", async () => {
@@ -600,12 +628,12 @@ test("scan marks nodes with more history using a dashed border", async () => {
   }
   // first = the network main.js created (other tests build throwaway views)
   const nodes = window.vis.Network.first.nodes.get();
-  expect(nodes.find((n) => n.id === ROOT).shapeProperties.borderDashes).toEqual([4, 3]);
-  expect(nodes.find((n) => n.id === N2).shapeProperties.borderDashes).toBe(false);
-  const rc = nodes.find((n) => n.id === ROOT).color;
+  expect(nodes.find((n) => n.id === ID("1", ROOT)).shapeProperties.borderDashes).toEqual([4, 3]);
+  expect(nodes.find((n) => n.id === ID("1", N2)).shapeProperties.borderDashes).toBe(false);
+  const rc = nodes.find((n) => n.id === ID("1", ROOT)).color;
   expect(rc.border).toBe("#e8eef7");
   expect(typeof rc.background).toBe("string");
-  expect(nodes.find((n) => n.id === N2).color?.border).not.toBe("#e8eef7");
+  expect(nodes.find((n) => n.id === ID("1", N2)).color?.border).not.toBe("#e8eef7");
   $("maxTxPerAddress").value = "20";
 });
 
@@ -622,7 +650,8 @@ async function historyEnv() {
     });
     return c;
   };
-  return { render };
+  const renderOther = (otherChains, extra = {}) => render(undefined, { otherChains, ...extra });
+  return { render, renderOther };
 }
 const H = (state, count, action = "txlist", labelKey = "tx.type.normal") => ({ action, labelKey, state, count });
 
@@ -655,15 +684,15 @@ test("load button: older / first / complete states", async () => {
 
 test("blocked load shows the reason and disables the button", async () => {
   const { render } = await historyEnv();
-  const blocked = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  const blocked = render([H("more", 40)], { loadBlocked: { key: "error.unknownChain", params: { id: "999999" } } });
   expect(blocked.querySelectorAll("button")[1].disabled).toBe(true);
-  expect(blocked.textContent).toContain("This graph was built on Ethereum.");
+  expect(blocked.textContent).toContain("Chain 999999 is not supported by this build");
   const busy = render([H("more", 40)], { busy: true });
   expect(busy.querySelectorAll("button")[1].disabled).toBe(true);
-  expect(busy.textContent).not.toContain("This graph was built");
+  expect(busy.textContent).not.toContain("is not supported by this build");
 });
 
-// --- Load older wiring (main.js): chain guard, busy guard, workspace chain ---
+// --- Load older wiring (main.js): node chain, busy guard, workspace chain ---
 const until = async (pred) => {
   for (let i = 0; i < 60 && !pred(); i++) await sleep(50);
 };
@@ -692,25 +721,23 @@ async function freshScan(maxTx) {
   await until(() => /Done/.test($("status").textContent || ""));
   expect($("status").textContent).toContain("Done");
 }
-const openRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ROOT], edges: [] });
+// freshScan on chain 1, then a second scan of ROOT on Arbitrum into the same graph.
+// Returns the API URLs the second scan issued.
+async function twoChainScan(maxTx = "20") {
+  await freshScan(maxTx); // chain 1
+  const n = apiUrls.length;
+  setChain("42161");
+  $("address").value = ROOT;
+  $("startBtn").click();
+  await until(() => !$("startBtn").disabled);
+  await sleep(0); // let main.js's chain-sync microtask run
+  return apiUrls.slice(n);
+}
+const openRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ID("1", ROOT)], edges: [] });
 const loadBtn = () => $("detailsContent").querySelectorAll("button")[1];
 const txlistUrls = () => apiUrls.filter((u) => new URL(u).searchParams.get("action") === "txlist");
 const lastTxlist = () => new URL(txlistUrls().at(-1)).searchParams;
 const waitLoaded = () => until(() => /Loaded/.test($("status").textContent || ""));
-
-test("scan on another chain into a non-empty graph is refused", async () => {
-  try {
-    await freshScan("20");
-    const n = apiUrls.length;
-    setChain("137");
-    $("startBtn").click();
-    await sleep(50);
-    expect(apiUrls.length).toBe(n); // no request at all, so none with chainid=137
-    expect($("logContent").textContent).toContain("This graph was built on Ethereum");
-  } finally {
-    restoreForm();
-  }
-});
 
 test("load older goes through details with an inclusive endblock, then pages inside the block", async () => {
   try {
@@ -756,25 +783,6 @@ test("double click starts one load", async () => {
   }
 });
 
-test("load refused after switching the chain selector", async () => {
-  try {
-    await freshScan("2");
-    openRoot();
-    expect(loadBtn().disabled).toBe(false);
-    setChain("137");
-    openRoot();
-    const b = loadBtn();
-    expect(b.disabled).toBe(true);
-    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
-    const n = apiUrls.length;
-    b.dispatchEvent(new window.Event("click")); // even if the handler fires, main.js refuses
-    await sleep(50);
-    expect(apiUrls.length).toBe(n);
-  } finally {
-    restoreForm();
-  }
-});
-
 test("saved workspace records the graph's chain, not the selector's", async () => {
   const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
   let captured = null;
@@ -785,7 +793,8 @@ test("saved workspace records the graph's chain, not the selector's", async () =
     setChain("137");
     $("saveBtn").click();
     expect(captured).not.toBeNull();
-    expect(JSON.parse(await captured.text()).chainId).toBe("1");
+    const ws = JSON.parse(await captured.text());
+    expect(ws.version === 3 && ws.graph.nodes.every((n) => n.chainId === "1")).toBe(true);
   } finally {
     URL.createObjectURL = orig.create;
     URL.revokeObjectURL = orig.revoke;
@@ -803,12 +812,72 @@ test("node details without history, or with an empty one, render only Rename and
   }
 });
 
+test("Other chains block lists twins, focuses on click, offers alias apply", async () => {
+  const { renderOther } = await historyEnv();
+  const none = renderOther({ twins: [], canApplyAlias: false, onFocusTwin: () => {}, onApplyAlias: () => {} });
+  expect(none.textContent).toContain("Other chains");
+  expect(none.textContent).toContain("none");
+  expect(none.querySelectorAll("button").length).toBe(1); // Rename only
+  const focused = [];
+  let applied = 0;
+  const oc = (extra) => ({
+    twins: [{ id: ID("42161", ROOT), chainName: "Arbitrum One", basis: "key" }, { id: ID("56", ROOT), chainName: "BNB Chain", basis: "address" }],
+    canApplyAlias: false, onFocusTwin: (id) => focused.push(id), onApplyAlias: () => applied++, ...extra,
+  });
+  const c = renderOther(oc());
+  const btns = [...c.querySelectorAll("button")].map((b) => b.textContent);
+  expect(btns).toContain("Arbitrum One — same key");
+  expect(btns).toContain("BNB Chain — same address only — likely unrelated");
+  expect(btns).not.toContain("Apply alias to same-key twins");
+  c.querySelectorAll("button")[1].click();
+  expect(focused).toEqual([ID("42161", ROOT)]);
+  const a = [...renderOther(oc({ canApplyAlias: true })).querySelectorAll("button")].find((b) => b.textContent === "Apply alias to same-key twins");
+  a.click();
+  expect(applied).toBe(1);
+  const busy = [...renderOther(oc({ canApplyAlias: true }), { busy: true }).querySelectorAll("button")].find((b) => b.textContent === "Apply alias to same-key twins");
+  expect(busy.disabled).toBe(true);
+});
+
+test("Other chains probe lines, Load on {chain} buttons and the chain select", async () => {
+  const { renderOther } = await historyEnv();
+  const probe = [
+    { chainId: "42161", name: "Arbitrum One", state: "active" },
+    { chainId: "8453", name: "Base", state: "inactive" },
+    { chainId: "56", name: "BNB Chain", state: "plan" },
+    { chainId: "10", name: "Optimism", state: "error" },
+  ];
+  const loaded = [];
+  let checks = 0;
+  const oc = {
+    twins: [], canApplyAlias: false, onFocusTwin: () => {}, onApplyAlias: () => {},
+    probe, loadable: probe.map(({ chainId, name }) => ({ chainId, name })),
+    onCheckOtherChains: () => checks++, onLoadOnChain: (c) => loaded.push(c),
+  };
+  const c = renderOther(oc);
+  for (const s of ["Arbitrum One — recent activity found", "Base — no recent normal/token activity found",
+    "BNB Chain — needs a paid Etherscan plan", "Optimism — check failed"]) expect(c.textContent).toContain(s);
+  const btns = (root) => [...root.querySelectorAll("button")];
+  btns(c).find((b) => b.textContent === "Check other chains").click();
+  expect(checks).toBe(1);
+  btns(c).find((b) => b.textContent === "Load on Arbitrum One").click();
+  expect(loaded).toEqual(["42161"]);
+  expect(btns(c).some((b) => b.textContent === "Load on Base")).toBe(false); // inactive: no probe-line button
+  const sel = c.querySelector("select");
+  sel.value = "8453";
+  sel.dispatchEvent(new window.Event("change"));
+  btns(c).find((b) => b.textContent === "Load on Base").click();
+  expect(loaded).toEqual(["42161", "8453"]);
+  const busy = btns(renderOther(oc, { busy: true })).filter((b) => b.textContent === "Check other chains" || b.textContent.startsWith("Load on "));
+  expect(busy.length).toBe(3); // Check + the active line's Load + the select's Load
+  expect(busy.every((b) => b.disabled)).toBe(true);
+});
+
 test("blocked note is linked to the load button via aria-describedby", async () => {
   const { render } = await historyEnv();
-  const c = render([H("more", 40)], { loadBlocked: { key: "error.chainMismatch", params: { chain: "Ethereum" } } });
+  const c = render([H("more", 40)], { loadBlocked: { key: "error.unknownChain", params: { id: "999999" } } });
   const id = c.querySelectorAll("button")[1].getAttribute("aria-describedby");
   expect(id).toBeTruthy();
-  expect(c.querySelector("#" + id).textContent).toContain("This graph was built on Ethereum.");
+  expect(c.querySelector("#" + id).textContent).toContain("Chain 999999 is not supported by this build");
   expect(render([H("more", 40)]).querySelectorAll("button")[1].hasAttribute("aria-describedby")).toBe(false);
 });
 
@@ -893,28 +962,12 @@ test("details explorer link stays on the graph's chain after switching the selec
   }
 });
 
-test("demo sets the graph chain: switching the selector blocks its load button", async () => {
-  try {
-    $("resetBtn").click();
-    $("demoBtn").click();
-    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
-    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
-    expect(loadBtn().disabled).toBe(false); // "Load transactions" — demo has no cursors
-    setChain("137");
-    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
-    expect(loadBtn().disabled).toBe(true);
-    expect($("detailsContent").textContent).toContain("This graph was built on Ethereum");
-  } finally {
-    restoreForm();
-  }
-});
-
 test("risk, labels and CSV category stay on the graph's chain after switching the selector", async () => {
   const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
   let captured = null;
   URL.createObjectURL = (b) => ((captured = b), "blob:x");
   URL.revokeObjectURL = () => {};
-  const openDemoRoot = () => window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+  const openDemoRoot = () => window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
   const csv = async () => {
     captured = null;
     $("exportCsvBtn").click();
@@ -931,7 +984,7 @@ test("risk, labels and CSV category stay on the graph's chain after switching th
     const before = await csv();
     expect(before).toContain("flag.sanctioned"); // edge to a chain-1 OFAC-listed recipient
     const demoLabel = () => {
-      const n = window.vis.Network.first.nodes.get().find((x) => x.id === DEMO_ROOT);
+      const n = window.vis.Network.first.nodes.get().find((x) => x.id === ID("1", DEMO_ROOT));
       return `${n.label}|${n.title}`;
     };
     const label = demoLabel();
@@ -939,7 +992,7 @@ test("risk, labels and CSV category stay on the graph's chain after switching th
     expect(label).toContain("⛔"); // chain-1 category icon (sanctioned)
     setChain("137"); // no chain-137 entry for DEMO_ROOT
     openDemoRoot();
-    expect($("detailsContent").textContent.replace(/This graph was built[^]*$/, "")).toBe(risk.replace(/This graph was built[^]*$/, ""));
+    expect($("detailsContent").textContent).toBe(risk);
     expect(await csv()).toBe(before);
     expect(demoLabel()).toBe(label);
   } finally {
@@ -961,7 +1014,7 @@ test("load on a demo graph shows the sampling banner and reports failed requests
       String(url).includes("data/")
         ? realFetch(url, init)
         : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
-    window.vis.Network.first._on.click[0]({ nodes: [DEMO_ROOT], edges: [] });
+    window.vis.Network.first._on.click[0]({ nodes: [ID("1", DEMO_ROOT)], edges: [] });
     loadBtn().click();
     await waitLoaded();
     expect($("status").textContent).toContain("Loaded 0 new transfers");
@@ -1021,7 +1074,7 @@ test("detect chain: a curated chain-1 address selects Ethereum with no API call"
   }
 });
 
-async function loadAsDemo(ws) {
+async function loadAsDemo(ws, done = /Demo workspace loaded/) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (u, init) => (String(u).includes("demo-workspace")
     ? { ok: true, status: 200, headers: { get: () => null }, json: async () => ws }
@@ -1029,7 +1082,7 @@ async function loadAsDemo(ws) {
   try {
     $("resetBtn").click();
     $("demoBtn").click();
-    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    await until(() => done.test($("logContent").textContent || ""));
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1055,6 +1108,11 @@ const wsEdge = (over) => ({
   ...over,
 });
 const STAR_ONLY = Object.keys(KNOWN["*"] || {}).find((a) => KNOWN["*"][a].category === "sanctioned" && !Object.keys(KNOWN).some((c) => c !== "*" && KNOWN[c][a]));
+const v3Edge = (over) => { const e = wsEdge(over); const chainId = over.chainId || "1"; return { ...e, chainId, key: `${chainId}|${e.key}` }; };
+const v3ws = (nodes, edges) => ({ version: 3, root: ROOT, graph: { nodes, edges } });
+const v3Node = (chainId, address, over = {}) => ({ chainId, address, depth: 1, isRoot: false, alias: null, ...over });
+const ONE_ONLY = Object.keys(KNOWN["1"]).find((x) => KNOWN["1"][x].category === "mixer" && !(KNOWN["*"] || {})[x] && !(KNOWN["56"] || {})[x]);
+const visNode = (id) => window.vis.Network.first.nodes.get().find((n) => n.id === id);
 
 test("detect chain: an address known only on '*' keeps the selector and falls through to the API probe", async () => {
   await knownLoaded(); // else an unloaded dataset would fall through too (false pass)
@@ -1099,10 +1157,10 @@ test("a '*'-only OFAC address is labeled, badged, sourced and risk-scored on a n
       nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: STAR_ONLY, depth: 1, isRoot: false, alias: null }],
       edges: [wsEdge({ hash: "0xs1", to: STAR_ONLY, symbol: "POL" })],
     });
-    const node = window.vis.Network.first.nodes.get().find((n) => n.id === STAR_ONLY);
+    const node = window.vis.Network.first.nodes.get().find((n) => n.id === ID("137", STAR_ONLY));
     expect(`${node.label}|${node.title}`).toContain("(OFAC SDN)");
     expect(`${node.label}|${node.title}`).toContain("⛔");
-    window.vis.Network.first._on.click[0]({ nodes: [STAR_ONLY], edges: [] });
+    window.vis.Network.first._on.click[0]({ nodes: [ID("137", STAR_ONLY)], edges: [] });
     expect($("detailsContent").textContent).toContain("OFAC SDN list, published");
     expect($("detailsContent").textContent).toContain("sanctioned entity");
   } finally {
@@ -1160,9 +1218,10 @@ test("a view refresh fully restyles an edge whose flags appeared after it was dr
     getEdgeFlags: () => flags,
   });
   try {
+    const e = wsEdge({ hash: "0xr1", action: "tokentx", group: "token", symbol: "USDT", tokenContract: "0x" + "e".repeat(40) });
     store.loadSnapshot(
-      [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: N2, depth: 1, isRoot: false, alias: null }],
-      [wsEdge({ hash: "0xr1", action: "tokentx", group: "token", symbol: "USDT", tokenContract: "0x" + "e".repeat(40) })],
+      [{ chainId: "1", address: ROOT, depth: 0, isRoot: true, alias: null }, { chainId: "1", address: N2, depth: 1, isRoot: false, alias: null }],
+      [{ ...e, chainId: "1", key: `1|${e.key}` }],
     );
     const edge = () => window.vis.Network.last.edges.get()[0];
     expect(edge().label).not.toContain("ⓘ");
@@ -1176,29 +1235,857 @@ test("a view refresh fully restyles an edge whose flags appeared after it was dr
   }
 });
 
-test("spam contracts follow the graph chain: '*' hidden everywhere, '137' only on a 137 graph", async () => {
+test("spam contracts follow each edge's chain: '*' hidden everywhere, '137' only on 137 edges", async () => {
   await knownLoaded();
   await until(() => spamLoads > 0);
   await sleep(0);
-  const tok = (hash, contract) => wsEdge({ hash, action: "tokentx", group: "token", color: "#4fd67a", symbol: "SPAMX", tokenContract: contract });
-  const ws = (chainId) => ({
-    version: 2, chainId, root: ROOT,
-    nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }, { address: N2, depth: 1, isRoot: false, alias: null }],
-    edges: [tok("0xp1", SPAM_STAR), tok("0xp2", SPAM_137), wsEdge({ hash: "0xp3" })],
-  });
-  const shownOnSpamHidden = async (chainId) => {
-    await loadAsDemo(ws(chainId));
+  const tok = (chainId, hash, contract) => v3Edge({ chainId, hash, action: "tokentx", group: "token", color: "#4fd67a", symbol: "SPAMX", tokenContract: contract });
+  try {
+    await loadAsDemo(v3ws(
+      [v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node("1", N2), v3Node("137", ROOT, { depth: 0, isRoot: true }), v3Node("137", N2)],
+      [tok("137", "0xp2", SPAM_137), tok("1", "0xp4", SPAM_137), tok("1", "0xp1", SPAM_STAR), v3Edge({ chainId: "1", hash: "0xp3" })],
+    ));
     $("hideSpamToggle").checked = true;
     $("hideSpamToggle").dispatchEvent(new window.Event("change"));
-    return window.vis.Network.first.edges.get().map((e) => e.data.hash).sort();
-  };
-  try {
-    expect(await shownOnSpamHidden("137")).toEqual(["0xp3"]);
-    expect(await shownOnSpamHidden("1")).toEqual(["0xp2", "0xp3"]);
+    expect(window.vis.Network.first.edges.get().map((e) => e.data.hash).sort()).toEqual(["0xp3", "0xp4"]);
   } finally {
     $("hideSpamToggle").checked = false;
     $("hideSpamToggle").dispatchEvent(new window.Event("change"));
     $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+// --- per-record chain lookups (labels, flags, explorer, fake tokens) ---------
+const twinRoots = (chainIds) => chainIds.map((c) => v3Node(c, ROOT, { depth: 0, isRoot: true }));
+const clickNode = (id) => window.vis.Network.first._on.click[0]({ nodes: [id], edges: [] });
+const edgeByHash = (h) => window.vis.Network.first.edges.get().find((e) => e.data.hash === h);
+
+test("a chain-1-only label never reaches its chain-56 twin", async () => {
+  await knownLoaded();
+  expect(ONE_ONLY).toBeTruthy();
+  const label = KNOWN["1"][ONE_ONLY].label;
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "56"]), v3Node("1", ONE_ONLY), v3Node("56", ONE_ONLY)],
+      [v3Edge({ chainId: "1", hash: "0xm1", to: ONE_ONLY }), v3Edge({ chainId: "56", hash: "0xm2", to: ONE_ONLY, symbol: "BNB" })],
+    ));
+    expect(visNode(ID("1", ONE_ONLY)).label).toContain(label);
+    expect(visNode(ID("1", ONE_ONLY)).title).toContain("🌀");
+    expect(visNode(ID("56", ONE_ONLY)).label).not.toContain(label);
+    expect(visNode(ID("56", ONE_ONLY)).title).not.toContain("🌀");
+    clickNode(ID("56", ONE_ONLY));
+    expect($("detailsContent").textContent).toContain(ONE_ONLY); // the 56 node's details rendered
+    expect($("detailsContent").textContent).not.toContain("Source");
+    expect($("detailsContent").textContent).not.toContain("labeled entity");
+    expect(edgeByHash("0xm1").label).toContain("⚠");
+    expect(edgeByHash("0xm2").label).not.toContain("⚠");
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a '*' entry badges both twins and says it is listed for all EVM chains", async () => {
+  await knownLoaded();
+  expect(STAR_ONLY).toBeTruthy();
+  const PHRASE = "listed for all EVM chains (address-level designation)";
+  try {
+    await loadAsDemo(v3ws([...twinRoots(["1", "56"]), v3Node("1", STAR_ONLY), v3Node("56", STAR_ONLY)], []));
+    for (const c of ["1", "56"]) {
+      expect(visNode(ID(c, STAR_ONLY)).title).toContain("⛔");
+      expect(visNode(ID(c, STAR_ONLY)).title).toContain(PHRASE);
+    }
+    $("langToggle").click(); // the tooltip note is re-translated live
+    try { expect(visNode(ID("56", STAR_ONLY)).title).toContain("listée pour toutes les chaînes EVM (désignation au niveau de l'adresse)"); }
+    finally { $("langToggle").click(); }
+    clickNode(ID("56", STAR_ONLY));
+    const source = [...$("detailsContent").querySelectorAll("tr")].find((tr) => tr.firstChild.textContent === "Source");
+    expect(source.textContent).toContain("OFAC SDN list, published");
+    expect(source.textContent).toContain(PHRASE);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("Other chains lists same-key and address-only twins and focuses on click", async () => {
+  const net = window.vis.Network.first;
+  net.focus = () => {};
+  net.selectNodes = (n) => net.setSelection({ nodes: n });
+  net.getScale = () => 1;
+  try {
+    await twoChainScan();
+    clickNode(ID("1", ROOT));
+    const btn = (txt) => [...$("detailsContent").querySelectorAll("button")].find((b) => b.textContent === txt);
+    btn("Arbitrum One — same key").click();
+    expect($("detailsContent").querySelector("a").href).toContain("arbiscan.io/address/");
+    clickNode(ID("1", N2));
+    expect(btn("Arbitrum One — same address only — likely unrelated")).toBeTruthy();
+  } finally {
+    delete net.focus;
+    delete net.selectNodes;
+    delete net.getScale;
+    restoreForm();
+  }
+});
+
+test("alias apply targets same-key twins only and never overwrites", async () => {
+  const origPrompt = window.prompt;
+  const btn = (txt) => [...$("detailsContent").querySelectorAll("button")].find((b) => b.textContent === txt);
+  const APPLY = "Apply alias to same-key twins";
+  try {
+    await twoChainScan();
+    window.prompt = () => "Suspect";
+    clickNode(ID("1", ROOT));
+    btn("Rename (alias)").click();
+    btn(APPLY).click();
+    expect(visNode(ID("42161", ROOT)).label.startsWith("Suspect")).toBe(true);
+    window.prompt = () => "Other";
+    clickNode(ID("42161", ROOT));
+    btn("Rename (alias)").click();
+    window.prompt = () => "Suspect2";
+    clickNode(ID("1", ROOT));
+    btn("Rename (alias)").click();
+    expect(btn(APPLY)).toBeUndefined();
+    expect(visNode(ID("42161", ROOT)).label.startsWith("Other")).toBe(true);
+    expect(visNode(ID("42161", N2)).label.startsWith("Suspect")).toBe(false);
+  } finally {
+    window.prompt = origPrompt;
+    restoreForm();
+  }
+});
+
+// --- Check other chains / Load on {chain} (details panel) --------------------
+const detailBtn = (txt) => [...$("detailsContent").querySelectorAll("button")].find((b) => b.textContent === txt);
+// A 1-chain scan, then probe ROOT's other chains at 30 req/s (11 chains at the default 3 req/s outlast `until`).
+async function probeRoot() {
+  await freshScan("20");
+  $("rps").value = "30";
+  clickNode(ID("1", ROOT));
+  const n = apiUrls.length;
+  detailBtn("Check other chains").click();
+  await until(() => !$("startBtn").disabled);
+  return apiUrls.slice(n);
+}
+
+test("Check other chains probes the probe set minus chains already holding the address", async () => {
+  try {
+    const qs = (await probeRoot()).map((u) => new URL(u).searchParams);
+    expect(new Set(qs.map((q) => q.get("chainid")))).toEqual(new Set(PROBE_CHAIN_IDS.filter((c) => c !== 1).map(String)));
+    expect(qs.every((q) => ["txlist", "tokentx"].includes(q.get("action")) && q.get("offset") === "1")).toBe(true);
+    expect($("detailsContent").textContent).toContain("Arbitrum One — recent activity found");
+    await freshScan("20"); // store reset -> probe results are session facts, gone
+    clickNode(ID("1", ROOT));
+    expect($("detailsContent").textContent).not.toContain("recent activity found");
+  } finally {
+    $("rps").value = "3";
+    restoreForm();
+  }
+});
+
+test("Stop cancels the probe", async () => {
+  let release = () => {};
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const n = apiUrls.length;
+    release = gate();
+    detailBtn("Check other chains").click();
+    $("stopBtn").click();
+    release();
+    await until(() => !$("startBtn").disabled);
+    expect(apiUrls.length - n).toBeLessThan(22);
+    expect($("startBtn").disabled).toBe(false);
+    // A stopped probe is discarded, never shown (or cached) as if it were complete.
+    const text = $("detailsContent").textContent;
+    for (const s of ["recent activity found", "no recent normal/token activity found", "needs a paid Etherscan plan", "check failed"]) {
+      expect(text).not.toContain(s);
+    }
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("Load on Arbitrum One creates the twin as a root, copies no alias, draws a same-key link", async () => {
+  const origPrompt = window.prompt;
+  try {
+    await probeRoot();
+    window.prompt = () => "Suspect";
+    detailBtn("Rename (alias)").click();
+    detailBtn("Load on Arbitrum One").click();
+    await waitLoaded();
+    expect(lastTxlist().get("chainid")).toBe("42161");
+    const v = visNode(ID("42161", ROOT));
+    expect(v).toBeTruthy();
+    expect(v.color).toBe("#e63946"); // root colour: the twin is the investigator's subject on B
+    expect(v.label).not.toContain("Suspect");
+    expect(twins().length).toBe(1);
+    expect($("logContent").textContent).toContain("Added Arbitrum One — graph now spans 2 chains.");
+  } finally {
+    window.prompt = origPrompt;
+    $("rps").value = "3";
+    restoreForm();
+  }
+});
+
+test("the load picker lists mainnets in probe order first", async () => {
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const first = $("detailsContent").querySelector("select option").value;
+    expect(first).toBe(String(PROBE_CHAIN_IDS.find((c) => c !== 1))); // 8453 (Base), not Sepolia
+  } finally {
+    restoreForm();
+  }
+});
+
+test("a Load on {chain} stopped before any page removes the node and logs it as info", async () => {
+  let release = () => {};
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    release = gate();
+    detailBtn("Load on Arbitrum One").click();
+    $("stopBtn").click();
+    release();
+    await until(() => /Nothing could be loaded/.test($("logContent").textContent || ""));
+    expect(window.vis.Network.first.nodes.getIds().some((id) => String(id).startsWith("42161:"))).toBe(false);
+    const line = [...$("logContent").children].find((l) => l.textContent.includes("Nothing could be loaded on Arbitrum One"));
+    expect(line.className).not.toBe("err");
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("a load that fetches nothing leaves no phantom node", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    globalThis.fetch = async (url, init) =>
+      String(url).includes("data/")
+        ? realFetch(url, init)
+        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "NOTOK", result: "Invalid API Key" }) };
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    detailBtn("Load on Arbitrum One").click();
+    await waitLoaded();
+    expect(window.vis.Network.first.nodes.getIds().some((id) => String(id).startsWith("42161:"))).toBe(false);
+    expect($("logContent").textContent).toContain("Nothing could be loaded on Arbitrum One; the node was not added.");
+    expect([...$("logContent").children].at(-1).className).toBe("err"); // failed, not stopped
+  } finally {
+    globalThis.fetch = realFetch;
+    restoreForm();
+  }
+});
+
+test("explorer links follow each record's chain; an unknown chain gives no link", async () => {
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "42161", "999999"]), v3Node("999999", N2)],
+      [v3Edge({ chainId: "999999", hash: "0xu1" })],
+    ));
+    clickNode(ID("1", ROOT));
+    expect($("detailsContent").querySelector("a").href).toContain("etherscan.io/address/");
+    clickNode(ID("42161", ROOT));
+    expect($("detailsContent").querySelector("a").href).toContain("arbiscan.io/address/");
+    clickNode(ID("999999", ROOT));
+    expect($("detailsContent").textContent).toContain(ROOT);
+    expect($("detailsContent").querySelector("a")).toBeNull();
+    window.vis.Network.first._on.click[0]({ nodes: [], edges: [edgeByHash("0xu1").id] });
+    expect($("detailsContent").textContent).toContain(N2); // the edge's details rendered
+    expect($("detailsContent").textContent).not.toContain("View tx");
+    expect($("detailsContent").querySelector("a")).toBeNull();
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("imitation USDT is flagged on Ethereum, not on a chain with no canonical USDT", async () => {
+  await knownLoaded();
+  const FAKE = "0x" + "e".repeat(40);
+  const tok = (chainId, hash) => v3Edge({ chainId, hash, action: "tokentx", group: "token", color: "#4fd67a", symbol: "USDT", tokenContract: FAKE });
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "42161"]), v3Node("1", N2), v3Node("42161", N2)],
+      [tok("1", "0xf1"), tok("42161", "0xf3")],
+    ));
+    expect(edgeByHash("0xf1").label).toContain("ⓘ");
+    expect(edgeByHash("0xf3").label).not.toContain("ⓘ");
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a v2 workspace with no chain takes the selector's chain and says so; a newer version is refused, localized", async () => {
+  try {
+    setChain("137");
+    await loadAsDemo({ version: 2, root: ROOT, nodes: [{ address: ROOT, depth: 0, isRoot: true, alias: null }], edges: [] });
+    expect($("logContent").textContent).toContain("Workspace had no chain; assumed Polygon.");
+    expect(window.vis.Network.first.nodes.getIds()).toContain(ID("137", ROOT));
+    expect($("chainSelect").value).toBe("137");
+
+    await loadAsDemo({ version: 4, graph: { nodes: [], edges: [] } }, /newer chainmap/);
+    expect($("logContent").textContent).toContain("This workspace was made by a newer chainmap — update the app to open it.");
+    expect($("logContent").textContent).not.toContain("Demo workspace loaded");
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("CSV: chain_id on every row, per-chain flags, multi-chain caveat", async () => {
+  await knownLoaded();
+  try {
+    await loadAsDemo(v3ws(
+      [...twinRoots(["1", "56"]), v3Node("1", ONE_ONLY), v3Node("56", ONE_ONLY)],
+      [v3Edge({ chainId: "1", hash: "0xm1", to: ONE_ONLY }), v3Edge({ chainId: "56", hash: "0xm2", to: ONE_ONLY, symbol: "BNB" })],
+    ));
+    const lines = (await captureCsv()).split("\n");
+    expect(lines[0]).toContain("multi-chain");
+    expect(lines[1].startsWith("row_type,")).toBe(true);
+    const data = lines.filter((l) => /^(node|edge),/.test(l));
+    expect(data.length).toBe(6);
+    for (const l of data) expect(/,(1|56)$/.test(l)).toBe(true);
+    const m1 = lines.find((l) => l.includes("0xm1")), m2 = lines.find((l) => l.includes("0xm2"));
+    expect(m1).toContain("flag.mixer");
+    expect(m1.endsWith(",1")).toBe(true);
+    expect(m2).not.toContain("flag.mixer");
+    expect(m2.endsWith(",56")).toBe(true);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+// --- multi-chain: scans and loads run on any chain into the same graph -------
+test("scan on another chain adds a root on that chain", async () => {
+  try {
+    const second = await twoChainScan();
+    expect(nodeIds()).toEqual(["1", "42161"].flatMap((c) => [ROOT, N2, N4].map((x) => ID(c, x))).sort());
+    expect(window.vis.Network.first.edges.get().filter((e) => e.data.hash === "0xaaa").map((e) => e.id.split("|")[0]).sort()).toEqual(["1", "42161"]);
+    expect(second.length).toBeGreaterThan(0);
+    expect(second.every((u) => new URL(u).searchParams.get("chainid") === "42161")).toBe(true);
+    expect($("status").textContent).toBe("Done — 6 addresses, 4 links");
+    expect($("logContent").textContent).toContain("Added Arbitrum One — graph now spans 2 chains.");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("load older uses the node's chain, never the selector's", async () => {
+  try {
+    await twoChainScan("2");
+    setChain("1");
+    clickNode(ID("42161", ROOT));
+    expect(loadBtn().disabled).toBe(false);
+    loadBtn().click();
+    await waitLoaded();
+    expect(lastTxlist().get("chainid")).toBe("42161");
+    clickNode(ID("1", ROOT));
+    loadBtn().click();
+    await waitLoaded();
+    expect(lastTxlist().get("chainid")).toBe("1");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("switching the selector never relabels or blocks a node", async () => {
+  try {
+    await freshScan("2"); // full batch -> "Load older" (N=20 would leave every type complete, button disabled anyway)
+    const label = visNode(ID("1", ROOT)).label;
+    setChain("137");
+    expect(visNode(ID("1", ROOT)).label).toBe(label);
+    openRoot();
+    expect(loadBtn().disabled).toBe(false);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("unknown-chain node: load disabled with a reason, no request", async () => {
+  try {
+    await loadAsDemo(v3ws([v3Node("999999", ROOT, { depth: 0, isRoot: true })], []));
+    $("apiKey").value = "TESTKEY";
+    clickNode(ID("999999", ROOT));
+    expect(loadBtn().disabled).toBe(true);
+    expect($("detailsContent").textContent).toContain("Chain 999999 is not supported by this build");
+    const n = apiUrls.length;
+    loadBtn().dispatchEvent(new window.Event("click")); // even if the handler fires, main.js refuses
+    await sleep(50);
+    expect(apiUrls.length).toBe(n);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("a scan on a chain this build lacks is refused, localized, with no request", async () => {
+  const opt = document.createElement("option");
+  opt.value = "999999";
+  $("chainSelect").appendChild(opt); // e.g. a stale persisted selection
+  try {
+    await freshScan("20");
+    const n = apiUrls.length;
+    setChain("999999");
+    $("startBtn").click();
+    await sleep(50);
+    expect(apiUrls.length).toBe(n);
+    expect($("logContent").textContent).toContain("Chain 999999 is not supported by this build — scan and load are disabled for it.");
+  } finally {
+    opt.remove();
+    restoreForm();
+  }
+});
+
+test("pruning one twin leaves the other chain intact", async () => {
+  try {
+    await twoChainScan();
+    window.vis.Network.first.setSelection({ nodes: [ID("42161", ROOT)] });
+    $("deleteNodesBtn").click();
+    expect(nodeIds()).not.toContain(ID("42161", ROOT));
+    expect(nodeIds()).toContain(ID("1", ROOT));
+    expect(nodeIds()).toContain(ID("42161", N2)); // only the selected id goes
+    expect(window.vis.Network.first.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(2);
+  } finally {
+    window.vis.Network.first.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("Ctrl+Arrow navigates across chains by node id", async () => {
+  const net = window.vis.Network.first;
+  try {
+    await twoChainScan();
+    net.getPositions = () => ({ [ID("1", ROOT)]: { x: 0, y: 0 }, [ID("42161", ROOT)]: { x: 100, y: 0 } });
+    net.focus = () => {};
+    net.getScale = () => 1;
+    net.setSelection({ nodes: [ID("1", ROOT)] });
+    document.activeElement?.blur?.(); // the handler ignores keys while an input has focus
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true }));
+    expect($("detailsContent").querySelector("a").href).toContain("arbiscan.io/address/");
+  } finally {
+    delete net.getPositions;
+    delete net.focus;
+    delete net.getScale;
+    net.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("a two-chain graph with a note round-trips through save and load", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL, prompt: window.prompt };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  const graphIds = () => nodeIds().filter((i) => !i.startsWith("note:"));
+  try {
+    await twoChainScan();
+    window.prompt = () => "note";
+    $("addNoteBtn").click();
+    const before = graphIds();
+    $("saveBtn").click();
+    expect(captured).not.toBeNull();
+    const saved = JSON.parse(await captured.text());
+    expect(saved.version).toBe(3);
+    expect([...new Set(saved.graph.nodes.map((n) => n.chainId))].sort()).toEqual(["1", "42161"]);
+    expect(saved.annotations.length).toBe(1);
+    await loadAsDemo(saved);
+    expect(graphIds()).toEqual(before);
+    expect(nodeIds().filter((i) => i.startsWith("note:")).length).toBe(1);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    window.prompt = orig.prompt;
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+const legendShown = () => !$("legendChainTag").hidden;
+
+test("a legacy v2 workspace renders exactly as before", async () => {
+  try {
+    await loadAsDemo(V2);
+    const net = window.vis.Network.first;
+    expect(net.nodes.get().filter((n) => !String(n.id).startsWith("note:") && n.label.includes("\nEthereum")).length).toBe(0);
+    expect(net.edges.get().filter((e) => String(e.title).includes(" · Ethereum")).length).toBe(0);
+    expect($("legendChainTag").hidden).toBe(true);
+    expect($("chainFilter").hidden).toBe(true);
+    expect($("twinToggleRow").hidden).toBe(true);
+    expect(twins().length).toBe(0);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+const twins = () => window.vis.Network.first.edges.get().filter((e) => e.twin);
+
+test("exactly one same-key link joins the two roots; address-only pairs are never drawn", async () => {
+  try {
+    await twoChainScan();
+    expect(twins().length).toBe(1);
+    expect(twins()[0]).toMatchObject({ from: ID("1", ROOT), to: ID("42161", ROOT), label: "same key" });
+    expect(twins()[0].arrows.to.enabled).toBe(false);
+    expect(twins().some((t) => [N2, N4].some((n) => t.from.endsWith(n)))).toBe(false);
+    expect($("legendTwinKey").hidden).toBe(false);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("same-key links bypass filters, bundles and the high-degree count, and never reach CSV", async () => {
+  try {
+    await twoChainScan();
+    $("minAmount").value = "999999";
+    $("minAmount").dispatchEvent(new window.Event("input"));
+    expect(twins().length).toBe(1);
+    $("minAmount").value = "0";
+    $("minAmount").dispatchEvent(new window.Event("input"));
+    $("bundleToggle").checked = true;
+    $("bundleToggle").dispatchEvent(new window.Event("change"));
+    expect(twins().length).toBe(1);
+    $("bundleToggle").checked = false;
+    $("bundleToggle").dispatchEvent(new window.Event("change"));
+    expect((await captureCsv()).split("\n").filter((l) => l.startsWith("edge,")).length).toBe(4);
+    $("degreeThreshold").value = "3";
+    $("selectHighDegreeBtn").click();
+    expect($("logContent").textContent).toContain("0 node(s) with degree ≥ 3");
+  } finally {
+    $("minAmount").value = "0";
+    $("bundleToggle").checked = false;
+    restoreForm();
+  }
+});
+
+test("toggle off hides the link and is saved", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  URL.createObjectURL = (b) => ((captured = b), "blob:x");
+  URL.revokeObjectURL = () => {};
+  try {
+    await twoChainScan();
+    $("twinToggle").checked = false;
+    $("twinToggle").dispatchEvent(new window.Event("change"));
+    expect(twins().length).toBe(0);
+    expect($("legendTwinKey").hidden).toBe(true);
+    $("saveBtn").click();
+    expect(JSON.parse(await captured.text()).filters.showTwins).toBe(false);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    $("twinToggle").checked = true;
+    $("twinToggle").dispatchEvent(new window.Event("change"));
+    restoreForm();
+  }
+});
+
+test("clicking a same-key link explains its basis", async () => {
+  try {
+    await twoChainScan();
+    window.vis.Network.first._on.click[0]({ nodes: [], edges: [twins()[0].id] });
+    const txt = $("detailsContent").textContent;
+    expect(txt).toContain("Same-address link (not a transaction)");
+    expect(txt).toContain("Ethereum ↔ Arbitrum One");
+    expect(txt).toContain("Same owner is still an inference");
+  } finally {
+    restoreForm();
+  }
+});
+
+test("PNG export draws the shown same-key link", async () => {
+  try {
+    await twoChainScan();
+    $("exportPngBtn").click();
+    const t = window.vis.Network.last.edges.get().filter((e) => String(e.id).startsWith("twin:"));
+    expect(t.length).toBe(1);
+    expect(t[0].dashes).toBeTruthy();
+    expect(t[0].arrows.to.enabled).toBe(false);
+    expect([t[0].from, t[0].to]).toEqual([ID("1", ROOT), ID("42161", ROOT)]);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("two chains: every node shows its chain line, edges name their chain, legend row shown", async () => {
+  try {
+    await twoChainScan();
+    expect(visNode(ID("1", ROOT)).label.endsWith("\nEthereum")).toBe(true);
+    expect(visNode(ID("42161", ROOT)).label.endsWith("\nArbitrum One")).toBe(true);
+    const e = window.vis.Network.first.edges.get().find((x) => x.id.startsWith("42161|"));
+    expect(e.title).toContain(" · Arbitrum One");
+    expect(legendShown()).toBe(true);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("pruning back to one chain removes the chain line", async () => {
+  try {
+    await twoChainScan();
+    const net = window.vis.Network.first;
+    net.setSelection({ nodes: net.nodes.getIds().filter((i) => String(i).startsWith("42161:")) });
+    $("deleteNodesBtn").click();
+    await sleep(0);
+    expect(net.nodes.get().some((n) => String(n.label).endsWith("\nEthereum"))).toBe(false);
+    expect(legendShown()).toBe(false);
+  } finally {
+    window.vis.Network.first.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("palette finds both twins of an address, subtitled with their chain", async () => {
+  const subs = () => [...document.querySelectorAll("#paletteResults .palette-item-subtitle")].map((e) => e.textContent);
+  const search = () => {
+    $("searchBtn").click();
+    $("paletteInput").value = ROOT;
+    $("paletteInput").dispatchEvent(new window.Event("input"));
+  };
+  try {
+    await twoChainScan();
+    search();
+    expect(subs()).toContain(`${ROOT} · Ethereum`);
+    expect(subs()).toContain(`${ROOT} · Arbitrum One`);
+    $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await freshScan("20");
+    search();
+    expect(subs().filter((s) => s.startsWith(ROOT))).toEqual([ROOT]);
+  } finally {
+    $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    restoreForm();
+  }
+});
+
+test("an unknown-chain node is tagged 'chain 999999' even alone", async () => {
+  try {
+    await loadAsDemo(v3ws([v3Node("999999", ROOT, { depth: 0, isRoot: true })], []));
+    expect(visNode(ID("999999", ROOT)).label.endsWith("\nchain 999999")).toBe(true);
+  } finally {
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("PNG export uses node ids and the chain line", async () => {
+  try {
+    await twoChainScan();
+    $("exportPngBtn").click();
+    const net = window.vis.Network.last;
+    const nodes = net.nodes.get();
+    const byId = Object.fromEntries(nodes.map((n) => [n.id, n.label]));
+    expect(byId[ID("1", ROOT)].endsWith("\nEthereum")).toBe(true);
+    expect(byId[ID("42161", ROOT)].endsWith("\nArbitrum One")).toBe(true);
+    for (const e of net.edges.get()) expect(e.from).toMatch(/^\d+:0x/), expect(e.to).toMatch(/^\d+:0x/);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("chain filter: shown at 2 chains, hides one chain's nodes and edges, store untouched, saved", async () => {
+  const orig = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  let captured = null;
+  try {
+    await twoChainScan();
+    expect($("chainFilter").hidden).toBe(false);
+    expect($("chainFilterList").querySelectorAll("input[type=checkbox]").length).toBe(2);
+    const net = window.vis.Network.first;
+    const n1 = net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length;
+    const e1 = net.edges.get().filter((e) => e.id.startsWith("1|")).length;
+    const box = $("chainFilterList").querySelector('[data-chain="42161"]');
+    box.checked = false;
+    box.dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(net.nodes.get().some((n) => String(n.id).startsWith("42161:"))).toBe(false);
+    expect(net.edges.get().some((e) => e.id.startsWith("42161|"))).toBe(false);
+    expect(net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length).toBe(n1);
+    expect(net.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(e1);
+    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161"));
+    expect(rows.length).toBe(3);
+    URL.createObjectURL = (b) => ((captured = b), "blob:x");
+    URL.revokeObjectURL = () => {};
+    $("saveBtn").click();
+    const saved = JSON.parse(await captured.text());
+    expect(saved.filters.hiddenChains).toEqual(["42161"]);
+    await loadAsDemo(saved);
+    expect($("chainFilterList").querySelector('[data-chain="42161"]').checked).toBe(false);
+    $("searchBtn").click();
+    $("paletteInput").value = ROOT;
+    $("paletteInput").dispatchEvent(new window.Event("input"));
+    const item = [...document.querySelectorAll("#paletteResults .palette-item")].find((e) => e.textContent.includes("Arbitrum"));
+    item.click();
+    expect($("chainFilterList").querySelector('[data-chain="42161"]').checked).toBe(true);
+    expect(window.vis.Network.first.nodes.get().some((n) => n.id === ID("42161", ROOT))).toBe(true);
+  } finally {
+    URL.createObjectURL = orig.create;
+    URL.revokeObjectURL = orig.revoke;
+    $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+// --- final review fixes -----------------------------------------------------
+test("twin edges diff-sync: an unchanged refresh adds/removes none; a locale switch retitles in place", async () => {
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { createGraphView } = await import("../src/render/network.js");
+  const store = new GraphStore();
+  let loc = "en";
+  const view = createGraphView(document.createElement("div"), store, { i18n: { t: (k) => `${loc}:${k}` }, getAddressFormat: () => "short" });
+  store.addNode("1", ROOT, { depth: 0, isRoot: true });
+  store.addNode("1", N2, { depth: 1 });
+  store.addNode("42161", ROOT, { depth: 0, isRoot: true });
+  store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1", hash: "0x1", tokenDecimal: "18" } });
+  view.setTwins(true);
+  const ds = view.network.edges.ds;
+  const calls = { add: 0, remove: 0 };
+  const isTwin = (x) => String(x?.id ?? x).startsWith("twin:");
+  const { add, remove } = ds;
+  ds.add = function (o) { calls.add += [].concat(o).filter(isTwin).length; return add.call(this, o); };
+  ds.remove = function (o) { calls.remove += [].concat(o).filter(isTwin).length; return remove.call(this, o); };
+  const twin = () => ds.get().filter((e) => e.twin);
+  view.refreshProjection();
+  calls.add = calls.remove = 0;
+  view.refreshProjection();
+  expect(calls).toEqual({ add: 0, remove: 0 });
+  expect(twin().length).toBe(1);
+  loc = "fr";
+  view.refreshProjection();
+  expect(calls).toEqual({ add: 0, remove: 0 });
+  expect(twin()[0]).toMatchObject({ title: "fr:legend.twinKey", label: "fr:details.twinKey" });
+  view.setTwins(false);
+  expect(twin().length).toBe(0);
+});
+
+test("a Load on {chain} that finds no transactions removes the node and says so, at info", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    globalThis.fetch = async (url, init) =>
+      String(url).includes("data/") || !String(url).includes("chainid=42161")
+        ? realFetch(url, init)
+        : { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ status: "0", message: "No transactions found", result: "No transactions found" }) };
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    detailBtn("Load on Arbitrum One").click();
+    await waitLoaded();
+    await sleep(0);
+    expect(window.vis.Network.first.nodes.getIds().some((id) => String(id).startsWith("42161:"))).toBe(false);
+    const log = $("logContent").textContent;
+    expect(log).toContain("No transactions found for this address on Arbitrum One; the node was not added.");
+    expect(log).not.toContain("Added Arbitrum One");
+    expect(log).not.toContain("Nothing could be loaded");
+    expect([...$("logContent").children].at(-1).className).not.toBe("err");
+  } finally {
+    globalThis.fetch = realFetch;
+    restoreForm();
+  }
+});
+
+test("Load on {chain} leaves the details panel on whatever the user selected meanwhile", async () => {
+  let release = () => {};
+  try {
+    await freshScan("20");
+    clickNode(ID("1", ROOT));
+    const sel = $("detailsContent").querySelector("select");
+    sel.value = "42161";
+    sel.dispatchEvent(new window.Event("change"));
+    release = gate();
+    detailBtn("Load on Arbitrum One").click();
+    clickNode(ID("1", N2));
+    release();
+    await waitLoaded();
+    await sleep(0);
+    expect($("detailsContent").textContent).toContain(N2);
+    expect($("detailsContent").textContent).not.toContain(ROOT);
+  } finally {
+    release();
+    restoreForm();
+  }
+});
+
+test("a twin link's details clear once the link is gone (toggle off, prune)", async () => {
+  const net = window.vis.Network.first;
+  const setTwins = (on) => {
+    $("twinToggle").checked = on;
+    $("twinToggle").dispatchEvent(new window.Event("change"));
+  };
+  const showTwin = () => {
+    net._on.click[0]({ nodes: [], edges: [twins()[0].id] });
+    expect($("detailsContent").textContent).toContain("Same-address link");
+  };
+  try {
+    await twoChainScan();
+    showTwin();
+    setTwins(false);
+    expect($("detailsContent").textContent).toBe("Click a node or an arrow in the graph.");
+    setTwins(true);
+    showTwin();
+    net.setSelection({ nodes: [ID("42161", ROOT)] });
+    $("deleteNodesBtn").click();
+    expect($("detailsContent").textContent).toBe("Click a node or an arrow in the graph.");
+  } finally {
+    setTwins(true);
+    net.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("prune is refused while a scan runs (button and Delete key)", async () => {
+  let release = () => {};
+  const net = window.vis.Network.first;
+  try {
+    await freshScan("20");
+    release = gate();
+    $("startBtn").click();
+    await until(() => apiUrls.length && $("startBtn").disabled);
+    net.setSelection({ nodes: [ID("1", N2)] });
+    $("deleteNodesBtn").click();
+    document.activeElement?.blur?.();
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Delete" }));
+    expect(nodeIds()).toContain(ID("1", N2));
+    expect([...$("logContent").children].filter((l) => l.textContent.includes("Busy — wait")).length).toBe(2);
+  } finally {
+    $("stopBtn").click();
+    release();
+    await until(() => !$("startBtn").disabled);
+    net.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("palette edge subtitles name the chain once the graph spans 2 chains", async () => {
+  const S = (a) => a.slice(0, 5) + "…" + a.slice(-4);
+  const subs = () => [...document.querySelectorAll("#paletteResults .palette-item-subtitle")].map((e) => e.textContent);
+  const search = (q) => {
+    $("searchBtn").click();
+    $("paletteInput").value = q;
+    $("paletteInput").dispatchEvent(new window.Event("input"));
+  };
+  const close = () => $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  try {
+    await twoChainScan();
+    search("0xaaa");
+    expect(subs()).toContain(`${S(ROOT)} → ${S(N2)} · Ethereum`);
+    expect(subs()).toContain(`${S(ROOT)} → ${S(N2)} · Arbitrum One`);
+    close();
+    await freshScan("20");
+    search("0xaaa");
+    expect(subs()).toEqual([`${S(ROOT)} → ${S(N2)}`]);
+  } finally {
+    close();
     restoreForm();
   }
 });

@@ -14,7 +14,7 @@ export const API_BASE = "https://api.etherscan.io/v2/api";
  * Supported chains. `explorer` is used ONLY to build outbound address/tx links
  * (block-explorer navigation, never fetched). `name` is a proper noun — not
  * translated. `native` is the chain's native currency ticker (shown on edges
- * for value transfers that aren't a token, via graphStore.setNativeSymbol).
+ * for value transfers that aren't a token; graphStore.addEdge reads it by the edge's chain).
  *
  * Sourced from the Etherscan v2 unified chainlist (https://api.etherscan.io/v2/chainlist,
  * fetched 2026-07-12; totalcount 64, all status:1). Etherscan v2 serves every
@@ -24,7 +24,7 @@ export const API_BASE = "https://api.etherscan.io/v2/api";
  * .superpowers/sdd/more-evm-report.md for full sourcing notes. Fantom (chainid
  * 250) is NOT on this list — it rebranded to Sonic (chainid 146, native "S"),
  * which is the live entry below — so it is intentionally absent here.
- * @typedef {{ id:number, name:string, explorer:string, native:string }} Chain
+ * @typedef {{ id:number, name:string, explorer:string, native:string, nativeAA?:boolean }} Chain
  * @type {Chain[]}
  */
 export const CHAINS = [
@@ -58,7 +58,7 @@ export const CHAINS = [
   { id: 480,      name: "World Chain",        explorer: "worldscan.org",             native: "ETH" },
   { id: 146,      name: "Sonic",              explorer: "sonicscan.org",             native: "S" },
   { id: 130,      name: "Unichain",           explorer: "uniscan.xyz",               native: "ETH" },
-  { id: 2741,     name: "Abstract",           explorer: "abscan.org",                native: "ETH" },
+  { id: 2741,     name: "Abstract",           explorer: "abscan.org",                native: "ETH", nativeAA: true },
   { id: 80094,    name: "Berachain",          explorer: "berascan.com",              native: "BERA" },
   { id: 143,      name: "Monad",              explorer: "monadscan.com",             native: "MON" },
   { id: 999,      name: "HyperEVM",           explorer: "hyperevmscan.io",           native: "HYPE" },
@@ -99,7 +99,7 @@ export const CHAINS = [
   { id: 4801,     name: "World Sepolia (testnet)",      explorer: "sepolia.worldscan.org",          native: "ETH" },
   { id: 14601,    name: "Sonic (testnet)",              explorer: "testnet.sonicscan.org",          native: "S" },
   { id: 1301,     name: "Unichain Sepolia (testnet)",   explorer: "sepolia.uniscan.xyz",            native: "ETH" },
-  { id: 11124,    name: "Abstract Sepolia (testnet)",   explorer: "sepolia.abscan.org",             native: "ETH" },
+  { id: 11124,    name: "Abstract Sepolia (testnet)",   explorer: "sepolia.abscan.org",             native: "ETH", nativeAA: true },
   { id: 80069,    name: "Berachain Bepolia (testnet)",  explorer: "testnet.berascan.com",           native: "BERA" },
   { id: 10143,    name: "Monad (testnet)",              explorer: "testnet.monadscan.com",          native: "MON" },
   { id: 737373,   name: "Katana Bokuto (testnet)",      explorer: "bokuto.katanascan.com",          native: "ETH" },

@@ -1,6 +1,6 @@
 # Multi-chain graph (follow one wallet across EVM chains) — design
 
-Status: Draft — awaiting owner decisions (written autonomously) · 2026-11-16 · not builder-checked
+Status: Approved — owner accepted every recommendation in "Decisions needed from the owner" (2026-11-16) · builder-checked (answers below)
 
 ## Intent
 
@@ -597,3 +597,25 @@ not translated.
 
     (b) can miss a real designated EOA that was never seen signing. (a) without
     provenance can mislabel an unrelated contract twin. **Recommend (c).**
+
+## Owner decisions (2026-11-16)
+
+The owner chose to proceed with **every recommendation above** (decisions 1–10 as
+recommended in this section). Where a recommendation above names "v1" vs
+"later", v1 is the scope to build now; "later" items stay out of scope.
+
+
+## Builder-check answers (owner, 2026-11-16)
+
+1. **Demo becomes v3** in Phase 2 with a real same-key hop to Arbitrum (showcases
+   the feature). A separate small **v2 fixture** (test-only) covers the v2→v3
+   migration and the "single-chain graph renders with no chain tags" assertion.
+   v2 parsing stays strict: every v2 record takes the file's top-level `chainId`.
+2. **"Color nodes by chain" (7d) is later**, not v1. v1 shows the chain as the
+   label line only.
+3. **"Same address only" links are details-panel only** in v1 — never drawn; the
+   legend row for them is removed. Only same-key links can be drawn (`showTwins`).
+4. **Alias apply is conservative:** the manual "apply to other chains" action
+   targets **same-key twins only** and **never overwrites** an alias a twin
+   already has. "Load on {chain}" does **not** copy the alias (no automatic
+   ownership claim). No automatic alias propagation.

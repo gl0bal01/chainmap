@@ -9,10 +9,11 @@
 // =============================================================================
 
 /**
- * Addresses that lie on a directed cycle (round-trip).
+ * Node ids that lie on a directed cycle (round-trip). Works over node ids
+ * (`n.id`, `e.fromId`/`e.toId`), so a cycle can never cross chains.
  * @param {import('./graphStore.js').NodeRecord[]} nodes
  * @param {import('./graphStore.js').EdgeRecord[]} edges
- * @returns {Set<string>}
+ * @returns {Set<string>} node ids
  */
 export function findCycleNodes(nodes, edges) {
   /** @type {Map<string,string[]>} */
@@ -22,15 +23,15 @@ export function findCycleNodes(nodes, edges) {
     if (!list) { list = []; adj.set(a, list); }
     return list;
   };
-  (nodes || []).forEach((n) => { if (n && n.address) ensure(n.address); });
+  (nodes || []).forEach((n) => { if (n && n.id) ensure(n.id); });
 
   const result = new Set();
   (edges || []).forEach((e) => {
-    if (!e || !e.from || !e.to) return;
-    ensure(e.from);
-    ensure(e.to);
-    if (e.from === e.to) result.add(e.from); // self-loop is its own round-trip
-    else ensure(e.from).push(e.to);
+    if (!e || !e.fromId || !e.toId) return;
+    ensure(e.fromId);
+    ensure(e.toId);
+    if (e.fromId === e.toId) result.add(e.fromId); // self-loop is its own round-trip
+    else ensure(e.fromId).push(e.toId);
   });
 
   let index = 0;

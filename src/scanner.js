@@ -11,9 +11,13 @@
 //  - sampling is explicit: fetch "latest N" (offset N, per etherscanClient defaults)
 //  - count and report skipped / failed / capped in the summary
 //
-// loadOlder({ client, store, limiter, address, types, maxTxPerAddress, signal?, onLog? })
+// Both entry points take a required decimal `chainId` (matching the client they
+// are given); every node and edge they ingest is tagged with it. BFS sets stay
+// keyed by address because a run never leaves its chain.
+//
+// loadOlder({ client, store, limiter, chainId, address, types, maxTxPerAddress, signal?, onLog? })
 //  Per-node "load older" paging by block cursor (history.js). Fetches ONE older
-//  page per selected type for `address`, ingests rows through the same path as
+//  page per selected type for node nodeId(chainId, address), ingests rows through the same path as
 //  runScan (failed-tx drop, endpoint validation) but never expands new
 //  counterparties (they land at depth+1, unfetched). Resolves with
 //  { apiCalls, newEdges, newNodes, failed, skipped, errors, planRequired,
@@ -24,7 +28,7 @@
 // =============================================================================
 
 import { TX_TYPE_GROUPS } from "./config.js";
-import { isValidAddress, lc, isFailedTx } from "./format.js";
+import { isValidAddress, lc, isFailedTx, parseChainId, nodeId } from "./format.js";
 import { nextRequest, advance } from "./history.js";
 
 /**
@@ -64,6 +68,7 @@ import { nextRequest, advance } from "./history.js";
  * @property {import('./etherscanClient.js').EtherscanClient} client
  * @property {import('./graphStore.js').GraphStore} store
  * @property {import('./rateLimiter.js').RateLimiter} limiter
+ * @property {string}  chainId               decimal chain id the client fetches from (required)
  * @property {string}  root                  address to start from
  * @property {number}  maxDepth
  * @property {number}  maxTxPerAddress        per-address per-action sample size (offset)
@@ -89,10 +94,11 @@ function readCounts(store) {
 
 /**
  * Draw one fetched page into the store: drop failed txs, validate endpoints,
- * add both nodes (`cur` keeps `depth`, counterparties get depth+1) and the edge.
- * @returns {{ failed:number, skipped:number, others:string[] }} others = counterparties
+ * add both nodes (`cur` keeps `depth`, counterparties get depth+1) and the edge,
+ * all on `chainId`.
+ * @returns {{ failed:number, skipped:number, others:string[] }} others = counterparty addresses
  */
-function ingestRows(store, cur, depth, typeInfo, txs) {
+function ingestRows(store, chainId, cur, depth, typeInfo, txs) {
   let failed = 0;
   let skipped = 0;
   const others = [];
@@ -108,9 +114,10 @@ function ingestRows(store, cur, depth, typeInfo, txs) {
       skipped++;
       continue;
     }
-    store.addNode(from, { depth: from === cur ? depth : depth + 1 });
-    store.addNode(to, { depth: to === cur ? depth : depth + 1 });
+    store.addNode(chainId, from, { depth: from === cur ? depth : depth + 1 });
+    store.addNode(chainId, to, { depth: to === cur ? depth : depth + 1 });
     store.addEdge({
+      chainId,
       action: typeInfo.action,
       group: typeInfo.group,
       color: typeInfo.color,
@@ -162,6 +169,8 @@ export async function runScan(opts) {
     onLog,
   } = opts;
 
+  const chainId = parseChainId(opts.chainId);
+  if (chainId === null) throw new TypeError(`runScan: invalid chainId ${String(opts.chainId)}`);
   const rootLc = lc(root);
 
   // BFS state.
@@ -219,7 +228,7 @@ export async function runScan(opts) {
   }
 
   // Seed: the root is always a node and the first frontier entry.
-  store.addNode(rootLc, { depth: 0, isRoot: true });
+  store.addNode(chainId, rootLc, { depth: 0, isRoot: true });
   enqueue(rootLc, 0);
 
   scan: while (queue.length) {
@@ -235,7 +244,7 @@ export async function runScan(opts) {
     processed++;
 
     // Ensure the node exists (merge = min depth; sticky root is preserved).
-    store.addNode(cur, { depth });
+    store.addNode(chainId, cur, { depth });
     emitProgress(cur, depth);
 
     // Depth boundary: added above, but NOT expanded (no fetching past maxDepth).
@@ -270,12 +279,12 @@ export async function runScan(opts) {
 
       // First-load cursor from ALL returned rows (replaces any prior entry).
       store.setHistory(
-        cur,
+        nodeId(chainId, cur),
         typeInfo.action,
         advance(undefined, txs, maxTxPerAddress, { page: 1, offset: maxTxPerAddress })
       );
 
-      const r = ingestRows(store, cur, depth, typeInfo, txs);
+      const r = ingestRows(store, chainId, cur, depth, typeInfo, txs);
       failed += r.failed;
       skipped += r.skipped;
       // Expand the OTHER endpoint (enqueue dedup + cap enforced inside).
@@ -318,19 +327,22 @@ export function selectedTypes(selection) {
 
 /**
  * Fetch one older page per selected type for a single node. See header.
- * @param {object} opts
+ * @param {{ chainId:string, address:string } & object} opts LoadOlderOptions
  * @returns {Promise<{apiCalls:number,newEdges:number,newNodes:number,failed:number,skipped:number,errors:number,planRequired:boolean,stopped:boolean,allDone:boolean}>}
  */
 export async function loadOlder(opts) {
   const { client, store, limiter, types, maxTxPerAddress, signal, onLog } = opts;
+  const chainId = parseChainId(opts.chainId);
+  if (chainId === null) throw new TypeError(`loadOlder: invalid chainId ${String(opts.chainId)}`);
   const address = lc(opts.address);
+  const id = nodeId(chainId, address);
   const res = {
     apiCalls: 0, newEdges: 0, newNodes: 0, failed: 0, skipped: 0, errors: 0,
     planRequired: false, stopped: false, allDone: false,
   };
-  if (!store.hasNode(address)) return res;
+  if (!store.hasNode(id)) return res;
 
-  const depth = store.getNode(address).depth;
+  const depth = store.getNode(id).depth;
   const before = readCounts(store);
 
   for (const typeInfo of types) {
@@ -338,9 +350,9 @@ export async function loadOlder(opts) {
       res.stopped = true;
       break;
     }
-    if (!store.hasNode(address)) break; // pruned mid-load
+    if (!store.hasNode(id)) break; // pruned mid-load
     const { action } = typeInfo;
-    const entry = (store.getNode(address).history || {})[action];
+    const entry = (store.getNode(id).history || {})[action];
     const req = nextRequest(entry, maxTxPerAddress);
     if (!req) continue; // done
 
@@ -362,18 +374,18 @@ export async function loadOlder(opts) {
       }
       continue; // cursor unchanged
     }
-    if (!Array.isArray(txs) || !store.hasNode(address)) continue;
+    if (!Array.isArray(txs) || !store.hasNode(id)) continue;
 
-    const r = ingestRows(store, address, depth, typeInfo, txs);
+    const r = ingestRows(store, chainId, address, depth, typeInfo, txs);
     res.failed += r.failed;
     res.skipped += r.skipped;
-    store.setHistory(address, action, advance(entry, txs, maxTxPerAddress, req));
+    store.setHistory(id, action, advance(entry, txs, maxTxPerAddress, req));
   }
 
   const after = readCounts(store);
   res.newNodes = Math.max(0, after.nodes - before.nodes);
   res.newEdges = Math.max(0, after.edges - before.edges);
-  const node = store.hasNode(address) ? store.getNode(address) : null;
+  const node = store.hasNode(id) ? store.getNode(id) : null;
   res.allDone = !!node && types.length > 0 && types.every((t) => node.history?.[t.action]?.done);
   return res;
 }

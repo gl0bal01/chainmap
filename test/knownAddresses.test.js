@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { knownEntry, loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress } from "../src/knownAddresses.js";
+import { knownEntry, loadKnownAddresses, knownLabel, knownCategory, chainsForKnownAddress, isAllChainEntry } from "../src/knownAddresses.js";
 
 const DATA = {
   "1": {
@@ -113,4 +113,10 @@ test("chainsForKnownAddress: chain-specific first, then one '*' item", () => {
     { chainId: 1, label: "Ronin Exploiter (OFAC SDN)", category: "sanctioned" },
     { chainId: "*", label: "LAZARUS GROUP (OFAC SDN)", category: "sanctioned" },
   ]);
+});
+
+test("isAllChainEntry is true only when the '*' bucket answers", () => {
+  expect(isAllChainEntry(S, "1", STAR)).toBe(false);
+  expect(isAllChainEntry(S, "137", STAR)).toBe(true);
+  expect(isAllChainEntry("0x" + "9".repeat(40), "137", STAR)).toBe(false);
 });

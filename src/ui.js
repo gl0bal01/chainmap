@@ -24,6 +24,9 @@ Object.values(TX_TYPE_GROUPS).forEach((infos) => {
   });
 });
 
+// "Check other chains" result state -> details line text key.
+const PROBE_STATE_KEY = { active: "details.probeActive", inactive: "details.probeNone", plan: "details.probePlan", error: "details.probeError" };
+
 /**
  * Build a `<tr><td class="k">label</td><td>value</td></tr>` row. `value` may be
  * a plain string (set via textContent) or a DOM Node (e.g. an <a> or <em>) to
@@ -87,7 +90,7 @@ function explorerLink(href, text) {
  * Render the node-details panel. Uses safe DOM nodes / escaped values only.
  * @param {HTMLElement} container  #detailsContent
  * @param {import('./graphStore.js').NodeRecord} node
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string, onRename:(addr:string)=>void,
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:(string|null), onRename:(id:string)=>void,
  *           getKnownSource?:(addr:string)=>(string|null),
  *           history?:Array<{action:string,labelKey:string,state:'unloaded'|'more'|'complete',count:number}>,
  *           pageSize?:number, onLoadOlder?:()=>void, busy?:boolean,
@@ -98,6 +101,7 @@ function explorerLink(href, text) {
  *   (from `historyState`, plus each type's `labelKey`) adds the History row and a Load
  *   button (+`pageSize`) whose click calls `onLoadOlder`; the button is disabled when every
  *   type is complete, while `busy`, or when `loadBlocked` (a localized refusal) is set.
+ *   A null `explorer` (unknown chain) omits the Link row.
  */
 export function renderNodeDetails(container, node, deps) {
   const { i18n, explorer, onRename } = deps;
@@ -141,19 +145,21 @@ export function renderNodeDetails(container, node, deps) {
     });
     table.appendChild(detailRow(i18n.t("details.history"), box));
   }
-  table.appendChild(
-    detailRow(
-      i18n.t("details.link"),
-      explorerLink(`https://${explorer}/address/${node.address}`, i18n.t("details.viewOn", { explorer }))
-    )
-  );
+  if (explorer) {
+    table.appendChild(
+      detailRow(
+        i18n.t("details.link"),
+        explorerLink(`https://${explorer}/address/${node.address}`, i18n.t("details.viewOn", { explorer }))
+      )
+    );
+  }
   container.appendChild(table);
 
   const renameBtn = document.createElement("button");
   renameBtn.type = "button";
   renameBtn.style.marginTop = "8px";
   renameBtn.textContent = i18n.t("details.rename");
-  renameBtn.addEventListener("click", () => onRename(node.address));
+  renameBtn.addEventListener("click", () => onRename(node.id));
   container.appendChild(renameBtn);
 
   if (deps.history && deps.history.length) {
@@ -182,19 +188,83 @@ export function renderNodeDetails(container, node, deps) {
       container.appendChild(note);
     }
   }
+
+  const oc = deps.otherChains;
+  if (oc) {
+    const box = document.createElement("div");
+    if (!oc.twins.length) {
+      const em = document.createElement("em");
+      em.textContent = i18n.t("details.none");
+      box.appendChild(em);
+    }
+    for (const tw of oc.twins) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = `${tw.chainName} — ${i18n.t(tw.basis === "key" ? "details.twinKey" : "details.twinAddress")}`;
+      b.addEventListener("click", () => oc.onFocusTwin(tw.id));
+      box.appendChild(b);
+    }
+    if (oc.canApplyAlias) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = i18n.t("details.applyAlias");
+      b.disabled = !!deps.busy;
+      b.addEventListener("click", () => oc.onApplyAlias());
+      box.appendChild(b);
+    }
+    const actionBtn = (text, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.disabled = !!deps.busy;
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    const loadable = oc.loadable || [];
+    const loadText = (chainId) => i18n.t("details.loadOnChain", { chain: loadable.find((c) => c.chainId === chainId)?.name });
+    if (oc.onCheckOtherChains) box.appendChild(actionBtn(i18n.t("details.checkOtherChains"), () => oc.onCheckOtherChains()));
+    for (const r of oc.probe || []) {
+      const line = document.createElement("div");
+      line.textContent = `${r.name} — ${i18n.t(PROBE_STATE_KEY[r.state])}`;
+      if (r.state === "active" && loadable.some((c) => c.chainId === r.chainId)) {
+        line.appendChild(document.createTextNode(" "));
+        line.appendChild(actionBtn(loadText(r.chainId), () => oc.onLoadOnChain(r.chainId)));
+      }
+      box.appendChild(line);
+    }
+    if (loadable.length) {
+      const sel = document.createElement("select");
+      sel.setAttribute("aria-label", i18n.t("details.otherChains"));
+      for (const c of loadable) {
+        const opt = document.createElement("option");
+        opt.value = c.chainId;
+        opt.textContent = c.name;
+        sel.appendChild(opt);
+      }
+      const load = actionBtn(loadText(sel.value), () => oc.onLoadOnChain(sel.value));
+      sel.addEventListener("change", () => (load.textContent = loadText(sel.value)));
+      const row = document.createElement("div");
+      row.append(sel, " ", load);
+      box.appendChild(row);
+    }
+    const t2 = document.createElement("table");
+    t2.style.marginTop = "8px";
+    t2.appendChild(detailRow(i18n.t("details.otherChains"), box));
+    container.appendChild(t2);
+  }
 }
 
 /**
  * Render the edge-details panel (escaped symbol/alias, safe explorer links).
  * @param {HTMLElement} container
  * @param {import('./graphStore.js').EdgeRecord} edge
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string,
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:(string|null),
  *           getAlias:(addr:string)=>(string|null),
  *           getKnownLabel?:(addr:string)=>(string|null),
  *           getCategory?:(addr:string)=>(string|null),
  *           isFakeToken?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} deps
  *   getKnownLabel/getCategory/isFakeToken are optional (graceful when absent — e.g.
- *   Feature Layer 1 known-address data not yet loaded).
+ *   Feature Layer 1 known-address data not yet loaded). A null `explorer` omits the Link row.
  */
 export function renderEdgeDetails(container, edge, deps) {
   const { i18n, explorer, getAlias } = deps;
@@ -316,12 +386,14 @@ export function renderEdgeDetails(container, edge, deps) {
   }
   table.appendChild(detailRow(i18n.t("details.block"), edge.blockNumber));
   table.appendChild(detailRow(i18n.t("details.date"), formatTimestamp(edge.timeStamp, i18n.getLocale())));
-  table.appendChild(
-    detailRow(
-      i18n.t("details.link"),
-      explorerLink(`https://${explorer}/tx/${edge.hash}`, i18n.t("details.viewTx"))
-    )
-  );
+  if (explorer) {
+    table.appendChild(
+      detailRow(
+        i18n.t("details.link"),
+        explorerLink(`https://${explorer}/tx/${edge.hash}`, i18n.t("details.viewTx"))
+      )
+    );
+  }
 
   container.appendChild(table);
 }
@@ -330,8 +402,8 @@ export function renderEdgeDetails(container, edge, deps) {
  * Render the details panel for a BUNDLED edge (collapsed A->B transfers).
  * @param {HTMLElement} container
  * @param {import('./display.js').BundledEdge} bundle
- * @param {{ i18n:import('./i18n.js').I18n, explorer:string,
- *           getAlias:(addr:string)=>(string|null) }} deps
+ * @param {{ i18n:import('./i18n.js').I18n, explorer:(string|null),
+ *           getAlias:(addr:string)=>(string|null) }} deps  null `explorer` omits the Link row
  */
 export function renderBundleDetails(container, bundle, deps) {
   const { i18n, explorer, getAlias } = deps;
@@ -342,7 +414,7 @@ export function renderBundleDetails(container, bundle, deps) {
   table.appendChild(detailRow(i18n.t("details.to"), getAlias(bundle.to) || bundle.to));
   table.appendChild(detailRow(i18n.t("details.count"), String(bundle.count)));
   table.appendChild(detailRow(i18n.t("details.total"), `${bundle.totalText} ${bundle.symbol}`.trim()));
-  if (bundle.from && bundle.to) {
+  if (explorer && bundle.from && bundle.to) {
     table.appendChild(
       detailRow(
         i18n.t("details.link"),
@@ -351,6 +423,49 @@ export function renderBundleDetails(container, bundle, deps) {
     );
   }
   container.appendChild(table);
+}
+
+/**
+ * Details for a same-key overlay link (not a transaction). Strings via textContent.
+ * @param {HTMLElement} container
+ * @param {{ address:string, chains:[string,string] }} link
+ * @param {{ i18n:import('./i18n.js').I18n }} deps
+ */
+export function renderTwinDetails(container, link, { i18n }) {
+  container.replaceChildren();
+  const table = document.createElement("table");
+  table.appendChild(detailRow(i18n.t("details.type"), i18n.t("details.twinType")));
+  table.appendChild(detailRow(i18n.t("details.address"), link.address));
+  table.appendChild(detailRow(i18n.t("filters.chains"), `${link.chains[0]} ↔ ${link.chains[1]}`));
+  container.appendChild(table);
+  const note = document.createElement("p");
+  note.className = "hint";
+  note.textContent = i18n.t("details.twinKeyNote");
+  container.appendChild(note);
+}
+
+/**
+ * Chain visibility checkboxes (checked = visible); names via textContent.
+ * @param {HTMLElement} container
+ * @param {{ chains:Array<{chainId:string,name:string}>, hidden:Set<string>,
+ *           onToggle:(chainId:string, visible:boolean)=>void }} deps
+ */
+export function renderChainFilter(container, { chains, hidden, onToggle }) {
+  container.replaceChildren(
+    ...chains.map(({ chainId, name }) => {
+      const label = document.createElement("label");
+      label.className = "field check";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.chain = chainId;
+      input.checked = !hidden.has(chainId);
+      input.addEventListener("change", () => onToggle(chainId, input.checked));
+      const span = document.createElement("span");
+      span.textContent = name;
+      label.append(input, " ", span);
+      return label;
+    }),
+  );
 }
 
 /**

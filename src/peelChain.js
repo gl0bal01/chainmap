@@ -3,6 +3,7 @@
 // sequence A->B->C->… where each node forwards ~the same amount it just
 // received, onward to a single next hop — the classic laundering pattern where
 // value hops through fresh throwaway addresses. Node-testable; no vis, no DOM.
+// Works over node ids (`e.fromId`/`e.toId`), so a chain never hops chains.
 //
 // Amount basis: parses edge.amountText (nominal per-token magnitude, NOT fiat-
 // normalized) — same basis as display.edgeAmountNumber.
@@ -20,7 +21,7 @@ function amt(edge) {
  *   minLen   minimum node count in a chain (default 3)
  *   keepRatio forwarded/received must be >= this (default 0.9)
  *   slack    forwarded may exceed received by up to this factor (default 1.1)
- * @returns {string[][]} ordered address paths
+ * @returns {string[][]} ordered node-id paths
  */
 export function findPeelChains(edges, opts) {
   const o = opts || {};
@@ -34,8 +35,8 @@ export function findPeelChains(edges, opts) {
   const outSet = new Map(); // addr -> Set(to)
   for (const e of edges || []) {
     if (!e) continue;
-    const from = String(e.from || "").toLowerCase();
-    const to = String(e.to || "").toLowerCase();
+    const from = e.fromId;
+    const to = e.toId;
     if (!from || !to || from === to) continue;
     if (!outMap.has(from)) outMap.set(from, []);
     outMap.get(from).push({ to, edge: e });
@@ -67,8 +68,8 @@ export function findPeelChains(edges, opts) {
   // Start from edges whose source is NOT a pass-through (chain heads).
   for (const e of edges || []) {
     if (!e) continue;
-    const from = String(e.from || "").toLowerCase();
-    const to = String(e.to || "").toLowerCase();
+    const from = e.fromId;
+    const to = e.toId;
     if (!from || !to || from === to) continue;
     if (isPassThrough(from)) continue;             // not a head
     const startKey = from + ">" + to;

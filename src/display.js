@@ -21,12 +21,13 @@ export function edgeAmountNumber(edge) {
 
 /**
  * @param {import('./graphStore.js').EdgeRecord} edge
- * @param {{ spamContracts?:Set<string>, spamSymbols?:Set<string> }} opts
+ * @param {{ spamContractsFor?:(chainId:string)=>Set<string>, spamSymbols?:Set<string> }} opts
+ *   spam contracts are looked up on the edge's own chain
  * @returns {boolean} true if the edge is a known spam/airdrop token.
  */
 export function isSpam(edge, opts) {
   if (!edge) return false;
-  const contracts = opts && opts.spamContracts;
+  const contracts = opts && opts.spamContractsFor && opts.spamContractsFor(edge.chainId);
   const symbols = opts && opts.spamSymbols;
   const contract = (edge.tokenContract || "").toLowerCase();
   const symbol = (edge.symbol || "").toLowerCase();
@@ -73,14 +74,15 @@ export function parseSpamList(raw) {
  * predicate flags (imitation tokens).
  * @param {import('./graphStore.js').EdgeRecord} edge
  * @param {{ minAmount?:number, hideZero?:boolean, hideSpam?:boolean,
- *           minTime?:number, maxTime?:number,
- *           spamContracts?:Set<string>, spamSymbols?:Set<string>,
+ *           minTime?:number, maxTime?:number, hiddenChains?:Set<string>,
+ *           spamContractsFor?:(chainId:string)=>Set<string>, spamSymbols?:Set<string>,
  *           isFakeToken?:(edge:import('./graphStore.js').EdgeRecord)=>boolean }} opts
  * @returns {boolean}
  */
 export function passesFilters(edge, opts) {
   const o = opts || {};
   const amount = edgeAmountNumber(edge);
+  if (o.hiddenChains && o.hiddenChains.has(edge.chainId)) return false;
   if (o.hideZero && amount === 0) return false;
   if (o.minAmount > 0 && amount < o.minAmount) return false;
   if (o.hideSpam && (isSpam(edge, o) || (o.isFakeToken && o.isFakeToken(edge)))) return false;
@@ -100,7 +102,7 @@ export function passesFilters(edge, opts) {
  */
 export function filtersActive(opts) {
   const o = opts || {};
-  return Boolean((o.minAmount && o.minAmount > 0) || o.hideZero || o.hideSpam || o.minTime || o.maxTime);
+  return Boolean((o.minAmount && o.minAmount > 0) || o.hideZero || o.hideSpam || (o.hiddenChains && o.hiddenChains.size > 0) || o.minTime || o.maxTime);
 }
 
 /**
@@ -140,9 +142,12 @@ export function ageColor(ts, min, max) {
 
 /**
  * @typedef {object} BundledEdge
- * @property {string} id          synthetic bundle id ("bundle:from|to|contract|symbol")
- * @property {string} from
- * @property {string} to
+ * @property {string} id          synthetic bundle id ("bundle:fromId|toId|contract|symbol")
+ * @property {string} chainId     chain of every member (bundles never span chains)
+ * @property {string} from        address
+ * @property {string} to          address
+ * @property {string} fromId      node id
+ * @property {string} toId        node id
  * @property {string} symbol
  * @property {string} tokenContract
  * @property {string} color
@@ -155,7 +160,7 @@ export function ageColor(ts, min, max) {
  */
 
 /**
- * Collapse many per-tx edges into one weighted arrow per (from,to,contract,symbol)
+ * Collapse many per-tx edges into one weighted arrow per (fromId,toId,contract,symbol)
  * so same-unit transfers sum meaningfully. The store keeps every per-tx edge; this
  * is a DISPLAY aggregation only — memberKeys let the UI drill back to the rows.
  * @param {import('./graphStore.js').EdgeRecord[]} edges
@@ -166,12 +171,12 @@ export function bundleEdges(edges) {
   for (const e of edges) {
     const contract = (e.tokenContract || "").toLowerCase();
     const symbol = (e.symbol || "").toLowerCase();
-    const key = `${e.from}|${e.to}|${contract}|${symbol}`;
+    const key = `${e.fromId}|${e.toId}|${contract}|${symbol}`;
     let b = map.get(key);
     if (!b) {
       b = {
         id: `bundle:${key}`,
-        from: e.from, to: e.to,
+        chainId: e.chainId, from: e.from, to: e.to, fromId: e.fromId, toId: e.toId,
         symbol: e.symbol || "", tokenContract: e.tokenContract || "",
         color: e.color, group: e.group,
         count: 0, total: 0, hasData: false, memberKeys: [],

@@ -64,7 +64,9 @@ export function computeExportSize(preset, nodeCount) {
  * @param {import('./network.js').GraphView} view  live view (for node positions)
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ size:ExportSize, background?:string, addressFormat:'short'|'full',
- *           annotations?:Array<{text:string,x:number,y:number}> }} opts
+ *           annotations?:Array<{text:string,x:number,y:number}>,
+ *           chainTag?:(chainId:string)=>(string|null),
+ *           twinLinks?:Array<{a:string,b:string}>, twinLabel?:string }} opts
  * @returns {Promise<HTMLCanvasElement>}
  */
 export function renderExportCanvas(view, store, opts) {
@@ -76,7 +78,7 @@ export function renderExportCanvas(view, store, opts) {
 
   return new Promise((resolve, reject) => {
     const nodes = store.listNodes();
-    const ids = nodes.map((n) => n.address);
+    const ids = nodes.map((n) => n.id);
     const positions = view.getPositions(ids);
 
     const offscreen = document.createElement("div");
@@ -101,14 +103,14 @@ export function renderExportCanvas(view, store, opts) {
     try {
       const exportNodes = new vis.DataSet(
         nodes.map((n) => {
-          const p = positions[n.address] || { x: 0, y: 0 };
+          const p = positions[n.id] || { x: 0, y: 0 };
           const visual = nodeVisual(n);
           return {
-            id: n.address,
+            id: n.id,
             x: p.x,
             y: p.y,
             fixed: { x: true, y: true },
-            label: nodeLabel(n, { addressFormat }),
+            label: nodeLabel(n, { addressFormat, chainTag: opts.chainTag ? opts.chainTag(n.chainId) : null }),
             color: visual.color,
             title: visual.title,
           };
@@ -117,13 +119,21 @@ export function renderExportCanvas(view, store, opts) {
       const exportEdges = new vis.DataSet(
         store.listEdges().map((e) => ({
           id: e.key,
-          from: e.from,
-          to: e.to,
+          from: e.fromId,
+          to: e.toId,
           color: { color: e.color, inherit: false },
           label: edgeLabel(e),
           title: e.title,
         }))
       );
+      // Same-key overlay links (derived, display-only; same style as the live view).
+      (opts.twinLinks || []).forEach((l) => {
+        exportEdges.add({
+          id: `twin:${l.a}|${l.b}`, from: l.a, to: l.b, label: opts.twinLabel || "",
+          dashes: [2, 6], width: 1, color: { color: "#8b93a3", inherit: false },
+          font: { color: "#8b93a3" }, arrows: { to: { enabled: false } }, physics: false,
+        });
+      });
 
       // Sticky-note annotations bake into the exported image too.
       annotations.forEach((a, i) => {
@@ -190,11 +200,12 @@ export function renderExportCanvas(view, store, opts) {
  * @param {import('./network.js').GraphView} view
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ preset:'hd'|'qhd'|'uhd'|'auto', addressFormat:'short'|'full',
+ *           chainTag?:(chainId:string)=>(string|null),
  *           onLog:(e:{level:string,key:string,params?:object})=>void }} deps
  * @returns {Promise<void>}
  */
 export async function exportPng(view, store, deps) {
-  const { preset, addressFormat, onLog, annotations } = deps;
+  const { preset, addressFormat, onLog, annotations, chainTag, twinLinks, twinLabel } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -207,7 +218,7 @@ export async function exportPng(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel });
   triggerDownload(canvas.toDataURL("image/png"), `graph-${Date.now()}.png`);
   onLog({ level: "info", key: "log.exportPng", params: { w: canvas.width, h: canvas.height } });
 }
@@ -217,11 +228,12 @@ export async function exportPng(view, store, deps) {
  * @param {import('./network.js').GraphView} view
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ preset:'hd'|'qhd'|'uhd'|'auto', addressFormat:'short'|'full', jsPDF:any,
+ *           chainTag?:(chainId:string)=>(string|null),
  *           onLog:(e:{level:string,key:string,params?:object})=>void }} deps
  * @returns {Promise<void>}
  */
 export async function exportPdf(view, store, deps) {
-  const { preset, addressFormat, jsPDF, onLog, annotations } = deps;
+  const { preset, addressFormat, jsPDF, onLog, annotations, chainTag, twinLinks, twinLabel } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -234,7 +246,7 @@ export async function exportPdf(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel });
   const imgData = canvas.toDataURL("image/png");
   const doc = new jsPDF({
     orientation: canvas.width >= canvas.height ? "l" : "p",
@@ -252,13 +264,13 @@ export async function exportPdf(view, store, deps) {
 const CSV_HEADER = [
   "row_type", "address", "alias", "depth", "is_root",
   "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-  "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags",
+  "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
 ];
 
 /**
  * Build all CSV rows (caveat + header + node/edge rows). Pure — no DOM.
  * @param {import('../graphStore.js').GraphStore} store
- * @param {{ category:(addr:string)=>(string|null), isFakeToken?:(edge:object)=>boolean,
+ * @param {{ category:(addr:string, chainId:string)=>(string|null), isFakeToken?:(edge:object)=>boolean,
  *           formatTimestamp?:(t:string)=>string }} ctx
  * @returns {string[][]}
  */
@@ -266,19 +278,22 @@ export function buildCsvRows(store, ctx) {
   const fmtTs = (ctx && ctx.formatTimestamp) || formatTimestamp;
   const category = (ctx && ctx.category) || (() => null);
   const isFakeToken = ctx && ctx.isFakeToken;
+  const nodes = store.listNodes();
+  const multiChain = new Set(nodes.map((n) => n.chainId)).size >= 2;
   const rows = [
     // Sampling caveat: this graph reflects only the transactions retrieved
     // during the scan (latest-first, capped per address/type) — not full
     // on-chain history. Kept as the first CSV line so it survives copy/paste.
-    ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete"],
+    ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete" +
+      (multiChain ? "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer" : "")],
     CSV_HEADER,
   ];
 
-  for (const n of store.listNodes()) {
+  for (const n of nodes) {
     rows.push([
       "node", n.address, n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "",
+      "", "", "", "", "", n.chainId,
     ]);
   }
   for (const e of store.listEdges()) {
@@ -300,7 +315,7 @@ export function buildCsvRows(store, ctx) {
       "edge", "", "", "", "",
       e.group || "", e.from || "", e.to || "", e.amountText || "", e.symbol || "",
       e.hash || "", e.blockNumber || "", fmtTs(e.timeStamp),
-      method, sig, realRecipient, decodedAmount, flags,
+      method, sig, realRecipient, decodedAmount, flags, e.chainId,
     ]);
   }
   return rows;
@@ -310,7 +325,7 @@ export function buildCsvRows(store, ctx) {
  * CSV export: node rows + edge rows (with sampling caveat header). Walks the store.
  * @param {import('../graphStore.js').GraphStore} store
  * @param {{ onLog:(e:{level:string,key:string,params?:object})=>void,
- *           category?:(addr:string)=>(string|null),
+ *           category?:(addr:string, chainId:string)=>(string|null),
  *           isFakeToken?:(edge:object)=>boolean }} deps
  */
 export function exportCsv(store, deps) {

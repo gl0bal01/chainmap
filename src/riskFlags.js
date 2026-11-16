@@ -40,8 +40,8 @@ function isUnlimited(rawAmount) {
 /**
  * Compute risk-flag keys for an edge.
  * @param {import('./graphStore.js').EdgeRecord} edge
- * @param {{ category:(addr:string)=>(string|null), isFakeToken?:(edge:object)=>boolean }} ctx
- *   known-category lookup + optional imitation-token predicate (chain-bound by the caller)
+ * @param {{ category:(addr:string, chainId:string)=>(string|null), isFakeToken?:(edge:object)=>boolean }} ctx
+ *   known-category lookup (called with the edge's own chain) + optional imitation-token predicate
  * @returns {string[]} de-duplicated flag keys
  */
 export function flagsForEdge(edge, ctx) {
@@ -68,8 +68,8 @@ export function flagsForEdge(edge, ctx) {
     flags.add("flag.hiddenRecipient");
   }
 
-  // Mixer / bridge / sanctioned by resolved recipient's known category.
-  const cat = category(resolvedRecipient(edge));
+  // Mixer / bridge / sanctioned by resolved recipient's known category, on the edge's chain.
+  const cat = category(resolvedRecipient(edge), edge.chainId);
   if (cat === "mixer") flags.add("flag.mixer");
   else if (cat === "bridge") flags.add("flag.bridge");
   else if (cat === "sanctioned") flags.add("flag.sanctioned");

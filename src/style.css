@@ -216,6 +216,8 @@ select:focus-visible, label:focus-visible, summary:focus-visible {
 }
 .card[open] > summary.card-title::before { transform: rotate(90deg); }
 details.card:not([open]) > summary.card-title { margin-bottom: 0; }
+.legend-chain { width: 12px; text-align: center; }
+.legend-row[hidden], #twinToggleRow[hidden] { display: none; }
 .legend-row { font-size: 12px; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .line { width: 18px; height: 3px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
@@ -226,6 +228,7 @@ details.card:not([open]) > summary.card-title { margin-bottom: 0; }
 .line-internal { background: #f7a24f; }
 .line-token { background: #4fd67a; }
 .line-data { background: repeating-linear-gradient(90deg, #c9d3e3 0 4px, transparent 4px 7px); }
+.line-twin { background: repeating-linear-gradient(90deg, #8b93a3 0 2px, transparent 2px 6px); }
 .line-risk-high { background: #e0603a; }
 .line-risk-info { background: #d8b24a; }
 .dot-cycle { background: transparent; border: 2px solid #e8b84f; }

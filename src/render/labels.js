@@ -3,8 +3,8 @@
 // (no vis, no DOM): given a record + display settings, return label/color specs.
 //
 // STAGE A: interface frozen. STAGE B: implement + unit tests.
-// Identity vs display: node id is ALWAYS the raw lowercased address; labels are
-// derived here and never change ids.
+// Identity vs display: node id is ALWAYS `chainId:address` (format.nodeId);
+// labels are derived here and never change ids.
 // =============================================================================
 
 import { ROOT_COLOR } from "../config.js";
@@ -23,9 +23,9 @@ export function depthColor(depth) {
 /**
  * Node label text: display name + short/full address per `addressFormat`.
  * Name precedence: user alias > known-address label > (none). Identity (id) is
- * always the raw address; this only affects the drawn label.
+ * always the node id; this only affects the drawn label.
  * @param {import('../graphStore.js').NodeRecord} node
- * @param {{ addressFormat:'short'|'full', knownLabel?:string|null }} opts
+ * @param {{ addressFormat:'short'|'full', knownLabel?:string|null, chainTag?:string|null }} opts
  * @returns {string}
  */
 export function nodeLabel(node, opts) {
@@ -33,20 +33,22 @@ export function nodeLabel(node, opts) {
   const { addressFormat } = opts;
   const name = alias || (opts && opts.knownLabel) || null;
   const displayAddress = addressFormat === "full" ? address : shortAddress(address);
-  return name ? `${name}\n(${displayAddress})` : displayAddress;
+  const base = name ? `${name}\n(${displayAddress})` : displayAddress;
+  return opts.chainTag ? `${base}\n${opts.chainTag}` : base;
 }
 
 /**
  * vis node visual props (color/title). Title (hover) shows name + full address.
  * @param {import('../graphStore.js').NodeRecord} node
- * @param {{ knownLabel?:string|null }} [opts]
+ * @param {{ knownLabel?:string|null, chainTag?:string|null }} [opts]
  * @returns {{ color:string, title:string }}
  */
 export function nodeVisual(node, opts) {
   const { address, alias, depth, isRoot } = node;
   const color = isRoot ? ROOT_COLOR : depthColor(depth);
   const name = alias || (opts && opts.knownLabel) || null;
-  const title = name ? `${name} — ${address}` : address;
+  const base = name ? `${name} — ${address}` : address;
+  const title = opts && opts.chainTag ? `${base} · ${opts.chainTag}` : base;
   return { color, title };
 }
 

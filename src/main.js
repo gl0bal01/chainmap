@@ -15,10 +15,11 @@ import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS } f
 import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
-import { isValidAddress, isFailedTx, shortAddress } from "./format.js";
-import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress } from "./knownAddresses.js";
+import { isValidAddress, isFailedTx, shortAddress, nodeId } from "./format.js";
+import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress, isAllChainEntry } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
+import { addressEvidence, sameAddressLinks } from "./chainTwins.js";
 import { classifyHubs } from "./sinkFaucet.js";
 import { findCycleNodes } from "./roundTrips.js";
 import { findPeelChains } from "./peelChain.js";
@@ -43,6 +44,8 @@ import {
   renderEdgeDetails,
   renderBundleDetails,
   createLogger,
+  renderChainFilter,
+  renderTwinDetails,
   createStatus,
   createRequestIndicator,
 } from "./ui.js";
@@ -53,15 +56,36 @@ const clampInt = (raw, { min, max }, fallback) => {
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
 };
-const explorerFor = (chainId) => {
-  const c = CHAINS.find((x) => String(x.id) === String(chainId));
-  return c ? c.explorer : "etherscan.io";
-};
-const nativeSymbolFor = (chainId) => {
-  const c = CHAINS.find((x) => String(x.id) === String(chainId));
-  return c ? c.native : "ETH";
-};
-const chainName = (id) => (CHAINS.find((c) => String(c.id) === String(id)) || {}).name || String(id);
+const chainById = (id) => CHAINS.find((c) => String(c.id) === String(id));
+// Explorer host for a record's chain; an unknown chain gets no link (no fallback host).
+const explorerFor = (id) => chainById(id)?.explorer || null;
+const chainLabel = (id) => chainById(id)?.name || t("chain.unknown", { id });
+// Chain tag on labels: only once the graph spans 2+ chains; an unknown chain is always tagged.
+const getChainTag = (id) => (chainById(id) ? (store.chains().length >= 2 ? chainLabel(id) : null) : chainLabel(id));
+// Chains hidden by the Filters card (display projection only; the store keeps them).
+let hiddenChains = new Set();
+function refreshChainFilter() {
+  const cs = store.chains();
+  $("chainFilter").hidden = cs.length < 2;
+  renderChainFilter($("chainFilterList"), {
+    chains: cs.map((chainId) => ({ chainId, name: chainLabel(chainId) })),
+    hidden: hiddenChains,
+    onToggle: (chainId, visible) => {
+      if (visible) hiddenChains.delete(chainId);
+      else hiddenChains.add(chainId);
+      applyDisplayOptions();
+    },
+  });
+}
+function syncChainUi() {
+  const cs = store.chains();
+  hiddenChains = cs.length < 2 ? new Set() : new Set([...hiddenChains].filter((c) => cs.includes(c)));
+  $("legendChainTag").hidden = cs.length < 2;
+  $("twinToggleRow").hidden = cs.length < 2;
+  $("legendTwinKey").hidden = cs.length < 2 || !$("twinToggle").checked;
+  refreshChainFilter();
+  applyDisplayOptions(); // also refreshes the projection
+}
 // Tx types ticked in the scan form (what a scan or a load fetches).
 const formTypes = () =>
   selectedTypes({
@@ -89,12 +113,12 @@ let knownData = {}; // chain-scoped known-address labels
 let canonicalIndex = new Map(); // chain -> SYMBOL -> official token contracts (rebuilt from knownData)
 let spam = parseSpamList([]); // per-chain spam contracts + global spam symbols
 // The ONE flag ctx for every flagsForEdge call site (risk score, graph view,
-// details, CSV) — chain-bound at call time via dataChain().
-const isFakeTokenEdge = (edge) => isFakeToken(edge, dataChain(), canonicalIndex);
-const flagCtx = { category: (a) => knownCategory(a, dataChain(), knownData), isFakeToken: isFakeTokenEdge };
+// details, CSV) — every lookup uses the edge's own chain.
+const isFakeTokenEdge = (e) => isFakeToken(e, e.chainId, canonicalIndex);
+const flagCtx = { category: (a, chainId) => knownCategory(a, chainId, knownData), isFakeToken: isFakeTokenEdge };
 
 // --- Feature Layer 2 state --------------------------------------------------
-let hubMap = new Map(); // address -> 'sink' | 'faucet'
+let hubMap = new Map(); // node id -> 'sink' | 'faucet'
 let hubOn = false;      // whether hub de-emphasis is active
 
 const dateToEpoch = (v) => {
@@ -125,29 +149,28 @@ function syncHubHidden() {
 
 // Per-node risk from the graph's own signals (cycle / hub / degree / calldata /
 // known). Explainable — every reason surfaced in the details panel.
-function computeRisk(address) {
+function computeRisk(id) {
+  const { address, chainId } = store.getNode(id);
   const inC = new Set();
   const outC = new Set();
   const outEdges = [];
   let hasCall = false;
   for (const e of store.listEdges()) {
-    if (e.to === address) { inC.add(e.from); if (e.hasData) hasCall = true; }
-    if (e.from === address) { outC.add(e.to); if (e.hasData) hasCall = true; outEdges.push(e); }
+    if (e.toId === id) { inC.add(e.fromId); if (e.hasData) hasCall = true; }
+    if (e.fromId === id) { outC.add(e.toId); if (e.hasData) hasCall = true; outEdges.push(e); }
   }
   const cyc = findCycleNodes(store.listNodes(), store.listEdges());
-  const chainId = dataChain();
-  const categoryFor = (a) => knownCategory(a, chainId, knownData);
   // Risk flags from this node's own outgoing edges (unlimited approvals, mixer/bridge/sanctioned recipients).
   const flags = outEdges.flatMap((e) => flagsForEdge(e, flagCtx));
   return scoreNode({
     inDeg: inC.size,
     outDeg: outC.size,
-    hubKind: hubMap.get(address) || null,
-    onCycle: cyc.has(address),
+    hubKind: hubMap.get(id) || null,
+    onCycle: cyc.has(id),
     hasContractCalls: hasCall,
     known: !!knownLabel(address, chainId, knownData),
     approvalRisk: flags.includes("flag.approvalUnlimited"),
-    sanctioned: categoryFor(address) === "sanctioned" || flags.includes("flag.sanctioned"),
+    sanctioned: knownCategory(address, chainId, knownData) === "sanctioned" || flags.includes("flag.sanctioned"),
   });
 }
 function applyDisplayOptions() {
@@ -157,17 +180,20 @@ function applyDisplayOptions() {
     hideSpam: $("hideSpamToggle").checked,
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
-    spamContracts: spam.contractsFor(dataChain()),
+    hiddenChains,
+    spamContractsFor: spam.contractsFor,
     spamSymbols: spam.symbols,
     isFakeToken: isFakeTokenEdge,
   });
+  dropStaleTwinDetail();
+}
+// A twin link is derived: once it is gone (prune, toggle, refresh) its details panel is stale.
+function dropStaleTwinDetail() {
+  if (currentDetail?.kind === "edge" && String(currentDetail.id).startsWith("twin:") && !view.getEdgeData(currentDetail.id)) clearDetails();
 }
 
 // --- scan lifecycle state ---------------------------------------------------
 let scanning = false; // a scan OR a load is running (see withBusy) — never both
-// Chain the current graph was built on (scan on an empty graph / workspace / demo);
-// null after reset. Etherscan data from two chains must never mix in one graph.
-let graphChainId = null;
 /** Remember the current details selection so it can be re-rendered on locale change. */
 let currentDetail = null; // { kind:'node'|'edge', id }
 
@@ -183,11 +209,12 @@ function populateChains() {
     sel.appendChild(opt);
   });
   sel.value = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
-  sel.addEventListener("change", () => {
-    localStorage.setItem(STORAGE_KEYS.chainId, sel.value);
-    if (view) view.refreshLabels(); // known-address labels are chain-scoped
-    rerenderDetails(); // load button reflects the chain guard
-  });
+  if (!sel.value) { // stale stored chain no longer in CHAINS
+    sel.value = "1";
+    localStorage.setItem(STORAGE_KEYS.chainId, "1");
+  }
+  // The selector is only the chain for the next scan: nodes keep their own chain.
+  sel.addEventListener("change", () => localStorage.setItem(STORAGE_KEYS.chainId, sel.value));
 }
 
 // Bundled local datasets: known-address labels + spam token list. Same-origin
@@ -325,32 +352,134 @@ function wirePanels() {
 // ---------------------------------------------------------------------------
 // Details panel
 // ---------------------------------------------------------------------------
-// Chain the details/workspace describe: the graph's, falling back to the selector.
-const dataChain = () => graphChainId || $("chainSelect").value;
+// A chain this build has no entry for (e.g. from a newer workspace): no scan, no load.
+const unsupportedChain = (chainId) => (chainById(chainId) ? null : { key: "error.unknownChain", params: { id: chainId } });
 
-// Refusal for using `chainId` against the current graph, or null when allowed.
-function chainRefusal(chainId) {
-  return graphChainId && chainId !== graphChainId
-    ? { key: "error.chainMismatch", params: { chain: chainName(graphChainId) } }
-    : null;
+// Why a scan or load on `chainId` can't run now ({key, params?}), or null.
+function loadRefusal(chainId) {
+  if (!$("apiKey").value.trim()) return { key: "error.apiKeyRequired" };
+  if (!formTypes().length) return { key: "error.noTypeSelected" };
+  return unsupportedChain(chainId);
 }
 
-function showNodeDetails(address) {
-  const node = store.getNode(address);
+// Log "Added {chain}" when a scan brought a new chain into a multi-chain graph.
+function logChainAdded(before, chainId) {
+  const n = store.chains().length;
+  if (!before.includes(chainId) && n >= 2) logger.log({ level: "info", key: "log.chainAdded", params: { chain: chainLabel(chainId), n } });
+}
+
+// Same-address nodes on other chains, from the links touching `node` (derived, never stored).
+function otherChainsFor(node) {
+  const twins = [];
+  for (const l of sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS))) {
+    const other = l.a === node.id ? l.b : l.b === node.id ? l.a : null;
+    if (other) twins.push({ id: other, chainName: chainLabel(store.getNode(other).chainId), basis: l.basis });
+  }
+  return {
+    twins,
+    canApplyAlias: !!node.alias && twins.some((x) => x.basis === "key" && !store.getNode(x.id).alias),
+    onFocusTwin: (tid) => revealAndFocus({ kind: "node", id: tid }),
+    onApplyAlias: () => applyAliasToTwins(node.id),
+    probe: probeCache.get(node.address) || null,
+    // Probe-priority order first (mainnets), so the picker never defaults to a testnet.
+    loadable: CHAINS.filter((c) => !store.hasNode(nodeId(String(c.id), node.address)))
+      .sort((x, y) => probePriority(x.id) - probePriority(y.id))
+      .map((c) => ({ chainId: String(c.id), name: c.name })),
+    onCheckOtherChains: () => checkOtherChains(node.id),
+    onLoadOnChain: (chainId) => loadOnChain(node.id, chainId),
+  };
+}
+
+const probePriority = (id) => {
+  const i = PROBE_CHAIN_IDS.indexOf(id);
+  return i < 0 ? PROBE_CHAIN_IDS.length : i;
+};
+
+// "Check other chains" results per address (session only, not graph facts): cleared on every store reset.
+const probeCache = new Map();
+
+// Probe this address on the probe set's chains it isn't on yet, as THE network op (Stop cancels it).
+async function checkOtherChains(id) {
+  const node = store.getNode(id);
   if (!node) return;
-  currentDetail = { kind: "node", id: address };
+  if (scanning || detecting) return rerenderDetails();
+  if (!$("apiKey").value.trim()) {
+    logger.log({ level: "error", key: "error.apiKeyRequired" });
+    return rerenderDetails();
+  }
+  const candidates = PROBE_CHAIN_IDS.filter((c) => !store.hasNode(nodeId(String(c), node.address)))
+    .map((c) => ({ chainId: c, name: chainLabel(c) }));
+  await withBusy(async ({ signal, limiter }) => {
+    const results = await probeChains(node.address, candidates, { probeOne: probeOneChain, limiter, signal });
+    if (signal.aborted) return; // a stopped probe is partial: discard it, never show it as complete
+    // Stored before withBusy's final re-render, so the results show as soon as Stop/Start re-enable.
+    probeCache.set(node.address, rankChainActivity(results).ranked.map((r) => ({
+      chainId: String(r.chainId),
+      name: r.name,
+      state: r.planRequired ? "plan" : r.error ? "error" : r.active ? "active" : "inactive",
+    })));
+  });
+}
+
+// One first-load page of this address on another chain (no BFS). The new node takes the
+// source's depth and root flag, never its alias; if nothing could be fetched it is removed again.
+async function loadOnChain(id, chainId) {
+  const src = store.getNode(id);
+  if (!src) return;
+  if (scanning || detecting) return rerenderDetails();
+  const refusal = loadRefusal(chainId);
+  if (refusal) {
+    logger.log({ level: "error", ...refusal });
+    return rerenderDetails();
+  }
+  const newId = nodeId(chainId, src.address);
+  if (store.hasNode(newId)) return rerenderDetails(); // already there: never load into, or remove, an existing node
+  const before = store.chains();
+  store.addNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot });
+  const res = await loadOlderFor(newId);
+  if (res && !res.stopped && !res.errors && res.newEdges === 0) {
+    store.removeNodes([newId]); // fetched fine, nothing there: never keep an isolated node
+    logger.log({ level: "info", key: "log.loadOnChainNone", params: { chain: chainLabel(chainId) } });
+  } else if (store.getNode(newId)?.history) {
+    logChainAdded(before, chainId);
+  } else {
+    store.removeNodes([newId]);
+    // Stopped by the user: info, not a failure.
+    logger.log({ level: res?.stopped ? "info" : "error", key: "log.loadOnChainEmpty", params: { chain: chainLabel(chainId) } });
+  }
+  rerenderDetails(); // whatever the user selected meanwhile, not a jump back to the source
+}
+
+// Copy this node's alias to same-key twins that have none; never overwrites.
+function applyAliasToTwins(id) {
+  const node = store.getNode(id);
+  if (!node || !node.alias) return;
+  const targets = otherChainsFor(node).twins.filter((x) => x.basis === "key" && !store.getNode(x.id).alias);
+  targets.forEach((x) => store.setAlias(x.id, node.alias));
+  logger.log({ level: "info", key: "log.aliasApplied", params: { n: targets.length } });
+  rerenderDetails();
+}
+
+function showNodeDetails(id) {
+  const node = store.getNode(id);
+  if (!node) return;
+  currentDetail = { kind: "node", id };
   const types = formTypes();
   renderNodeDetails($("detailsContent"), node, {
     i18n,
-    explorer: explorerFor(dataChain()),
+    explorer: explorerFor(node.chainId),
     onRename: promptAlias,
-    risk: computeRisk(address),
-    getKnownSource: (a) => knownEntry(a, dataChain(), knownData)?.source || null,
+    risk: computeRisk(id),
+    getKnownSource: (a) => {
+      const source = knownEntry(a, node.chainId, knownData)?.source || null;
+      return source && isAllChainEntry(a, node.chainId, knownData) ? `${source} — ${t("details.allChainsListing")}` : source;
+    },
     history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
     pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
-    onLoadOlder: () => loadOlderFor(address),
+    onLoadOlder: () => loadOlderFor(id),
     busy: scanning || detecting,
-    loadBlocked: chainRefusal($("chainSelect").value),
+    loadBlocked: unsupportedChain(node.chainId),
+    otherChains: otherChainsFor(node),
   });
 }
 
@@ -358,13 +487,16 @@ function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
   currentDetail = { kind: "edge", id: edgeKey };
-  const chainId = dataChain();
+  if (data.twin) {
+    const lab = (id) => chainLabel(store.getNode(id)?.chainId);
+    return renderTwinDetails($("detailsContent"), { address: data.address, chains: [lab(data.a), lab(data.b)] }, { i18n });
+  }
   const deps = {
     i18n,
-    explorer: explorerFor(chainId),
-    getAlias: (a) => store.getAlias(a),
-    getKnownLabel: (a) => knownLabel(a, chainId, knownData),
-    getCategory: (a) => knownCategory(a, chainId, knownData),
+    explorer: explorerFor(data.chainId),
+    getAlias: (a) => store.getAlias(nodeId(data.chainId, a)),
+    getKnownLabel: (a) => knownLabel(a, data.chainId, knownData),
+    getCategory: (a) => knownCategory(a, data.chainId, knownData),
     isFakeToken: isFakeTokenEdge,
   };
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
@@ -383,13 +515,14 @@ function clearDetails() {
   el.textContent = t("details.empty");
 }
 
-function promptAlias(address) {
-  const current = store.getAlias(address) || "";
-  const next = window.prompt(t("alias.prompt", { addr: address }), current);
+function promptAlias(id) {
+  const node = store.getNode(id);
+  if (!node) return;
+  const next = window.prompt(t("alias.prompt", { addr: node.address }), node.alias || "");
   if (next === null) return; // cancelled
-  store.setAlias(address, next.trim() || null); // store emits alias:set -> view refreshes
-  if (currentDetail && currentDetail.kind === "node" && currentDetail.id === address) {
-    showNodeDetails(address);
+  store.setAlias(id, next.trim() || null); // store emits alias:set -> view refreshes
+  if (currentDetail && currentDetail.kind === "node" && currentDetail.id === id) {
+    showNodeDetails(id);
   }
 }
 
@@ -400,17 +533,17 @@ function promptAlias(address) {
 // palette.js) so it always reflects the CURRENT store + chain-scoped labels —
 // no separate index to keep in sync.
 function buildSearchRecords() {
-  const chainId = dataChain();
   const records = [];
+  const multi = store.chains().length >= 2;
   for (const node of store.listNodes()) {
-    const alias = store.getAlias(node.address);
-    const known = knownLabel(node.address, chainId, knownData);
-    const category = knownCategory(node.address, chainId, knownData);
+    const alias = store.getAlias(node.id);
+    const known = knownLabel(node.address, node.chainId, knownData);
+    const category = knownCategory(node.address, node.chainId, knownData);
     records.push({
       kind: "node",
-      id: node.address,
+      id: node.id,
       title: alias || known || shortAddress(node.address),
-      subtitle: node.address,
+      subtitle: multi ? `${node.address} · ${chainLabel(node.chainId)}` : node.address,
       text: [alias, known, category].filter(Boolean).map((s) => s.toLowerCase()),
       hex: [node.address],
     });
@@ -421,7 +554,7 @@ function buildSearchRecords() {
       kind: "edge",
       id: edge.key,
       title: method || `${edge.symbol} tx`,
-      subtitle: `${shortAddress(edge.from)} → ${shortAddress(edge.to)}`,
+      subtitle: `${shortAddress(edge.from)} → ${shortAddress(edge.to)}${multi ? ` · ${chainLabel(edge.chainId)}` : ""}`,
       text: [method].filter(Boolean).map((s) => s.toLowerCase()),
       hex: [edge.hash].filter(Boolean),
     });
@@ -433,13 +566,20 @@ function buildSearchRecords() {
 // projection — the store is untouched, so CSV/detail data stays complete (same
 // invariant as the manual "Hide faucets/sinks" checkboxes). No-op if the node
 // is already visible.
-function revealNode(address) {
-  if (view.hasRenderedNode(address)) return;
+function revealNode(id) {
+  if (view.hasRenderedNode(id)) return;
+
+  const chain = store.getNode(id)?.chainId;
+  if (hiddenChains.delete(chain)) {
+    refreshChainFilter();
+    applyDisplayOptions();
+    if (view.hasRenderedNode(id)) return;
+  }
 
   // Only the toggle matching THIS node's own hub kind can be hiding it — clearing
   // the other one too would be a no-op for this reveal and surprise the user by
   // silently changing an unrelated filter.
-  const kind = hubMap.get(address);
+  const kind = hubMap.get(id);
   if (kind === "faucet" && $("hideFaucetsChk").checked) {
     $("hideFaucetsChk").checked = false;
     syncHubHidden();
@@ -448,7 +588,7 @@ function revealNode(address) {
     syncHubHidden();
   }
 
-  if (!view.hasRenderedNode(address)) {
+  if (!view.hasRenderedNode(id)) {
     $("minAmount").value = 0;
     $("hideZeroToggle").checked = false;
     $("hideSpamToggle").checked = false;
@@ -457,7 +597,8 @@ function revealNode(address) {
     applyDisplayOptions();
   }
 
-  logger.log({ level: "info", key: "palette.revealed", params: { addr: shortAddress(address) } });
+  const node = store.getNode(id);
+  logger.log({ level: "info", key: "palette.revealed", params: { addr: shortAddress(node ? node.address : "") } });
 }
 
 // palette.js's onPick: reveal (if needed), select, focus/fit, open details.
@@ -470,9 +611,9 @@ function revealAndFocus(record) {
   }
   const edge = store.listEdges().find((e) => e.key === record.id);
   if (!edge) return;
-  revealNode(edge.from);
-  revealNode(edge.to);
-  view.fit({ nodes: [edge.from, edge.to], animation: { duration: 400, easingFunction: "easeInOutQuad" } });
+  revealNode(edge.fromId);
+  revealNode(edge.toId);
+  view.fit({ nodes: [edge.fromId, edge.toId], animation: { duration: 400, easingFunction: "easeInOutQuad" } });
   // selectEdge resolves record.id (a raw per-tx store key) to whatever id is
   // actually rendered — itself when unbundled, or the owning bundle when
   // bundling is on — and never throws, unlike a raw network.setSelection with a
@@ -551,17 +692,11 @@ async function startScan() {
 
   if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
   if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
-  if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
-  // Roots on the same chain accumulate; another chain needs an empty graph.
-  const refusal = store.stats().nodes > 0 && chainRefusal(chainId);
+  // Roots accumulate on any supported chain: another chain adds a root on that chain.
+  const refusal = loadRefusal(chainId);
   if (refusal) return logger.log({ level: "error", ...refusal });
-  graphChainId = chainId;
-  applyDisplayOptions(); // per-chain spam contracts follow the graph chain
+  const before = store.chains();
 
-  // Native-value txs (no tokenSymbol) must show THIS chain's ticker, not a
-  // hardcoded "ETH" — set before any edges are added so the whole scan is
-  // consistent (a graph is single-chain per scan).
-  store.setNativeSymbol(nativeSymbolFor(chainId));
   const client = createEtherscanClient({ apiKey, chainId });
 
   collapseControls(); // give the map the full surface once a scan begins
@@ -579,6 +714,7 @@ async function startScan() {
       client,
       store,
       limiter,
+      chainId,
       root: address,
       maxDepth,
       maxTxPerAddress,
@@ -607,9 +743,10 @@ async function startScan() {
     key: "log.scanDone",
     params: { nodes: summary.nodes, edges: summary.edges, calls: summary.apiCalls },
   });
+  logChainAdded(before, chainId);
   status.set(
     summary.planRequired
-      ? t("status.planRequired", { chain: chainName(chainId) })
+      ? t("status.planRequired", { chain: chainLabel(chainId) })
       : t("status.done", { nodes: summary.nodes, edges: summary.edges })
   );
 
@@ -617,33 +754,31 @@ async function startScan() {
 }
 
 // Details-panel "Load older": fetch the next older page per selected type for
-// one node, on the graph's chain. Counterparties are added, never expanded.
-async function loadOlderFor(address) {
+// one node, on THAT node's chain. Counterparties are added, never expanded.
+async function loadOlderFor(id) {
+  const node = store.getNode(id);
+  if (!node) return;
   // Busy (or probing chains): ignore, but re-render so the clicked button isn't left disabled.
   if (scanning || detecting) return rerenderDetails();
   const apiKey = $("apiKey").value.trim();
   const types = formTypes();
-  const refusal = !apiKey
-    ? { key: "error.apiKeyRequired" }
-    : !types.length
-      ? { key: "error.noTypeSelected" }
-      : chainRefusal($("chainSelect").value);
+  const refusal = loadRefusal(node.chainId);
   if (refusal) {
     logger.log({ level: "error", ...refusal });
     return rerenderDetails();
   }
 
   const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
-  store.setNativeSymbol(nativeSymbolFor(graphChainId));
   showSamplingBanner(maxTxPerAddress); // loaded rows are a sample too (demo/workspace graphs hide it)
-  status.set(t("status.loadingOlder", { addr: shortAddress(address) }));
+  status.set(t("status.loadingOlder", { addr: shortAddress(node.address) }));
 
   const res = await withBusy(({ signal, limiter }) =>
     loadOlder({
-      client: createEtherscanClient({ apiKey, chainId: graphChainId }),
+      client: createEtherscanClient({ apiKey, chainId: node.chainId }),
       store,
       limiter,
-      address,
+      chainId: node.chainId,
+      address: node.address,
       types,
       maxTxPerAddress,
       signal,
@@ -656,16 +791,16 @@ async function loadOlderFor(address) {
   logger.log({
     level: "info",
     key: "log.loadOlderDone",
-    params: { addr: address, edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
+    params: { addr: node.address, edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
   });
-  const done = { edges: res.newEdges, addr: shortAddress(address), errors: res.errors };
+  const done = { edges: res.newEdges, addr: shortAddress(node.address), errors: res.errors };
   const key = res.stopped ? "status.loadOlderStopped" : res.errors ? "status.loadOlderErrors" : "status.loadOlderDone";
-  status.set(res.planRequired ? t("status.planRequired", { chain: chainName(graphChainId) }) : t(key, done));
+  status.set(res.planRequired ? t("status.planRequired", { chain: chainLabel(node.chainId) }) : t(key, done));
+  return res;
 }
 
 function resetGraph() {
   if (scanning) return;
-  graphChainId = null;
   store.reset(); // view clears via 'reset' event
   logger.clear();
   status.clear();
@@ -746,7 +881,7 @@ async function startDetectChain() {
     const hit = localHits[0]; // first-listed chain-specific hit wins
     $("chainSelect").value = String(hit.chainId);
     $("chainSelect").dispatchEvent(new Event("change"));
-    const chains = localHits.map((h) => (h.chainId === "*" ? t("details.allChains") : chainName(h.chainId))).join(", ");
+    const chains = localHits.map((h) => (h.chainId === "*" ? t("details.allChains") : chainLabel(h.chainId))).join(", ");
     logger.log({ level: "info", key: "detect.localHit", params: { label: hit.label, chains } });
     if (el) {
       el.className = "detect ok";
@@ -853,13 +988,14 @@ function currentFilters() {
     bundle: $("bundleToggle").checked,
     minTime: dateToEpoch($("dateFrom").value),
     maxTime: dateToEpoch($("dateTo").value),
+    hiddenChains: [...hiddenChains],
+    showTwins: $("twinToggle").checked,
   };
 }
 
 function saveWorkspace() {
   if (!store.stats().nodes) return logger.log({ level: "error", key: "log.exportEmpty" });
   const ws = serializeWorkspace({
-    chainId: dataChain(), // the graph's chain, not whatever the selector shows now
     root: $("address").value.trim().toLowerCase() || null,
     nodes: store.listNodes(),
     edges: store.listEdges(),
@@ -874,16 +1010,17 @@ function saveWorkspace() {
 }
 
 // Returns false (and logs) when refused: a scan/load in flight would keep writing
-// into the replaced graph — mixed chains, mis-credited counts. Checked here, at
+// into the replaced graph — stray records, mis-credited counts. Checked here, at
 // apply time, because demo/file loads resolve asynchronously after the click.
 function applyWorkspace(ws) {
   if (scanning) {
     logger.log({ level: "error", key: "error.busy" });
     return false;
   }
-  if (ws.chainId) $("chainSelect").value = String(ws.chainId);
-  graphChainId = String(ws.chainId || $("chainSelect").value);
   store.loadSnapshot(ws.nodes, ws.edges);
+  // A single-chain graph drives the selector (the chain for the next scan).
+  const cs = store.chains();
+  if (cs.length === 1 && chainById(cs[0])) $("chainSelect").value = cs[0];
   const f = ws.filters || {};
   $("minAmount").value = f.minAmount || 0;
   $("hideZeroToggle").checked = !!f.hideZero;
@@ -891,6 +1028,8 @@ function applyWorkspace(ws) {
   $("bundleToggle").checked = !!f.bundle;
   $("dateFrom").value = epochToLocal(f.minTime);
   $("dateTo").value = epochToLocal(f.maxTime);
+  hiddenChains = new Set((f.hiddenChains || []).filter((c) => cs.length >= 2 && cs.includes(c)));
+  refreshChainFilter();
   if (ws.layout) {
     $("layoutSelect").value = ws.layout;
     view.setLayout(ws.layout);
@@ -900,15 +1039,26 @@ function applyWorkspace(ws) {
   if ($("hideFaucetsChk").checked || $("hideSinksChk").checked) syncHubHidden();
   if ($("peelChk").checked) view.setPeelChains(findPeelChains(store.listEdges(), {}));
   view.refreshLabels();
+  $("twinToggle").checked = f.showTwins !== false;
+  view.setTwins($("twinToggle").checked);
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
+  syncChainUi();
   clearDetails();
+  if (ws.assumedChainId) {
+    logger.log({ level: "info", key: "log.workspaceAssumedChain", params: { chain: chainLabel(ws.assumedChainId) } });
+  }
   return true;
 }
 
+// Parse refusal: the localized message when the workspace module names one.
+function logWorkspaceRefusal(res) {
+  logger.log(res.errorKey ? { level: "error", key: res.errorKey } : { level: "error", key: "log.workspaceError", params: { error: res.error } });
+}
+
 function loadWorkspaceFromText(text) {
-  const res = parseWorkspace(text);
-  if (!res.ok) return logger.log({ level: "error", key: "log.workspaceError", params: { error: res.error } });
+  const res = parseWorkspace(text, { fallbackChainId: $("chainSelect").value });
+  if (!res.ok) return logWorkspaceRefusal(res);
   if (!applyWorkspace(res.data)) return;
   const s = store.stats();
   logger.log({ level: "info", key: "log.workspaceLoaded", params: { nodes: s.nodes, edges: s.edges } });
@@ -918,8 +1068,8 @@ async function loadDemo() {
   try {
     const resp = await fetch(DATA_PATHS.demo);
     if (!resp.ok) throw new Error(String(resp.status));
-    const res = parseWorkspace(await resp.json());
-    if (!res.ok) throw new Error(res.error);
+    const res = parseWorkspace(await resp.json(), { fallbackChainId: $("chainSelect").value });
+    if (!res.ok) return logWorkspaceRefusal(res);
     if (applyWorkspace(res.data)) logger.log({ level: "info", key: "log.demoLoaded" });
   } catch (e) {
     logger.log({ level: "error", key: "log.workspaceError", params: { error: String(e.message || e) } });
@@ -969,12 +1119,15 @@ async function runEstimate() {
 // ---------------------------------------------------------------------------
 // Prune / rotate / high-degree / fit / export
 // ---------------------------------------------------------------------------
+// The one prune path (Delete button and Delete/Backspace key).
 function deleteSelectedNodes() {
+  if (scanning) return logger.log({ level: "error", key: "error.busy" }); // the scan would re-add or mis-count them
   const selected = view.network.getSelectedNodes();
   if (!selected.length) return logger.log({ level: "error", key: "error.selectNodesFirst" });
   const { removedNodes } = store.removeNodes(selected);
   logger.log({ level: "info", key: "log.nodesDeleted", params: { n: removedNodes } });
   if (currentDetail && selected.includes(currentDetail.id)) clearDetails();
+  dropStaleTwinDetail();
 }
 
 function wireControls() {
@@ -994,7 +1147,7 @@ function wireControls() {
   const onLog = (e) => logger.log(e);
   const addressFormat = () => $("addressFormat").value;
   $("exportPngBtn").addEventListener("click", () =>
-    exportPng(view, store, { preset: $("exportResolution").value, addressFormat: addressFormat(), annotations: view.getAnnotations(), onLog })
+    exportPng(view, store, { preset: $("exportResolution").value, addressFormat: addressFormat(), annotations: view.getAnnotations(), chainTag: getChainTag, twinLinks: view.getTwinLinks(), twinLabel: t("details.twinKey"), onLog })
   );
   $("exportPdfBtn").addEventListener("click", () =>
     exportPdf(view, store, {
@@ -1002,6 +1155,9 @@ function wireControls() {
       addressFormat: addressFormat(),
       jsPDF: window.jspdf.jsPDF,
       annotations: view.getAnnotations(),
+      chainTag: getChainTag,
+      twinLinks: view.getTwinLinks(),
+      twinLabel: t("details.twinKey"),
       onLog,
     })
   );
@@ -1014,6 +1170,10 @@ function wireControls() {
   $("hideZeroToggle").addEventListener("change", applyDisplayOptions);
   $("hideSpamToggle").addEventListener("change", applyDisplayOptions);
   $("bundleToggle").addEventListener("change", () => view.setBundling($("bundleToggle").checked));
+  $("twinToggle").addEventListener("change", () => {
+    view.setTwins($("twinToggle").checked);
+    syncChainUi();
+  });
   $("address").addEventListener("input", renderAddressDetect);
   // History row + load button follow the selected types and page size.
   // `input` (not `change`) for the page size: a blur-time rebuild would swallow the next Load click.
@@ -1086,21 +1246,40 @@ function init() {
   view = createGraphView($("graph"), store, {
     i18n,
     getAddressFormat: () => $("addressFormat").value,
-    getKnownLabel: (address) => knownLabel(address, dataChain(), knownData),
+    getKnownLabel: (a, c) => knownLabel(a, c, knownData),
+    getChainTag,
+    getKnownNote: (a, c) => (isAllChainEntry(a, c, knownData) ? t("details.allChainsListing") : null),
     // Returns the hub classification whenever ANY hub-driven feature is engaged
     // (the dim-only toggle OR either hide toggle) — not just when hubOn is on —
     // so "Hide faucets"/"Hide sinks" work independently of the dim toggle. The
     // DIM decision itself is separate — see getHubDimOn — so checking only
     // "Hide faucets" never greys out sinks too.
-    getHubKind: (address) =>
-      hubOn || $("hideFaucetsChk").checked || $("hideSinksChk").checked ? hubMap.get(address) || null : null,
+    getHubKind: (id) =>
+      hubOn || $("hideFaucetsChk").checked || $("hideSinksChk").checked ? hubMap.get(id) || null : null,
     // Gates the grey "de-emphasized hub" node background in applyNode. ONLY the
     // dim-only hubToggle — independent of the hide checkboxes above — so
     // checking "Hide faucets" (hubToggle OFF) hides faucets without dimming
     // sinks (or anything else).
     getHubDimOn: () => hubOn,
-    getCategory: (address) => knownCategory(address, dataChain(), knownData),
+    getCategory: (a, c) => knownCategory(a, c, knownData),
     getEdgeFlags: (edge) => flagsForEdge(edge, flagCtx),
+  });
+  // Chain tags / legend row depend on the distinct chain set: resync only when it changes.
+  let lastChains = store.chains().join(",");
+  view.setTwins(true);
+  let chainSyncQueued = false;
+  store.subscribe((e) => {
+    if (e.type === "reset") probeCache.clear(); // incl. workspace/demo load (loadSnapshot resets)
+    if (e.type !== "node:add" && e.type !== "node:remove" && e.type !== "reset") return;
+    if (chainSyncQueued) return;
+    chainSyncQueued = true;
+    queueMicrotask(() => {
+      chainSyncQueued = false;
+      const now = store.chains().join(",");
+      if (now === lastChains) return;
+      lastChains = now;
+      syncChainUi();
+    });
   });
   logger = createLogger($("logContent"), i18n);
   status = createStatus($("status"));
@@ -1112,6 +1291,7 @@ function init() {
     onNodeSelect: showNodeDetails,
     onEdgeSelect: showEdgeDetails,
     onAliasEdit: promptAlias,
+    onDelete: deleteSelectedNodes,
     onLog: (e) => logger.log(e),
   });
 
