@@ -583,7 +583,7 @@ export function renderQueryLog(container, entries, { i18n, dropped, unloggedData
     cell(e.chainId);
     cell(e.action);
     cell(shortAddress(e.params.address), e.params.address);
-    cell(`${e.params.page}/${e.params.offset}`);
+    cell(`${e.params.page ?? "—"}/${e.params.offset ?? "—"}`);
     cell(e.httpStatus ?? "—");
     cell(e.rows ?? "—");
     cell(e.sha256 ? e.sha256.slice(0, 12) : "—", e.sha256 || "");

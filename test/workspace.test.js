@@ -404,7 +404,7 @@ describe("workspace query log + provenance (v3, optional fields)", () => {
       ...over,
     };
   };
-  const state = { entries: [entry(), entry({ at: "2026-11-16T10:00:01Z", rows: 0 })], dropped: 0, unloggedData: false };
+  const state = { entries: [entry(), entry({ at: "2026-11-16T10:00:01.000Z", rows: 0 })], dropped: 0, unloggedData: false };
 
   test("serialize writes queryLog + provenance after annotations", () => {
     const ws = serializeWorkspace({

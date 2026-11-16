@@ -346,7 +346,7 @@ test("exportCsv forwards deps.deposits", () => {
 // ---------------------------------------------------------------------------
 
 const EXPORTED_AT = "2026-11-16T10:15:30.123Z";
-const RETR = { queries: 3, dropped: 0, first: "2026-11-16T10:00:00.000Z", last: "2026-11-16T10:05:00.000Z", complete: true };
+const RETR = { queries: 3, dropped: 0, first: "2026-11-16T10:00:00.000Z", last: "2026-11-16T10:05:00.000Z", fullyLogged: true };
 const SIGNALS = "; labels/risk flags/imitation-token/likely-deposit/same-key marks are signals - not facts";
 const CSV_HEADER_LINE = "row_type,address,alias,depth,is_root,tx_type,from,to,amount,symbol,hash,block,date,method,method_sig,real_recipient,decoded_amount,risk_flags,chain_id,likely_deposit_of,deposit_evidence";
 const enc = (s) => new TextEncoder().encode(s);
@@ -367,7 +367,7 @@ test("CSV line 1 provenance: retrieval unknown wording, still comma-free", () =>
 });
 
 test("CSV line 1 provenance: partial retrieval is stated", () => {
-  const line = buildCsvRows(makeFakeStore([withId(NODE_A)], []), { category: () => null, provenance: { exportedAt: EXPORTED_AT, retrieval: { ...RETR, complete: false } } })[0][0];
+  const line = buildCsvRows(makeFakeStore([withId(NODE_A)], []), { category: () => null, provenance: { exportedAt: EXPORTED_AT, retrieval: { ...RETR, fullyLogged: false } } })[0][0];
   expect(line).toContain("; retrieved 2026-11-16T10:00:00.000Z to 2026-11-16T10:05:00.000Z UTC (see query log); part of this graph has no logged retrieval");
   expect(line.includes(",")).toBe(false);
 });
@@ -567,6 +567,35 @@ test("bundle: happy path — six files, CSV bytes = csvText, stamped name, zip s
     const done = logs.at(-1);
     expect(done.key).toBe("log.bundleExported");
     expect(done.params).toEqual({ sha256: await sha256Hex(zipBytes), files: 6 });
+  });
+});
+
+test("bundle: the store changing during the PNG render does not skew MANIFEST graph counts (all snapshotted at click)", async () => {
+  const nodes = [withId(NODE_A), withId(NODE_B)];
+  const edges = [EDGE_1];
+  const store = { listNodes: () => nodes, listEdges: () => edges, stats: () => ({ nodes: nodes.length, edges: edges.length }) };
+  await fakeCanvasEnv(async (env) => {
+    const create = document.createElement;
+    document.createElement = (tag) => {
+      const el = create(tag);
+      if (tag === "canvas") {
+        el.toBlob = (cb) => {
+          nodes.push(withId({ ...NODE_B, address: "0x" + "c".repeat(40) })); // a scan adds data mid-export
+          edges.push(EDGE_2);
+          setTimeout(() => cb(new Blob([Uint8Array.of(0x89)])), 0);
+        };
+      }
+      return el;
+    };
+    await exportEvidenceBundle(env.view, store, bundleDeps({ onLog: () => {} }));
+    const members = readZip(await blobBytes(env.blobs[0]));
+    const rows = new TextDecoder().decode(members[0].bytes).split("\n").slice(2);
+    const manifest = JSON.parse(new TextDecoder().decode(members[4].bytes));
+    expect(manifest.graph).toEqual({
+      nodes: rows.filter((r) => r.startsWith("node,")).length,
+      edges: rows.filter((r) => r.startsWith("edge,")).length,
+    });
+    expect(manifest.graph).toEqual({ nodes: 2, edges: 1 });
   });
 });
 

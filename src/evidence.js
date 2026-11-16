@@ -16,6 +16,7 @@ export const CAVEATS = [
   "graph.png and graph.csv describe the same full graph: on-screen filters, bundling and hidden hubs do not apply to exports.",
   "The query log records requests, not proof that it explains every record. It includes probes that added no graph data (scan estimate, chain detection, check other chains), and deleting nodes does not remove log entries.",
   "SHA-256 hashes give tamper evidence, not proof of time or authorship.",
+  "retrieval.fullyLogged = true only means no log entry was dropped and no part of the graph came from an unlogged source (demo or a workspace without a query log); it does not mean the data is complete: requests may have failed, scans may have been stopped, and the data is sampled.",
 ];
 export const PARTIAL_CAVEAT =
   "Part of this graph has no logged retrieval (demo, a workspace saved without a query log, or dropped log entries).";
@@ -39,7 +40,7 @@ export function retrievalSummary(state) {
   const w = windowOf(state.entries);
   return {
     queries: state.entries.length, dropped: state.dropped, first: w.first, last: w.last,
-    complete: state.dropped === 0 && state.unloggedData === false,
+    fullyLogged: state.dropped === 0 && state.unloggedData === false,
   };
 }
 
@@ -65,7 +66,7 @@ export async function buildManifest(input) {
     sampling: input.sampling,
     retrieval: input.retrieval,
     data: input.data,
-    caveats: input.retrieval && input.retrieval.complete ? CAVEATS : [...CAVEATS, PARTIAL_CAVEAT],
+    caveats: input.retrieval && input.retrieval.fullyLogged ? CAVEATS : [...CAVEATS, PARTIAL_CAVEAT],
     files,
     omitted: input.omitted,
   };
@@ -101,7 +102,7 @@ export function footerLines({ t, appVersion, exportedAt, retrieval }) {
     retrieval
       ? t("export.footer.retrieved", { first: utc(retrieval.first), last: utc(retrieval.last), n: retrieval.queries })
       : t("export.footer.retrievalUnknown"),
-    ...(retrieval && !retrieval.complete ? [t("export.footer.partial")] : []),
+    ...(retrieval && !retrieval.fullyLogged ? [t("export.footer.partial")] : []),
     t("export.footer.sampling"),
     t("export.footer.signals"),
   ];

@@ -5,7 +5,7 @@ import { test, expect, beforeAll } from "bun:test";
 import { Window } from "happy-dom";
 import KNOWN from "../data/known-addresses.json";
 import V2 from "./fixtures/workspace-v2.json";
-import { PROBE_CHAIN_IDS } from "../src/config.js";
+import { PROBE_CHAIN_IDS, APP_VERSION } from "../src/config.js";
 import { sha256Hex } from "../src/queryLog.js";
 import EN from "../src/locales/en.js";
 import { readZip } from "./fixtures/readZip.js";
@@ -2434,8 +2434,26 @@ test("API key appears in no artifact: log, workspace, CSV, query-log export, bun
       expect(saved.queryLog.entries.every((e) => e.url.startsWith("https://api.etherscan.io/v2/api?"))).toBe(true);
       expect(JSON.parse(ql).entries.length).toBe(n);
       expect($("logContent").textContent).toContain(`Query log exported (${n} entries).`);
-      const zip = new TextDecoder("latin1").decode(await bundleBytes(dl));
-      await until(() => /Evidence bundle exported/.test($("logContent").textContent));
+      // The bundle PNG and the PNG/PDF exports: record every footer line drawn on the canvas.
+      const origPdf = window.jspdf;
+      window.jspdf = { jsPDF: class { addImage() {} save() {} } };
+      let zip, footers;
+      try {
+        ({ zip, footers } = await withFakeExportCanvas(async (fx) => {
+          const z = new TextDecoder("latin1").decode(new Uint8Array(await (await nextBlob(dl, "evidenceBundleBtn")).arrayBuffer()));
+          await until(() => /Evidence bundle exported/.test($("logContent").textContent));
+          for (const [btn, done] of [["exportPngBtn", /Image \(PNG\) downloaded/g], ["exportPdfBtn", /PDF downloaded/g]]) {
+            const c = logCount(done);
+            $(btn).click();
+            await until(() => logCount(done) > c);
+          }
+          return { zip: z, footers: fx.texts.join("\n") };
+        }));
+      } finally {
+        window.jspdf = origPdf;
+      }
+      expect(footers.split("\n").length).toBeGreaterThanOrEqual(12); // 3 renders x >= 4 footer lines
+      expect(footers).toContain("logged requests:");
       $("queryLogPanel").open = true;
       const panel = $("queryLogContent").textContent;
       expect(panel).toContain("0x111…1111"); // the requested address, from params
@@ -2444,8 +2462,9 @@ test("API key appears in no artifact: log, workspace, CSV, query-log export, bun
         expect.stringMatching(/^graph-\d+\.csv$/),
         expect.stringMatching(/^query-log-\d{8}T\d{6}Z\.json$/),
         expect.stringMatching(/^chainmap-evidence-\d{8}T\d{6}Z\.zip$/),
+        expect.stringMatching(/^graph-\d+\.png$/),
       ]);
-      const artifacts = { ws, csv, ql, zip, names: dl.names.join("\n"), log: $("logContent").textContent, panel };
+      const artifacts = { ws, csv, ql, zip, footers, names: dl.names.join("\n"), log: $("logContent").textContent, panel };
       for (const [name, text] of Object.entries(artifacts)) {
         expect([name, text.includes(KEY) || text.includes(KEY.slice(0, 9))]).toEqual([name, false]);
       }
@@ -2479,7 +2498,7 @@ test("evidence bundle from main: six verified files, complete retrieval, zip has
         expect(f.sha256).toBe(await sha256Hex(bytes[f.name]));
         expect(f.bytes).toBe(bytes[f.name].length);
       }
-      expect(m.retrieval.complete).toBe(true);
+      expect(m.retrieval.fullyLogged).toBe(true);
       expect(m.chains).toEqual([{ chainId: "1", name: "Ethereum" }]);
       expect(m.roots).toEqual([ID("1", ROOT)]);
       expect(m.sampling.formAtExport).toMatchObject({ maxDepth: 1, maxTxPerAddress: 20 });
@@ -2568,6 +2587,47 @@ test("invalid query-log entries in a loaded file are ignored and logged", async 
   }
 });
 
+test("query log: an absent page/offset renders as —/—, never undefined", async () => {
+  try {
+    $("resetBtn").click();
+    const { page, offset, ...params } = QL_ENTRY.params;
+    await dropWorkspace(JSON.stringify(qlWs([{ ...QL_ENTRY, params }])));
+    expect(qlogTitle()).toBe("Query log (1)");
+    $("queryLogPanel").open = true;
+    $("queryLogPanel").dispatchEvent(new window.Event("toggle"));
+    const cells = [...$("queryLogContent").querySelectorAll("tbody tr td")].map((td) => td.textContent);
+    expect(cells[4]).toBe("—/—");
+    expect($("queryLogContent").textContent).not.toContain("undefined");
+  } finally {
+    $("queryLogPanel").open = false;
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
+test("query log: a request in flight across a reset never lands in the new log", async () => {
+  let release = () => {};
+  try {
+    $("resetBtn").click();
+    $("apiKey").value = "TESTKEY";
+    $("address").value = ROOT;
+    const n = apiUrls.length;
+    release = gate();
+    $("estimateBtn").click(); // its first fetch is now held
+    await until(() => apiUrls.length > n);
+    $("resetBtn").click();
+    release();
+    await until(() => /Estimated: /.test($("logContent").textContent));
+    expect(qlogTitle()).toBe("Query log (0)");
+  } finally {
+    release();
+    $("apiKey").value = "";
+    $("address").value = "";
+    $("resetBtn").click();
+    restoreForm();
+  }
+});
+
 test("PNG and PDF exports carry the provenance footer and the live view's deposit badge", async () => {
   await knownLoaded();
   const origPdf = window.jspdf;
@@ -2588,7 +2648,8 @@ test("PNG and PDF exports carry the provenance footer and the live view's deposi
           await until(() => done.test($("logContent").textContent));
           expect(window.vis.Network.last.nodes.get(id).label.endsWith("\n" + live)).toBe(true);
           expect(fx.texts.length).toBe(4);
-          expect(fx.texts[0]).toMatch(/^chainmap 1\.3\.0 — exported \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC$/);
+          const ver = APP_VERSION.replace(/\./g, "\\.");
+          expect(fx.texts[0]).toMatch(new RegExp(`^chainmap ${ver} — exported \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d UTC$`));
           expect(fx.texts.slice(1)).toEqual([EN["export.footer.retrievalUnknown"], EN["export.footer.sampling"], EN["export.footer.signals"]]);
         }
       });

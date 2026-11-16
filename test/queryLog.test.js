@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createQueryLog, sanitizeQueryLog, PARAM_KEYS } from "../src/queryLog.js";
+import { createQueryLog, sanitizeQueryLog, windowOf, PARAM_KEYS } from "../src/queryLog.js";
 import { API_BASE } from "../src/config.js";
 
 const P = { chainid: "1", module: "account", action: "txlist", address: "0x" + "a".repeat(40), startblock: "0", endblock: "99999999", page: "1", offset: "20", sort: "desc" };
@@ -69,6 +69,22 @@ describe("queryLog", () => {
     expect(l.entries().length).toBe(0);
   });
 
+  test("add with a stale epoch is discarded (request issued before clear/load)", async () => {
+    const l = createQueryLog();
+    const e0 = l.epoch;
+    l.clear();
+    await l.add(rec(), e0);
+    expect(l.entries().length).toBe(0);
+    await l.add(rec(), l.epoch);
+    expect(l.entries().length).toBe(1);
+    const e1 = l.epoch;
+    l.load({ entries: [], dropped: 0, unloggedData: false });
+    await l.add(rec(), e1);
+    expect(l.entries().length).toBe(0);
+    await l.add(rec()); // no epoch given: the current one
+    expect(l.entries().length).toBe(1);
+  });
+
   test("window", async () => {
     const l = createQueryLog();
     expect(l.window()).toBeNull();
@@ -100,6 +116,30 @@ describe("queryLog", () => {
     expect(s.entries.length).toBe(0);
     expect(s.invalid).toBe(10);
     expect(s.unloggedData).toBe(true);
+  });
+
+  test("sanitize: impossible dates rejected; `at` normalised to millisecond ISO so windowOf sorts right", async () => {
+    const good = await entry();
+    const bad = ["2026-99-16T10:00:00.000Z", "2026-02-30T10:00:00Z", "2026-11-16T24:00:00Z", "2026-11-16T10:61:00Z"];
+    const s = sanitizeQueryLog({ entries: bad.map((a) => ({ ...good, at: a })) });
+    expect([s.entries.length, s.invalid]).toEqual([0, 4]);
+    const ok = sanitizeQueryLog({ entries: [{ ...good, at: "2026-11-16T10:00:00Z" }, { ...good, at: "2026-11-16T10:00:00.5Z" }] });
+    expect(ok.entries.map((e) => e.at)).toEqual(["2026-11-16T10:00:00.000Z", "2026-11-16T10:00:00.500Z"]);
+    expect(windowOf(ok.entries)).toEqual({ first: "2026-11-16T10:00:00.000Z", last: "2026-11-16T10:00:00.500Z" });
+  });
+
+  test("sanitize: params.chainid / params.action must agree with chainId / action", async () => {
+    const good = await entry();
+    const { chainid, action, ...rest } = good.params;
+    const s = sanitizeQueryLog({
+      entries: [
+        { ...good, params: { ...good.params, chainid: "137" } },
+        { ...good, params: { ...good.params, action: "tokentx" } },
+        { ...good, params: rest }, // absent keys are fine
+      ],
+    });
+    expect([s.entries.length, s.invalid]).toEqual([1, 2]);
+    expect(s.entries[0].params).toEqual(rest);
   });
 
   test("sanitize: url rebuilt", async () => {

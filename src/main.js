@@ -148,8 +148,12 @@ function recomputeDeposits() {
 // Query log (evidence exports): every Etherscan request any feature makes, keyed-out.
 // Reset clears it, a workspace load replaces it, the demo empties it; deleting nodes keeps it.
 const queryLog = createQueryLog();
-const makeClient = (apiKey, chainId) =>
-  createEtherscanClient({ apiKey, chainId, onQuery: (r) => queryLog.add(r).then(refreshQueryLogUi) });
+// The client's epoch is read at creation (one client per operation): a request still in
+// flight after a reset / workspace load / demo load is dropped, never logged in the new log.
+const makeClient = (apiKey, chainId) => {
+  const epoch = queryLog.epoch;
+  return createEtherscanClient({ apiKey, chainId, onQuery: (r) => queryLog.add(r, epoch).then(refreshQueryLogUi) });
+};
 // Title on every change; the table only while the panel is open.
 function refreshQueryLogUi() {
   const entries = queryLog.entries();

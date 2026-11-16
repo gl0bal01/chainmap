@@ -304,7 +304,7 @@ const depositEvidenceText = (d) =>
 function provenanceText({ exportedAt, retrieval }) {
   return `; exported ${exportedAt} UTC` +
     (retrieval ? `; retrieved ${retrieval.first} to ${retrieval.last} UTC (see query log)` : "; retrieval time unknown (no query log)") +
-    (retrieval && !retrieval.complete ? "; part of this graph has no logged retrieval (demo/older workspace or dropped log entries)" : "") +
+    (retrieval && !retrieval.fullyLogged ? "; part of this graph has no logged retrieval (demo/older workspace or dropped log entries)" : "") +
     "; labels/risk flags/imitation-token/likely-deposit/same-key marks are signals - not facts";
 }
 
@@ -420,7 +420,10 @@ export function exportCsv(store, deps) {
  * @returns {Promise<void>}
  */
 export async function exportEvidenceBundle(view, store, deps) {
-  const { onLog, exportedAt, retrieval } = deps;
+  // Every MANIFEST input is read now, before the first await, like the CSV/workspace/log bytes:
+  // a scan landing during the PNG render must not skew counts against the bundled files.
+  const { onLog, exportedAt, retrieval, manifest } = deps;
+  const graph = store.stats();
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -453,7 +456,7 @@ export async function exportEvidenceBundle(view, store, deps) {
     files.push({ name: "query-log.json", bytes: enc(deps.queryLogText) });
 
     let zip;
-    ({ zip, sha256, names } = await buildEvidenceZip({ exportedAt, ...deps.manifest, graph: store.stats(), retrieval, files, omitted }));
+    ({ zip, sha256, names } = await buildEvidenceZip({ exportedAt, ...manifest, graph, retrieval, files, omitted }));
     url = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
     triggerDownload(url, `chainmap-evidence-${fileStamp(new Date(exportedAt))}.zip`);
   } catch {

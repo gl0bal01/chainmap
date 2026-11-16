@@ -51,16 +51,18 @@ export function createQueryLog({ limit = LIMITS.queryLog } = {}) {
   let gen = 0;
 
   const api = {
-    async add(rec) {
+    // `epoch` = the log's generation when the request was issued (main reads it at
+    // client creation): a request in flight across clear()/load() never lands in the new log.
+    async add(rec, epoch = gen) {
       try {
-        const my = gen;
+        const my = epoch;
         const params = {};
         for (const k of PARAM_KEYS) if (rec.params && has(rec.params, k)) params[k] = String(rec.params[k]);
         let sha256 = null;
         if (rec.body) {
           try { sha256 = await sha256Hex(rec.body); } catch { sha256 = null; }
         }
-        if (my !== gen) return; // clear()/load() ran while hashing
+        if (my !== gen) return; // clear()/load() ran since the request was issued or while hashing
         list.push({
           at: rec.at, chainId: String(rec.chainId), action: rec.action, params,
           url: queryUrl(params), httpStatus: rec.httpStatus, rows: rec.rows, sha256, outcome: rec.outcome,
@@ -69,6 +71,7 @@ export function createQueryLog({ limit = LIMITS.queryLog } = {}) {
       } catch { /* add never rejects */ }
     },
     entries: () => list.slice(),
+    get epoch() { return gen; },
     get dropped() { return dropped; },
     get unloggedData() { return unlogged; },
     markUnlogged() { unlogged = true; },
@@ -94,11 +97,22 @@ export function sanitizeQueryLog(raw, limit = LIMITS.queryLog) {
   return { entries, dropped, unloggedData: raw.unloggedData !== false || invalid > 0, invalid };
 }
 
+// A real UTC instant, normalised to Date#toISOString's millisecond form (one precision,
+// so ISO strings sort lexically in windowOf). Rejects month 99, Feb 30, 24:00 (no rollover).
+function normAt(at) {
+  if (typeof at !== "string" || !AT_RE.test(at)) return null;
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return null;
+  const iso = d.toISOString();
+  return iso.slice(0, 19) === at.slice(0, 19) ? iso : null;
+}
+
 function rebuild(e) {
   if (!isObj(e) || !isObj(e.params)) return null;
   const chainId = parseChainId(e.chainId);
+  const at = normAt(e.at);
   const ok =
-    typeof e.at === "string" && AT_RE.test(e.at) &&
+    at !== null &&
     chainId !== null &&
     typeof e.action === "string" && ACTION_RE.test(e.action) &&
     (e.httpStatus === null || (Number.isInteger(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599)) &&
@@ -113,8 +127,10 @@ function rebuild(e) {
     if (typeof p !== "string" || !PARAM_RE.test(p)) return null;
     params[k] = p;
   }
+  // The url is rebuilt from params: they must describe the same request as the entry.
+  if ((has(params, "chainid") && params.chainid !== chainId) || (has(params, "action") && params.action !== e.action)) return null;
   return {
-    at: e.at, chainId, action: e.action, params, url: queryUrl(params),
+    at, chainId, action: e.action, params, url: queryUrl(params),
     httpStatus: e.httpStatus, rows: e.rows, sha256: e.sha256, outcome: e.outcome,
   };
 }
