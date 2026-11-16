@@ -36,7 +36,7 @@ describe("usdPrice pure", () => {
   test("priceKeyFor: data skips", () => {
     skip(tok({ amountIndeterminate: true }), "data");
     for (const value of ["1.5", ""]) skip(tok({ value }), "data");
-    for (const timeStamp of ["0", "abc"]) skip(tok({ timeStamp }), "data");
+    for (const timeStamp of ["0", "abc", "99999999999999999", "99999999999999999999999"]) skip(tok({ timeStamp }), "data");
     for (const tokenDecimal of ["", "78", "-1", " 6"]) skip(tok({ tokenDecimal }), "data");
     skip(tok({ tokenContract: "0x123" }), "data");
     expect(priceKeyFor(tok({ tokenDecimal: "06" }), ctx0)).toEqual({ coin: "ethereum:" + C, ts: B });
@@ -135,6 +135,17 @@ describe("usdPrice batching", () => {
   test("one coin's hours may span two requests", () => {
     const keys = Array.from({ length: 900 }, (_, i) => ck("coingecko:ethereum", B + i * 3600));
     check(keys, buildRequests(keys));
+  });
+  test("5000 pairs stay under the cap and are covered exactly", () => {
+    const keys = Array.from({ length: 5000 }, (_, i) => ck("ethereum:0x" + (i % 40).toString(16).padStart(40, "0"), B + Math.floor(i / 40) * 3600));
+    const reqs = buildRequests(keys);
+    const seen = new Set();
+    for (const rq of reqs) {
+      expect(priceUrl(rq.coins, "30m").length).toBeLessThanOrEqual(8000);
+      for (const p of rq.pairs) seen.add(p.coin + "@" + p.ts);
+    }
+    expect(seen).toEqual(new Set(keys.map((p) => p.coin + "@" + p.ts)));
+    expect(reqs.reduce((n, r) => n + r.pairs.length, 0)).toBe(5000);
   });
   test("empty input", () => expect(buildRequests([])).toEqual([]));
 });

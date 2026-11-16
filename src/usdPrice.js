@@ -33,6 +33,8 @@ export function priceKeyFor(edge, ctx) {
   if (decimalsFor(edge) === null) return { skip: "data" };
   if (BigInt(value) === 0n) return { skip: "zero" };
   const raw = Number(timeStamp);
+  const ts = hourBucket(raw);
+  if (!Number.isSafeInteger(raw) || !Number.isSafeInteger(ts)) return { skip: "data" };
   let coin;
   if (native) {
     if (!chain.native) return { skip: "chain" };
@@ -48,7 +50,7 @@ export function priceKeyFor(edge, ctx) {
     if (ctx.isRoot(edge.chainId, contract)) return { skip: "root" };
     coin = chain.slug + ":" + contract;
   }
-  return { coin, ts: hourBucket(raw) };
+  return { coin, ts };
 }
 
 /** Exact rational from the number's shortest round-trip string. */
@@ -109,14 +111,24 @@ export function buildRequests(keys) {
   for (const k of keys) uniq.set(k.coin + "@" + k.ts, { coin: k.coin, ts: k.ts });
   const sorted = [...uniq.values()].sort((a, b) => (a.coin < b.coin ? -1 : a.coin > b.coin ? 1 : a.ts - b.ts));
   const out = [];
-  let cur = [];
-  // ponytail: O(pairs^2) per request string; requests are <= 8000 chars so this stays small.
+  const enc = (str) => encodeURIComponent(str).length; // additive over concatenation
+  const base = priceUrl("{}", PRICE_FETCH.searchWidth).length;
+  let cur = [], len = base, last = null;
+  // O(n): URL length is tracked incrementally (input is sorted, so each coin's hours are contiguous).
   for (const p of sorted) {
-    if (cur.length && priceUrl(coinsJson([...cur, p]), PRICE_FETCH.searchWidth).length > PRICE_FETCH.maxUrlChars) {
+    const add = p.coin === last ? enc("," + p.ts) : enc((cur.length ? "," : "") + JSON.stringify(p.coin) + ":[" + p.ts + "]");
+    if (cur.length && len + add > PRICE_FETCH.maxUrlChars) {
       out.push({ coins: coinsJson(cur), pairs: cur });
       cur = [];
+      len = base;
+      last = null;
+      cur.push(p);
+      len += enc(JSON.stringify(p.coin) + ":[" + p.ts + "]");
+    } else {
+      cur.push(p);
+      len += add;
     }
-    cur.push(p);
+    last = p.coin;
   }
   if (cur.length) out.push({ coins: coinsJson(cur), pairs: cur });
   return out;
