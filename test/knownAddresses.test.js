@@ -132,3 +132,18 @@ test("Tron never takes the \"*\" bucket; EVM chains still do; a Tron-specific ro
   const own = { label: "Tron own", category: "exchange" };
   expect(knownEntry("41" + hex, TRON_CHAIN_ID, { ...data, [TRON_CHAIN_ID]: { ["41" + hex]: own } })).toBe(own);
 });
+
+test("real data: a Tron OFAC row answers on Tron only; a '*' OFAC address never answers on Tron (Review Focus 5)", async () => {
+  const { TRON_CHAIN_ID } = await import("../src/tron.js");
+  const KNOWN = (await import("../data/known-addresses.json")).default;
+  const TRON_SANCT = Object.keys(KNOWN[TRON_CHAIN_ID]).find((a) => KNOWN[TRON_CHAIN_ID][a].category === "sanctioned");
+  expect(TRON_SANCT).toMatch(/^41[0-9a-f]{40}$/);
+  expect(knownEntry(TRON_SANCT, TRON_CHAIN_ID, KNOWN).category).toBe("sanctioned");
+  expect(knownEntry(TRON_SANCT, "1", KNOWN)).toBeNull();
+  expect(isAllChainEntry(TRON_SANCT, TRON_CHAIN_ID, KNOWN)).toBe(false);
+  // pick a "*" address with no 41-twin on Tron (GAZA NOW legitimately has one in both tables)
+  const E = Object.keys(KNOWN["*"]).find((a) => KNOWN["*"][a].category === "sanctioned" && !KNOWN[TRON_CHAIN_ID]["41" + a.slice(2)]);
+  expect(knownEntry(E, "1", KNOWN).category).toBe("sanctioned"); // sanity: E is listed for EVM
+  expect(knownEntry(E, TRON_CHAIN_ID, KNOWN)).toBeNull();
+  expect(knownEntry("41" + E.slice(2), TRON_CHAIN_ID, KNOWN)).toBeNull();
+});

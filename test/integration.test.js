@@ -4366,3 +4366,90 @@ async function tronGuardEnv(fn) {
 test("checkOtherChains does nothing for a Tron node (ruling 40)", () => tronGuardEnv(({ checkOtherChains }) => checkOtherChains(TRON_ROOT_ID)));
 
 test("loadOnChain does nothing for a Tron node (ruling 40)", () => tronGuardEnv(({ loadOnChain }) => loadOnChain(TRON_ROOT_ID, "1")));
+
+// ---------------------------------------------------------------------------
+// Tron sanctions data (Task 3): the real Tron rows reach labels, risk, flags, CSV and MANIFEST
+// ---------------------------------------------------------------------------
+test("Tron: a sanctioned counterparty and a fake USDT are flagged like EVM", async () => {
+  const { toTronBase58 } = await import("../src/tron.js");
+  await knownLoaded();
+  const TRON_SANCT = Object.keys(KNOWN[TRON_ID]).find((a) => KNOWN[TRON_ID][a].category === "sanctioned");
+  const FAKE_HEX = "41" + "ab".repeat(20), FAKE_FROM = "41" + "cd".repeat(20);
+  const H = { trx: "5a".repeat(32), usdt: "5b".repeat(32), fake: "5c".repeat(32) };
+  const trc20 = (hash, contract, from, ms) => ({
+    transaction_id: hash, token_info: { symbol: "USDT", address: contract, decimals: 6, name: "Tether USD" },
+    block_timestamp: ms, from, to: TRON_T, type: "Transfer", value: "5000000",
+  });
+  const canned = { ...TRON_CANNED };
+  const net = window.vis.Network.first;
+  const edgeId = (hash) => net.edges.get().find((e) => e.data?.hash === hash).id;
+  const row = (name) => [...$("detailsContent").querySelectorAll("tr")].find((tr) => tr.firstChild.textContent === name)?.textContent || "";
+  try {
+    TRON_CANNED["transactions"] = { success: true, meta: { page_size: 1 }, data: [{
+      txID: H.trx, blockNumber: 88100000, block_timestamp: 1794910000000, ret: [{ contractRet: "SUCCESS" }],
+      raw_data: { contract: [{ type: "TransferContract", parameter: { value: { owner_address: TRON_A, to_address: TRON_SANCT, amount: 1000000 } } }] },
+    }] };
+    TRON_CANNED["internal-transactions"] = { success: true, meta: { page_size: 0 }, data: [] };
+    TRON_CANNED["transactions/trc20"] = { success: true, meta: { page_size: 2 }, data: [
+      trc20(H.usdt, "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", toTronBase58(TRON_B), 1794909000000),
+      trc20(H.fake, toTronBase58(FAKE_HEX), toTronBase58(FAKE_FROM), 1794908000000),
+    ] };
+    const n = apiUrls.length, p = priceCalls.length, t = tronCalls.length;
+    await tronScan();
+    expect(tronCalls.length).toBe(t + 3);
+    expect([apiUrls.length, priceCalls.length]).toEqual([n, p]);
+
+    // Graph: OFAC label and the sanctioned badge on the Tron node; no deposit mark anywhere.
+    const sanct = net.nodes.get(ID(TRON_ID, TRON_SANCT));
+    expect(sanct.label).toContain(KNOWN[TRON_ID][TRON_SANCT].label);
+    expect(sanct.label).toContain("(OFAC SDN)");
+    expect(sanct.title.startsWith("⛔ ")).toBe(true);
+    const DEPOSIT = /likely (exchange )?deposit/i;
+    expect(net.nodes.get().some((x) => DEPOSIT.test(`${x.label}|${x.title}`))).toBe(false);
+
+    // Node details: the root's risk carries the sanctioned reason; the sanctioned node's Source is OFAC, Tron-only.
+    clickNode(TRON_ROOT_ID);
+    expect(row("Risk")).toContain(EN["risk.sanctioned"]);
+    expect(panel()).not.toMatch(DEPOSIT);
+    clickNode(ID(TRON_ID, TRON_SANCT));
+    expect(panel()).not.toMatch(DEPOSIT);
+    expect(row("Source")).toContain("OFAC SDN list, published");
+    expect(row("Source")).not.toContain(EN["details.allChainsListing"]);
+
+    // Edge details: TRX -> sanctioned, fake USDT -> imitation, official USDT -> no flags.
+    clickEdge(edgeId(H.trx));
+    expect(row("Risk flags")).toContain(EN["flag.sanctioned"]);
+    expect(row("Risk flags")).not.toContain(EN["flag.fakeToken"]);
+    clickEdge(edgeId(H.fake));
+    expect(row("Risk flags")).toContain(EN["flag.fakeToken"]);
+    expect(row("Risk flags")).not.toContain(EN["flag.sanctioned"]);
+    clickEdge(edgeId(H.usdt));
+    expect(panel()).toContain("TRC-20");
+    expect(row("Risk flags")).toBe("");
+
+    // CSV: risk_flags per edge; the sanctioned node row in T… form on Tron.
+    const lines = (await captureCsv()).split("\n");
+    const edgeRow = (hash) => lines.find((l) => l.startsWith("edge,") && l.includes(`,${hash},`));
+    expect(edgeRow(H.trx)).toContain(",flag.sanctioned,");
+    expect(edgeRow(H.fake)).toContain(",flag.fakeToken,");
+    expect(edgeRow(H.usdt)).not.toContain("flag.");
+    expect(lines.some((l) => l.startsWith(`node,${toTronBase58(TRON_SANCT)},`) && l.includes(`,${TRON_ID},`))).toBe(true);
+    expect(lines[0]).not.toContain("likely_deposit_of"); // the deposit caveat rides line 1 only when a node is marked
+
+    // Evidence MANIFEST: the snapshot counts every bucket and names the data's single OFAC publish date.
+    const files = await withDownloads(async (dl) => readZip(await bundleBytes(dl)));
+    const m = JSON.parse(dec(files.find((f) => f.name === "MANIFEST.json").bytes));
+    const published = /published (\d{4}-\d\d-\d\d)/.exec(KNOWN[TRON_ID][TRON_SANCT].source)[1];
+    expect(m.data.knownAddresses).toEqual({
+      entries: Object.values(KNOWN).reduce((s, b) => s + Object.keys(b).length, 0),
+      ofacPublished: published,
+    });
+
+    expect([apiUrls.length, priceCalls.length]).toEqual([n, p]);
+  } finally {
+    Object.assign(TRON_CANNED, canned);
+    net.setSelection({ nodes: [] });
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});

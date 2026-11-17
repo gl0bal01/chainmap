@@ -6,9 +6,13 @@ import { parseOfacXml, parseSuperchain, mergeSources, serializeKnownData, verify
 
 const fx = (f) => readFileSync(new URL(`./fixtures/${f}`, import.meta.url), "utf8");
 const AA = "0x" + "aa".repeat(20), BB = "0x" + "bb".repeat(20), CC = "0x" + "cc".repeat(20), DD = "0x" + "dd".repeat(20);
+const TRON = "728126428";
+const TA = "41" + "aa".repeat(20), TB = "41" + "bb".repeat(20), TC = "41" + "cc".repeat(20), TD = "41" + "dd".repeat(20);
+const T_AA = "TRXcKoEvHr6Y38VMcDYGBEYKznvH3XUX4g", T_BB = "TT5rFsXYCrnzdE2q1WdR9F2SuVY59A4hoM", T_CC = "TUe6BwpA7sVTDKaJQoia7FWZpC9sK8WM2t";
+const T_BAD = "TRXcKoEvHr6Y38VMcDYGBEYKznvH3XUX4h"; // T_AA with a broken checksum
 
 describe("parseOfacXml", () => {
-  test("EVM ids only, lowercased, primary name (LAST, First), entities decoded, first entry wins", () => {
+  test("EVM ids lowercased, Tron T… ids as 41-hex, primary name (LAST, First), entities decoded, first entry wins", () => {
     expect(parseOfacXml(fx("sdn-mini.xml"))).toEqual({
       publishDate: "2026-11-13",
       entries: [
@@ -17,7 +21,18 @@ describe("parseOfacXml", () => {
         { address: CC, name: "SEMENOV, Roman" },
         { address: DD, name: "A & B TRADING" },
       ],
-      skippedIds: [],
+      tronEntries: [
+        { address: TB, name: "LAZARUS GROUP", tag: "Digital Currency Address - USDT" },
+        { address: TA, name: "TRON TEST CO", tag: "Digital Currency Address - TRX" },
+        { address: TC, name: "TRON TEST CO", tag: "Digital Currency Address - XBT" },
+        { address: TD, name: "SECOND HOLDER", tag: "Digital Currency Address - ETH" },
+      ],
+      skippedIds: [
+        { tag: "Digital Currency Address - TRX", idNumber: "TXyz1234567890abcdefghijklmnopqrst" },
+        { tag: "Digital Currency Address - TRX", idNumber: T_BAD },
+        { tag: "Digital Currency Address - TRX", idNumber: "0x" + "ee".repeat(20) },
+        { tag: "Digital Currency Address - TRX", idNumber: T_AA.toLowerCase() },
+      ],
     });
   });
   test("throws on truncated XML (cut inside an entry)", () => {
@@ -34,15 +49,45 @@ describe("parseOfacXml", () => {
   test("skippedIds: malformed ids under allowlisted tags and 0x non-addresses elsewhere are skipped, not fatal", () => {
     const r = parseOfacXml(withIds(id("ETH", "0xshort") + id("USDT", "TXyz") + id("POL", "0x12")));
     expect(r.entries.length).toBe(4);
-    expect(r.skippedIds).toEqual([
+    expect(r.skippedIds.slice(-3)).toEqual([
       { tag: "Digital Currency Address - ETH", idNumber: "0xshort" },
       { tag: "Digital Currency Address - USDT", idNumber: "TXyz" },
       { tag: "Digital Currency Address - POL", idNumber: "0x12" },
     ]);
   });
+  test("a T…-shaped id failing the checksum is skipped under any tag", () => {
+    const r = parseOfacXml(withIds(id("SOL", T_BAD)));
+    expect(r.skippedIds).toContainEqual({ tag: "Digital Currency Address - SOL", idNumber: T_BAD });
+    expect(r.tronEntries.map((e) => e.tag)).not.toContain("Digital Currency Address - SOL");
+    expect(r.tronEntries.length).toBe(4);
+  });
+  test("a 0x under TRX is skipped, not drift", () => {
+    expect(() => parseOfacXml(fx("sdn-mini.xml"))).not.toThrow();
+    expect(parseOfacXml(withIds(id("TRX", "0x" + "f".repeat(40)))).skippedIds)
+      .toContainEqual({ tag: "Digital Currency Address - TRX", idNumber: "0x" + "f".repeat(40) });
+  });
+  test("a 41-hex id under TRX is skipped, never a Tron row", () => {
+    const h = "41" + "ab".repeat(20);
+    const r = parseOfacXml(withIds(id("TRX", h)));
+    expect(r.skippedIds).toContainEqual({ tag: "Digital Currency Address - TRX", idNumber: h });
+    expect(r.tronEntries.length).toBe(4);
+  });
+  test("a 41-hex id under a non-Tron tag is a skipped id listed under its tag", () => {
+    const h = "41" + "ab".repeat(20);
+    const r = parseOfacXml(withIds(id("XBT", h)));
+    expect(r.skippedIds).toContainEqual({ tag: "Digital Currency Address - XBT", idNumber: h });
+    expect(r.tronEntries.length).toBe(4);
+  });
+  test("zero Tron addresses throws", () => {
+    const evmOnly = `<sdnList><publshInformation><Publish_Date>11/13/2026</Publish_Date></publshInformation>
+      <sdnEntry><lastName>X</lastName><sdnType>Entity</sdnType><idList>${id("ETH", AA)}${id("TRX", "TXyz")}</idList></sdnEntry></sdnList>`;
+    expect(() => parseOfacXml(evmOnly)).toThrow(/no Tron addresses found/);
+  });
   test("throws without Publish_Date (error page) or without any EVM address (format drift)", () => {
     expect(() => parseOfacXml("<html>Service Unavailable</html>")).toThrow();
-    expect(() => parseOfacXml("<sdnList><publshInformation><Publish_Date>11/13/2026</Publish_Date></publshInformation></sdnList>")).toThrow();
+    const noEvm = `<sdnList><publshInformation><Publish_Date>11/13/2026</Publish_Date></publshInformation>
+      <sdnEntry><lastName>X</lastName><sdnType>Entity</sdnType><idList>${id("TRX", T_AA)}</idList></sdnEntry></sdnList>`;
+    expect(() => parseOfacXml(noEvm)).toThrow(/no EVM addresses found/);
   });
 });
 
@@ -139,6 +184,44 @@ describe("mergeSources", () => {
     expect(report.counts.byCategory).toEqual({ sanctioned: 1, exchange: 1 });
     expect(report.ofacPublishDate).toBe("2026-11-13");
   });
+
+  const ofacT = { ...ofac, tronEntries: [{ address: TA, name: "GARANTEX", tag: "Digital Currency Address - USDT" }] };
+  const mergeT = (curated) => mergeSources({ ofac: ofacT, registry: [], curated });
+  const tron = (o) => row({ chainId: TRON, category: "token", symbol: "USDT", decimals: 6, ...o });
+  test("Tron OFAC entries land under 728126428 as sanctioned", () => {
+    const { data, report } = mergeT([]);
+    expect(data[TRON][TA]).toEqual({
+      label: "GARANTEX (OFAC SDN)", category: "sanctioned",
+      source: "OFAC SDN list, published 2026-11-13", added: "2026-11-13",
+    });
+    expect(data["*"][TA]).toBeUndefined();
+    expect(report.counts.bySource.ofac).toBe(2);
+    expect(report.counts.byChain[TRON]).toBe(1);
+  });
+  test("a curated Tron token row given as T… is written as canonical 41-hex", () => {
+    const { data, report } = mergeT([tron({ address: T_BB })]);
+    expect(report.rejected).toEqual([]);
+    expect(data[TRON][TB]).toMatchObject({ category: "token", symbol: "USDT", decimals: 6 });
+    expect(Object.keys(data[TRON]).some((k) => k.startsWith("T"))).toBe(false);
+  });
+  test("curated Tron rows: non-token, bad checksum, lowercased T…, T…/hex duplicate, OFAC conflict are rejected", () => {
+    const { data, report } = mergeT([
+      tron({ address: T_CC, category: "exchange" }),
+      tron({ address: T_BAD }),
+      tron({ address: T_BB.toLowerCase() }),
+      tron({ address: T_BB }),
+      tron({ address: TB }),
+      tron({ address: T_AA }),
+    ]);
+    expect(report.rejected.map((r) => r.reason)).toEqual([
+      "tron: token rows only", "invalid address", "invalid address", "duplicate", "curated conflicts with OFAC",
+    ]);
+    expect(Object.keys(data[TRON]).sort()).toEqual([TA, TB]);
+    expect(data[TRON][TA].category).toBe("sanctioned");
+  });
+  test("a 41-hex curated row on an EVM chain is rejected", () => {
+    expect(mergeT([row({ chainId: "1", address: TB })]).report.rejected.map((r) => r.reason)).toEqual(["invalid address"]);
+  });
 });
 
 describe("serializeKnownData", () => {
@@ -186,6 +269,23 @@ describe("verifyEntry", () => {
   });
   test("fetch-failed when the injected fetch throws", async () => {
     expect(await verifyEntry({ address: A, source: "https://x" }, async () => { throw new Error("HTTP 403"); })).toBe("fetch-failed");
+  });
+  const T = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+  const tronRow = (address = T, source = "https://x/y") => ({ chainId: TRON, address, source });
+  test("Tron: verified when the page contains the T… form (entry given as T… or 41-hex)", async () => {
+    expect(await verifyEntry(tronRow(), page(`USDT TRC-20: ${T}.`))).toBe("verified");
+    expect(await verifyEntry(tronRow("41a614f803b6fd780986a42c78ec9c7f77e6ded13c"), page(`<code>${T}</code>`))).toBe("verified");
+  });
+  test("Tron: absent when the page has it only lowercased or inside a longer base58 run", async () => {
+    expect(await verifyEntry(tronRow(), page(T.toLowerCase()))).toBe("absent");
+    expect(await verifyEntry(tronRow(), page(T + "x"))).toBe("absent");
+    expect(await verifyEntry(tronRow(), page("x" + T))).toBe("absent");
+  });
+  test("Tron: unsourced when the cited URL embeds the address", async () => {
+    expect(await verifyEntry(tronRow(T, `https://tronscan.org/#/contract/${T}`), page(T))).toBe("unsourced");
+  });
+  test("Tron: absent for a bad-checksum address", async () => {
+    expect(await verifyEntry(tronRow(T_BAD), page(T_BAD))).toBe("absent");
   });
 });
 
@@ -238,6 +338,11 @@ describe("build-known-addresses CLI (network-free: fetch stubbed, output redirec
     expect(r.stdout).toContain("→ absent");
     const data = JSON.parse(readFileSync(r.out, "utf8"));
     expect(Object.keys(data["*"])).toEqual([AA, BB, CC, DD]); // sdn-mini
+    expect(Object.keys(data[TRON]).sort()).toEqual([TA, TB, TC, TD]);
+    expect(r.stdout).toMatch(/2026-11-13, \d+ EVM addresses, 4 Tron addresses/);
+    expect(r.stdout).toContain(`OFAC Tron ids under other tags (2):
+  Digital Currency Address - XBT: ${T_CC}
+  Digital Currency Address - ETH: TWCL826n2tBuoR7mp6oj5FzgitmfWSwCGZ`);
     const kept = Object.values(data).flatMap((c) => Object.values(c)).filter((e) => e.note === "needs official source");
     expect(kept.length).toBeGreaterThan(0); // unsourced legacy rows survive
     expect(existsSync(`${r.out}.tmp`)).toBe(false); // atomic write cleaned up

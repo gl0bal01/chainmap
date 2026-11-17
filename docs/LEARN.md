@@ -173,6 +173,9 @@ Tron is not an EVM chain, so chainmap reads it through TronGrid (opt-in, see the
   cursor on Tron is the block time in milliseconds, not a block number.
 - **Sampling.** Each address gets the latest N rows per type (TronGrid caps a request at 200);
   **Load older** moves back by block time. It is still a sample, never the full history.
+- **Sanctions and fake USDT.** Tron addresses on the OFAC SDN list are labelled and flagged
+  `sanctioned`, and a TRC-20 that calls itself USDT but is not Tether's official contract is
+  flagged as an imitation (a common address-poisoning trick). Both are signals, not verdicts.
 
 ## 10. Investigation heuristics
 
@@ -189,7 +192,7 @@ investigators look for:
 - **Color by age** — old flows cool/dim → recent flows warm/bright, to read tempo.
 - **Known-address labels & risk flags** — a bundled local list names well-known entities —
   not just contracts (WETH, USDC, routers) but **exchanges, bridges, mixers, and
-  OFAC-sanctioned addresses**, across several chains — with **no network lookup**. The
+  OFAC-sanctioned addresses** (the OFAC SDN list covers EVM and Tron addresses), across several chains — with **no network lookup**. The
   high-signal categories drive the **risk flags**: an edge whose recipient is a mixer,
   bridge, or sanctioned entity is escalated on the graph, and a node's details panel shows
   the label plus a **Source** line giving the label's provenance (e.g. an OFAC action, or a

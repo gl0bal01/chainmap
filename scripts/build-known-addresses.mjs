@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseOfacXml, parseSuperchain, mergeSources, serializeKnownData, verifyEntry } from "./known-addresses/pipeline.mjs";
+import { toTronBase58 } from "../src/tron.js";
 
 const OFAC_URL = "https://sanctionslistservice.ofac.treas.gov/api/publicationpreview/exports/sdn.xml";
 const REGISTRY = "ethereum-optimism/superchain-registry";
@@ -93,10 +94,13 @@ async function main() {
 
   const tags = {};
   for (const s of ofac.skippedIds) tags[s.tag] = (tags[s.tag] ?? 0) + 1;
-  console.log(`OFAC SDN: ${opts.ofac ?? OFAC_URL}, published ${report.ofacPublishDate}, ${ofac.entries.length} EVM addresses`);
+  console.log(`OFAC SDN: ${opts.ofac ?? OFAC_URL}, published ${report.ofacPublishDate}, ${ofac.entries.length} EVM addresses, ${ofac.tronEntries.length} Tron addresses`);
   console.log(`OFAC skippedIds (${ofac.skippedIds.length}): ${JSON.stringify(tags)}`);
-  // non-0x ids under an EVM tag (e.g. TRON-format USDT) are expected; real 0x addresses under a new tag throw in parseOfacXml
+  // non-address ids under an EVM tag (e.g. Omni-format USDT) are expected; real 0x addresses under a new tag throw in parseOfacXml
   list("OFAC skipped malformed 0x-shaped ids", ofac.skippedIds.filter((s) => /^0x/i.test(s.idNumber)).map((s) => `${s.tag}: ${s.idNumber}`));
+  list("OFAC skipped T-prefixed or 41-hex ids", ofac.skippedIds.filter((s) => /^(T|41[0-9a-fA-F]{40}$)/.test(s.idNumber)).map((s) => `${s.tag}: ${s.idNumber}`));
+  // a checksum-valid T… is imported whatever its tag; off-tag ones are listed for review
+  list("OFAC Tron ids under other tags", ofac.tronEntries.filter((e) => !/ - (TRX|USDT)$/.test(e.tag)).map((e) => `${e.tag}: ${toTronBase58(e.address)}`));
   console.log(`superchain-registry: ${REGISTRY}@${registry.ref.sha} (${registry.ref.date}), ${registry.rows.length} rows`);
   console.log(`registry skipped chain ids (not mainnet-parented) (${registry.skipped.length}): ${registry.skipped.join(", ")}`);
   console.log(`curated: ${curatedAll.length} rows${opts.verify ? `, ${curated.length} kept after --verify-sources` : " (not verified this run)"}`);

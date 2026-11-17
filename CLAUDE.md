@@ -21,7 +21,7 @@ python3 -m http.server 8000   # open http://localhost:8000/
 Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 
 ```bash
-bun test        # 992 tests
+bun test        # 1011 tests
 ```
 
 `vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
@@ -88,8 +88,11 @@ Frozen module contracts live in `INTERFACES.md`.
 - **`data/known-addresses.json` is generated — never hand-edit it.** Edit
   `data/sources/curated.json`, then run `bun run data:build --verify-sources` (dev-only
   pipeline in `scripts/known-addresses/`; see `data/README.md`). Sanctions come only from the
-  OFAC import (curated rows use `ofacDesignated`). `"*"` = all EVM chains; every lookup goes
-  through `knownEntry`. `token` rows are the per-chain canonical set that drives imitation-token
+  OFAC import (curated rows use `ofacDesignated`); that import also takes every checksum-valid
+  Tron `T…` id (format decides, not the tag) into bucket `"728126428"` keyed by `41…` hex.
+  Curated Tron rows are `token` only (`T…` as cited, written as `41…` hex), and a curated row
+  on an address the bucket already holds as OFAC is rejected. `"*"` = all EVM chains; every
+  lookup goes through `knownEntry`. `token` rows are the per-chain canonical set that drives imitation-token
   detection — curate all legit same-symbol variants or none.
 - **USD is opt-in and derived**: the `#usdToggle` box is off at every load and never persisted; `priceKeyFor` alone decides what reaches `coins.llama.fi` (coin ids + hour-rounded times only; never imitation/spam/NFT/zero/root-contract); `usdForEdge` is the one valuation for details/CSV/manifest; box off = zero price requests; fail closed if the known-address or spam data did not load. It is a display projection like filters: it never mutates `graphStore`, and unknown/pending is blank, never `0`.
-- **Tron is opt-in (TronGrid)**: id `728126428:41…` — canonical lowercase `41`+40 hex; `T…` base58check is display-only (`displayAddress`/`shortAddress`/`explorerUrl`), never lowercased, never an id, never read from a workspace. Tron is in `chainInfo` (config) but **not** in `CHAINS`, so Look/Load-on-chain/probe/twins/bridges/USD/`"*"` known rows never see it: use `chainInfo` for a record's own chain, `CHAINS` for EVM-only lists. Every sample size goes through `sampleSize(chainId, n)` (TronGrid caps at 200; the client rejects more). The Load-older cursor is block time in ms (`cursor`, `HistoryEntry.oldestBlock` = ms). Tron is never persisted as the selected chain (`STORAGE_KEYS.chainId`); nothing contacts TronGrid before an explicit Tron choice. The TronGrid key lives only in the `TRON-PRO-API-KEY` header: never in a URL, log, workspace, export or error message.
+- **Tron is opt-in (TronGrid)**: id `728126428:41…` — canonical lowercase `41`+40 hex; `T…` base58check is display-only (`displayAddress`/`shortAddress`/`explorerUrl`), never lowercased, never an id, never read from a workspace. Tron is in `chainInfo` (config) but **not** in `CHAINS`, so Look/Load-on-chain/probe/twins/bridges/USD/`"*"` known rows never see it (chain-specific Tron rows apply: OFAC sanctions, official USDT TRC-20 for imitation detection; no exchange/bridge/mixer labels): use `chainInfo` for a record's own chain, `CHAINS` for EVM-only lists. Every sample size goes through `sampleSize(chainId, n)` (TronGrid caps at 200; the client rejects more). The Load-older cursor is block time in ms (`cursor`, `HistoryEntry.oldestBlock` = ms). Tron is never persisted as the selected chain (`STORAGE_KEYS.chainId`); nothing contacts TronGrid before an explicit Tron choice. The TronGrid key lives only in the `TRON-PRO-API-KEY` header: never in a URL, log, workspace, export or error message.

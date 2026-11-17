@@ -115,3 +115,14 @@ test("a Tron TRC-20 transfer has no calldata, so no hiddenRecipient flag", async
   expect(edge.methodArgs).toEqual([]);
   expect(flagsForEdge(edge, noCat)).not.toContain("flag.hiddenRecipient");
 });
+
+test("real data: a Tron edge to a Tron OFAC address flags sanctioned, on Tron only", async () => {
+  const { knownCategory } = await import("../src/knownAddresses.js");
+  const KNOWN = (await import("../data/known-addresses.json")).default;
+  const TRON = "728126428";
+  const TRON_SANCT = Object.keys(KNOWN[TRON]).find((a) => KNOWN[TRON][a].category === "sanctioned");
+  const ctx = { category: (a, c) => knownCategory(a, c, KNOWN) };
+  const edge = { chainId: TRON, from: "41" + "11".repeat(20), to: TRON_SANCT, hasData: false, methodId: "", methodArgs: [] };
+  expect(flagsForEdge(edge, ctx)).toContain("flag.sanctioned");
+  expect(flagsForEdge({ ...edge, chainId: "1" }, ctx)).not.toContain("flag.sanctioned");
+});

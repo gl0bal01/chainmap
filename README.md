@@ -18,7 +18,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
   explicitly choose Tron, and `coins.llama.fi` (DefiLlama) only while you tick the opt-in
   **Show USD values** box — enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **992 unit/integration tests** on the DOM-free core.
+- **1011 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -201,8 +201,12 @@ when you ask for it.
   TRC-20 transfers are fetched, latest first.
 - **Load older** pages by **block time** (TRC-20 and internal rows carry no block number), with
   the cursor saved in the workspace.
-- **Not supported on Tron:** known-address labels and sanctions flags, USD values, bridge
-  links, same-key/chain twins and other-chain lookups, NFTs, testnets. A Tron sample is never
+- **Sanctions and fake USDT:** Tron nodes get the OFAC SDN sanctions label and flag (a dated
+  snapshot, not a live feed) and imitation-USDT detection against Tether's official USDT TRC-20
+  contract. There are no other Tron labels (no exchange, bridge or mixer labels), so no
+  exchange-deposit marks.
+- **Not supported on Tron:** other known-address labels, USD values, bridge links,
+  same-key/chain twins and other-chain lookups, NFTs, testnets. A Tron sample is never
   complete.
 
 ---
@@ -242,7 +246,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 992 unit + integration tests
+bun test        # 1011 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:

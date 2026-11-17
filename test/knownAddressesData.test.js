@@ -2,11 +2,11 @@ import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import knownData from "../data/known-addresses.json";
 import curated from "../data/sources/curated.json";
-import { KNOWN_CATEGORIES, CHAINS } from "../src/config.js";
-import { isValidAddress, lc } from "../src/format.js";
+import { KNOWN_CATEGORIES, CHAINS, TRON_CHAIN } from "../src/config.js";
+import { isChainAddress, lc } from "../src/format.js";
 
 describe("data/known-addresses.json validity", () => {
-  const CHAIN_KEYS = new Set(["*", ...CHAINS.map((c) => String(c.id))]);
+  const CHAIN_KEYS = new Set(["*", ...CHAINS.map((c) => String(c.id)), String(TRON_CHAIN.id)]);
 
   test("top level keys are '*' or a supported chain id", () => {
     for (const chainId of Object.keys(knownData)) {
@@ -19,7 +19,7 @@ describe("data/known-addresses.json validity", () => {
     for (const chainId of Object.keys(knownData)) {
       for (const addr of Object.keys(knownData[chainId])) {
         expect(addr).toBe(lc(addr));
-        expect(isValidAddress(addr)).toBe(true);
+        expect(isChainAddress(chainId === "*" ? "1" : chainId, addr)).toBe(true);
       }
     }
   });
@@ -77,7 +77,7 @@ describe("data/known-addresses.json validity", () => {
   });
 });
 
-const BLOCKED_HOSTS = [...CHAINS.map((c) => c.explorer), "arkhamintelligence.com", "arkm.com", "nansen.ai"];
+const BLOCKED_HOSTS = [...CHAINS.map((c) => c.explorer), TRON_CHAIN.explorer, "arkhamintelligence.com", "arkm.com", "nansen.ai"];
 
 test("curated seed never asserts 'sanctioned' (sanctions come only from the OFAC import)", () => {
   expect(Array.isArray(curated)).toBe(true);
@@ -85,8 +85,9 @@ test("curated seed never asserts 'sanctioned' (sanctions come only from the OFAC
 });
 
 // Every "sanctioned" entry must trace to ONE OFAC import: "*" entries carry the
-// generator's exact source (single publish date); chain entries need a "*" twin
-// and end their source with the same snapshot date.
+// generator's exact source (single publish date), as do Tron sanctioned rows
+// (no "*" twin needed); other chain entries need a "*" twin and end their
+// source with the same snapshot date.
 const OFAC_SOURCE = /^OFAC SDN list, published (\d{4}-\d{2}-\d{2})$/;
 const OFAC_SUFFIX = /; OFAC SDN list, published (\d{4}-\d{2}-\d{2})$/;
 function ofacProvenanceProblems(data) {
@@ -99,7 +100,7 @@ function ofacProvenanceProblems(data) {
       if (e.label.endsWith(" (OFAC SDN)") && e.category !== "sanctioned") problems.push(`${at} OFAC label, category ${e.category}`);
       if (e.category !== "sanctioned") continue;
       if (!e.label.endsWith(" (OFAC SDN)")) problems.push(`${at} label lacks (OFAC SDN)`);
-      if (chainId === "*") {
+      if (chainId === "*" || chainId === String(TRON_CHAIN.id)) { // Tron rows have no '*' twin
         const m = OFAC_SOURCE.exec(e.source);
         if (m) dates.add(m[1]);
         else problems.push(`${at} source not the OFAC import: ${e.source}`);
@@ -132,6 +133,20 @@ test("OFAC provenance check rejects hand-edited sanctions", () => {
   expect(ofacProvenanceProblems(chainRow("https://x; OFAC SDN list, published 2025-01-01"))).toEqual(["OFAC sources span 2 publish dates"]);
   expect(ofacProvenanceProblems({ "*": { [A]: ofac("2026-11-13") }, 1: { [B]: { ...ofac("2026-11-13"), category: "other" } } })).toEqual([`1:${B} OFAC label, category other`]);
   expect(ofacProvenanceProblems({ "*": { [A]: { ...ofac("2026-11-13"), label: "X" } } })).toEqual([`*:${A} label lacks (OFAC SDN)`]);
+});
+
+test("OFAC provenance check covers Tron rows", () => {
+  const A = "0x" + "ab".repeat(20), T = "41" + "cd".repeat(20);
+  const ofac = { label: "X (OFAC SDN)", category: "sanctioned", source: "OFAC SDN list, published 2026-11-13", added: "2026-11-13" };
+  expect(ofacProvenanceProblems({ "*": { [A]: ofac }, 728126428: { [T]: ofac } })).toEqual([]);
+  expect(ofacProvenanceProblems({ "*": { [A]: ofac }, 728126428: { [T]: { ...ofac, source: "some blog" } } })).toEqual([`728126428:${T} source not the OFAC import: some blog`]);
+});
+
+test("Tron rows are only OFAC sanctioned or curated token rows, and include the official USDT", () => {
+  const tron = knownData["728126428"];
+  for (const e of Object.values(tron)) expect(["sanctioned", "token"]).toContain(e.category);
+  expect(tron["41a614f803b6fd780986a42c78ec9c7f77e6ded13c"]).toMatchObject({ category: "token", symbol: "USDT", decimals: 6, source: "https://tether.to/en/supported-protocols/" });
+  expect(Object.values(tron).filter((e) => e.category === "sanctioned").length).toBeGreaterThanOrEqual(1);
 });
 
 test("no source URL points at an explorer label cloud / Arkham / Nansen", () => {
