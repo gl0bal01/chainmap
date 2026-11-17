@@ -3337,6 +3337,7 @@ test("edge details: Bridge deposit row — recipient basis, candidate lines with
     "Look for the release on",
   ]) expect(box.textContent).toContain(s);
   const sel = box.querySelector("select");
+  expect(sel.getAttribute("aria-label")).toBe("Look for the release on");
   expect([...sel.options].map((o) => o.value)).toEqual(["8453", "137"]);
   expect(sel.value).toBe("8453");
   sel.value = "137";
@@ -3413,6 +3414,7 @@ test("a decoded deposit and a curated-WETH mint draw one high inferred link; det
   $("langToggle").click();
   try {
     expect(bridgeItems()[0].label).toBe("déduit — à vérifier");
+    expect(bridgeItems()[0].title).toBe("Lien de pont déduit (confiance élevée) — pas une preuve");
     expect(panel()).toContain("Lien de pont déduit — à vérifier");
   } finally {
     $("langToggle").click();
@@ -3672,6 +3674,9 @@ test("evidence bundle: MANIFEST bridges block + BRIDGE_CAVEAT; workspace.json ca
   expect(manifest.bridges).toEqual({ note: expect.any(String), candidates: 1, low: 0, medium: 0, high: 1, confirmedByInvestigator: 1, rejectedByInvestigator: 0 });
   expect(manifest.caveats).toContain(BRIDGE_CAVEAT);
   expect(JSON.parse(file("workspace.json")).bridgeDecisions.length).toBe(1);
+  const csv = file("graph.csv").split("\n");
+  expect(csv[0]).toContain("bridge_inferred lists inferred bridge candidates");
+  expect(csv.find((l) => l.includes(",0xbd1,"))).toEndWith(`,release=137:0xbr1;to=${RECIP};confidence=high;status=confirmed-by-investigator`);
 })));
 
 test("reset clears investigator decisions: the same pair rebuilt by scan + Look is inferred again, and a save carries none", () => withBridgeEnv(() => withDownloads(async (dl) => {

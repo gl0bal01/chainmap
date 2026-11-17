@@ -327,7 +327,7 @@ function provenanceText({ exportedAt, retrieval }) {
  *           formatTimestamp?:(t:string)=>string,
  *           deposits?:Map<string, import('../depositDetect.js').DepositEvidence>,
  *           usd?:(edge:object)=>({state:string, text?:string}),
- *           bridges?:{ candidates:object[], decisions:Map<string,{decision:string}> },
+ *           bridges?:{ candidates:object[], decisions:Map<string,{deposit:string,release:string,decision:string}> },
  *           provenance?:{ exportedAt:string, retrieval:object|null } }} ctx
  *   `usd` (absent when the box is off) fills usd_value and adds the line-1 estimate caveat with counts.
  *   `provenance` (when given) extends line 1 — still one comma-free `#` comment.
@@ -349,7 +349,10 @@ export function buildCsvRows(store, ctx) {
   for (const c of (ctx && ctx.bridges && ctx.bridges.candidates) || []) {
     const d = byKey.get(c.depositKey), r = byKey.get(c.releaseKey);
     if (!d || !r) continue;
-    const tail = `confidence=${c.level};status=${BRIDGE_STATUS[ctx.bridges.decisions?.get(c.id)?.decision] || "unreviewed"}`;
+    // Same rule as the details panel and MANIFEST: a decision applies only to the exact pair it was made on.
+    const dec = ctx.bridges.decisions?.get(c.id);
+    const status = dec && dec.deposit === c.depositKey && dec.release === c.releaseKey ? BRIDGE_STATUS[dec.decision] : null;
+    const tail = `confidence=${c.level};status=${status || "unreviewed"}`;
     addPart(d.key, `release=${r.chainId}:${r.hash};to=${r.to};${tail}`);
     addPart(r.key, `deposit=${d.chainId}:${d.hash};from=${d.from};${tail}`);
   }

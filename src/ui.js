@@ -353,6 +353,7 @@ function bridgeDepositNode(v, i18n) {
   if (v.recipient != null && v.lookChains.length) {
     const row = textLine(box, i18n.t("details.bridgeLookOn") + " ");
     const sel = document.createElement("select");
+    sel.setAttribute("aria-label", i18n.t("details.bridgeLookOn"));
     for (const c of v.lookChains) {
       const o = document.createElement("option");
       o.value = c.chainId;

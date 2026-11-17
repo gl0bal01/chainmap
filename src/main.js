@@ -1347,7 +1347,6 @@ function applyWorkspace(ws) {
   $("twinToggle").checked = f.showTwins !== false;
   view.setTwins($("twinToggle").checked);
   $("bridgeToggle").checked = f.showBridges !== false;
-  syncBridgeLinks();
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
   syncChainUi();

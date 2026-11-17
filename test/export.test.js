@@ -701,7 +701,8 @@ describe("bridge_inferred", () => {
   const cell = (rows, hash) => rows.find((r) => r[0] === "edge" && r[10] === hash).at(-1);
 
   test("last column; deposit and release cells joined in candidate order; statuses; line-1 caveat, comma-free", () => {
-    const rows = buildCsvRows(makeFakeStore([withId(NODE_A)], [DEP, REL, REL2]), ctx(new Map([["1|d>137|r", { decision: "confirmed" }], ["1|d>137|r2", { decision: "rejected" }]])));
+    const dec = (release, decision) => [`1|d>${release}`, { deposit: "1|d", release, decision, at: "2026-11-17T10:00:00.000Z" }];
+    const rows = buildCsvRows(makeFakeStore([withId(NODE_A)], [DEP, REL, REL2]), ctx(new Map([dec("137|r", "confirmed"), dec("137|r2", "rejected")])));
     expect(rows[1].slice(-2)).toEqual(["usd_value", "bridge_inferred"]);
     expect(rows[0][0]).toBe(SINGLE_CAVEAT + BRIDGE_CSV);
     expect(rows[0][0].includes(",")).toBe(false);
@@ -709,6 +710,14 @@ describe("bridge_inferred", () => {
     expect(cell(rows, "0xd1")).toBe(`release=137:0xr1;to=${NODE_A.address};confidence=high;status=confirmed-by-investigator | release=137:0xr2;to=${NODE_A.address};confidence=low;status=rejected-by-investigator`);
     expect(cell(rows, "0xr1")).toBe(`deposit=1:0xd1;from=${NODE_A.address};confidence=high;status=confirmed-by-investigator`);
     expect(cell(buildCsvRows(makeFakeStore([], [DEP, REL]), ctx()), "0xr1")).toBe(`deposit=1:0xd1;from=${NODE_A.address};confidence=high;status=unreviewed`);
+  });
+
+  test("status needs the decision's own deposit and release keys, like details and MANIFEST (id alone is not enough)", () => {
+    const stale = new Map([["1|d>137|r", { deposit: "1|d", release: "137|other", decision: "confirmed", at: "2026-11-17T10:00:00.000Z" }],
+      ["1|d>137|r2", { deposit: "1|other", release: "137|r2", decision: "rejected", at: "2026-11-17T10:00:00.000Z" }]]);
+    const rows = buildCsvRows(makeFakeStore([withId(NODE_A)], [DEP, REL, REL2]), ctx(stale));
+    expect(cell(rows, "0xr1")).toBe(`deposit=1:0xd1;from=${NODE_A.address};confidence=high;status=unreviewed`);
+    expect(cell(rows, "0xr2")).toBe(`deposit=1:0xd1;from=${NODE_A.address};confidence=low;status=unreviewed`);
   });
 
   test("no candidate (or one whose edges are gone) → blank column, no caveat", () => {
