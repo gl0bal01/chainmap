@@ -223,6 +223,9 @@ describe("factors and levels", () => {
   test("caps: fee → medium; untrusted asset → low; depositor fallback alone → low, with a mint → medium", () => {
     expect(only(run([deposit(), mint({ value: "19900000000000000000" })]))).toMatchObject({ amount: "fee", feeBps: 50, level: "medium" });
     expect(only(run([deposit(), mint({ tokenContract: OTHER })]))).toMatchObject({ trusted: false, level: "low" });
+    const uc = edge("1", USER, BRIDGE, { hash: "0xu1", value: "0", rawInput: call("0x4faa8a26", RECIP) });
+    const ud = edge("1", USER, BRIDGE, { hash: "0xu1", action: "tokentx", symbol: "WETH", tokenContract: OTHER, tokenDecimal: "18" });
+    expect(only(run([uc, ud, mint()]))).toMatchObject({ basis: "calldata", sender: "mint", trusted: false, level: "low" }); // untrusted deposit side
     const plain = deposit({ rawInput: "" });
     const toUser = (over = {}) => edge("137", OTHER, USER, { action: "tokentx", symbol: "WETH", tokenContract: WETH, tokenDecimal: "18", timeStamp: String(T + 60), ...over });
     const users = [node("137", USER, ALL)];
@@ -254,6 +257,8 @@ describe("factors and levels", () => {
     expect(cov([recip({ tokentx: MORE })])).toBe(false);
     expect(cov([recip({ tokentx: MORE })], [old("50")])).toBe(true);
     expect(cov([recip({ tokentx: MORE })], [old("49")])).toBe(false); // outside its own window (Open point 3)
+    const oldTx = edge("137", OTHER, RECIP, { value: "1", timeStamp: String(T - 10), blockNumber: "60" }); // txlist, in window
+    expect(cov([recip({ tokentx: MORE })], [oldTx])).toBe(false); // an edge of another action never covers tokentx
     expect(only(run([d, r], [recip({ tokentx: MORE })])).level).toBe("low");
     const n = edge("42161", OTHER, RECIP, { action: "txlistinternal", timeStamp: String(T + 60) });
     expect(only(run([d, n], [recip({ txlist: DONE }, "42161")])).covered).toBe(false);
