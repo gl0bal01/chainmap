@@ -9,6 +9,7 @@ import { FETCH, TRON_FETCH } from "./config.js";
 import { EtherscanError, sleep } from "./etherscanClient.js";
 import { TRON_CHAIN_ID, TRON_ACTIONS, isTronAddress, tronUrl, tronRows } from "./tron.js";
 
+const FILL_HOPS = 10;
 const aborted = (action) => new EtherscanError(`aborted (${action})`, "aborted", { action });
 const apiError = (action, httpStatus, data) =>
   new EtherscanError(`TronGrid error (${action}): ${String(data?.error ?? data?.Error ?? "").slice(0, 200)}`, "api", { action, httpStatus });
@@ -121,7 +122,8 @@ export function createTronClient(options = {}) {
 
   /**
    * Latest `offset` rows (newest first; `sort` ignored). `page` p > 1 follows
-   * meta.fingerprint p-1 times, pacing each hop by minIntervalMs; [] when the chain ends.
+   * meta.fingerprint p-1 times, pacing each hop by minIntervalMs; [] when the chain ends. A short
+   * page that still has a fingerprint is filled (up to FILL_HOPS hops), so more rows may come back.
    */
   async function fetchAction(address, action, { offset, page = 1, startblock, endblock, signal, onRetry } = {}) {
     if (!TRON_ACTIONS.includes(action) || !isTronAddress(address) || !(Number.isInteger(offset) && offset >= 1 && offset <= TRON_FETCH.maxLimit)) {
@@ -139,7 +141,17 @@ export function createTronClient(options = {}) {
       await sleep(minIntervalMs, signal);
       json = await request(action, { ...params, fingerprint }, signal, onRetry);
     }
-    return tronRows(action, json);
+    // Ruling 32: a short page that still carries a fingerprint is not the end: fill it from the
+    // following pages (at most FILL_HOPS, paced like every hop). More than `offset` rows is fine.
+    let rows = tronRows(action, json);
+    for (let hop = 0; rows.length < offset && hop < FILL_HOPS; hop++) {
+      const fingerprint = json.meta?.fingerprint;
+      if (typeof fingerprint !== "string" || !fingerprint) break;
+      await sleep(minIntervalMs, signal);
+      json = await request(action, { ...params, fingerprint }, signal, onRetry);
+      rows = rows.concat(tronRows(action, json));
+    }
+    return rows;
   }
 
   return { fetchAction };

@@ -228,3 +228,36 @@ test("a throwing onQuery never breaks the fetch", async () => {
   const client = createTronClient({ fetchImpl: fakeFetch(OK([])), onQuery: () => { throw new Error("boom"); } });
   expect(await client.fetchAction(A, "txlist", { offset: 20 })).toEqual([]);
 });
+
+// Ruling 32: a short page that still carries a fingerprint is not the end of the data.
+test("a short page with a fingerprint is filled from the next pages", async () => {
+  const f = fakeFetch(OK([{}], { fingerprint: "F1" }), OK([{}, {}]));
+  const { client, records } = mk(f, { minIntervalMs: 30 });
+  const out = await client.fetchAction(A, "txlist", { offset: 3 });
+  expect(out.length).toBe(3);
+  expect(f.calls.length).toBe(2);
+  expect(f.calls[1].url.endsWith("&fingerprint=F1")).toBe(true);
+  expect(f.calls[1].t - f.calls[0].t).toBeGreaterThanOrEqual(25);
+  expect(records.map((r) => r.params.fingerprint)).toEqual([undefined, "F1"]);
+  expect(records.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+});
+
+test("fill hops stop at 10", async () => {
+  const f = fakeFetch(OK([{}], { fingerprint: "F" }));
+  const { client, records } = mk(f, { minIntervalMs: 1 });
+  const out = await client.fetchAction(A, "txlist", { offset: 50 });
+  expect(f.calls.length).toBe(11);
+  expect(records.length).toBe(11);
+  expect(out.length).toBe(11);
+});
+
+test("abort during a fill wait", async () => {
+  const ctrl = new AbortController();
+  const f = fakeFetch(() => (setTimeout(() => ctrl.abort(), 20), OK([{}], { fingerprint: "F1" })));
+  const { client } = mk(f, { minIntervalMs: 1000 });
+  const t0 = Date.now();
+  const err = await rejection(client.fetchAction(A, "txlist", { offset: 5, signal: ctrl.signal }));
+  expect(err.kind).toBe("aborted");
+  expect(Date.now() - t0).toBeLessThan(500);
+  expect(f.calls.length).toBe(1);
+});
