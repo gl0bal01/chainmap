@@ -6,6 +6,8 @@
 // at or below it (inclusive, so a cut-off boundary block is re-read; edge
 // dedup drops the repeats). When a single block holds >= N rows the cursor
 // cannot move, so we page inside that block (startblock = endblock = cursor).
+// Tron rows carry a `cursor` (block_timestamp in ms) that is read in place of
+// blockNumber, so for Tron nodes oldestBlock holds ms.
 // Used by graphStore, scanner, render and ui; has no dependencies but config.
 // =============================================================================
 
@@ -48,7 +50,7 @@ export function advance(entry, rows, n, req) {
   const prev = entry ? Number(entry.oldestBlock) : undefined;
   const inBlock = req.startblock !== undefined;
   // Digits only: Number("")/Number(null) are 0 and would drop the cursor to block 0.
-  const blocks = rows.filter((r) => /^\d+$/.test(String(r.blockNumber))).map((r) => Number(r.blockNumber));
+  const blocks = rows.map((r) => r.cursor ?? r.blockNumber).filter((v) => /^\d+$/.test(String(v))).map(Number);
   const min = blocks.length ? Math.min(...blocks) : undefined;
   const mk = (oldest, blockPage, pageSize, done) => ({
     oldestBlock: String(oldest), blockPage, pageSize, done, count,
