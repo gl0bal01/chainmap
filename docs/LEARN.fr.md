@@ -19,6 +19,7 @@ le fil.
 7. [Échantillonnage ≠ historique complet](#7-échantillonnage--historique-complet)
 8. [Transactions échouées et annulées](#8-transactions-échouées-et-annulées)
 9. [EVM et multichaîne](#9-evm-et-multichaîne)
+   - [Tron (via TronGrid)](#tron-via-trongrid)
 10. [Heuristiques pour enquêter](#10-heuristiques-pour-enquêter)
 11. [Preuves et provenance](#11-preuves-et-provenance)
 12. [Travaux pratiques](#travaux-pratiques)
@@ -164,6 +165,36 @@ n'existait pas sur Optimism, et un attaquant y a déployé un Safe et pris les j
 > pourrait passer pour « même clé » entre deux telles chaînes. Le lien est un indice, pas une
 > preuve de propriété commune. Colorer les nœuds par chaîne et tracer les liens « même adresse
 > seulement » ne sont pas dans cette version.
+
+### Tron (via TronGrid)
+
+Tron n'est pas une chaîne EVM : chainmap la lit via TronGrid (sur demande, voir le README).
+
+- **Deux écritures d'une même adresse.** La forme familière `T…` est en *base58check* : un
+  octet de version `41` + 20 octets + une somme de contrôle de 4 octets, encodés en base58.
+  La forme côté chaîne/API est la même charge utile en hex : `41` + 40 hex. chainmap stocke le
+  `41…` hex en minuscules (c'est l'identité) et n'affiche `T…` que pour l'affichage et les
+  liens ; `T…` est sensible à la casse, donc une version passée en minuscules est refusée.
+- **Même clé, mêmes 20 octets.** Une même clé privée donne le même corps de 20 octets sur Tron
+  et sur une chaîne EVM. chainmap ne les **apparie pas** (ni jumeau, ni lien « même clé »).
+  Vérification à la main : convertissez le `T…` en hex, retirez le `41` initial, préfixez par
+  `0x` : c'est l'adresse EVM.
+- **Le TRX se compte en sun** : 1 TRX = 1 000 000 sun (6 décimales), toujours des entiers en
+  unités de base.
+- **TRC-10 vs TRC-20.** Les TRC-10 sont des actifs natifs du protocole, identifiés par un id
+  numérique, sans décimales dans l'enregistrement du transfert : chainmap affiche donc le
+  montant brut, marqué indéterminé. Les TRC-20 sont des jetons de contrat intelligent (comme
+  les ERC-20) avec symbole et décimales ; un jeton sans symbole s'affiche « TRC-20 », jamais
+  TRX.
+- **Transactions internes.** Ce sont des mouvements de valeur effectués par un contrat pendant
+  un appel. Une transaction `rejected` a été annulée et est écartée comme une transaction
+  échouée.
+- **Pas de numéro de bloc sur les lignes TRC-20 et internes**, seulement l'*heure* du bloc.
+  Le curseur de **Charger les plus anciennes** sur Tron est donc l'heure du bloc en millisecondes, et
+  non un numéro de bloc.
+- **Échantillonnage.** Chaque adresse reçoit les N dernières lignes par type (TronGrid plafonne
+  une requête à 200) ; **Charger les plus anciennes** remonte par heure de bloc. Cela reste un
+  échantillon, jamais l'historique complet.
 
 ## 10. Heuristiques pour enquêter
 

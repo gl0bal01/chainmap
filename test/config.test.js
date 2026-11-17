@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { CHAINS, PROBE_CHAIN_IDS, KNOWN_CATEGORIES, PRICE_API, PRICE_FETCH, LLAMA_CHAINS, STORAGE_KEYS } from "../src/config.js";
+import { CHAINS, PROBE_CHAIN_IDS, KNOWN_CATEGORIES, PRICE_API, PRICE_FETCH, LLAMA_CHAINS, STORAGE_KEYS, TRON_CHAIN, TRON_FETCH, chainInfo } from "../src/config.js";
 
 // explorer must be a bare host: no scheme, no path/slash (config.js builds
 // `https://<explorer>/address/...` and `/tx/...` links directly from it).
@@ -171,5 +171,29 @@ describe("price config", () => {
   });
   test("no STORAGE_KEYS entry for USD (never persisted)", () => {
     expect(Object.keys(STORAGE_KEYS).concat(Object.values(STORAGE_KEYS)).some((k) => /usd|price/i.test(k))).toBe(false);
+  });
+});
+
+describe("Tron chain record", () => {
+  test("TRON_CHAIN is the spec record, outside CHAINS/probe/price sets", () => {
+    expect(TRON_CHAIN).toEqual({ id: 728126428, name: "Tron", explorer: "tronscan.org", native: "TRX" });
+    expect(0x2b6653dc).toBe(728126428);
+    expect(CHAINS.some((c) => c.id === 728126428)).toBe(false);
+    expect(PROBE_CHAIN_IDS).not.toContain(728126428);
+    expect(LLAMA_CHAINS["728126428"]).toBeUndefined();
+  });
+  // Ruling 45: Tron is never an Etherscan chain, by number or by string.
+  test("CHAINS and PROBE_CHAIN_IDS never hold Tron", () => {
+    expect(CHAINS.map((c) => String(c.id))).not.toContain("728126428");
+    expect(PROBE_CHAIN_IDS.map(String)).not.toContain("728126428");
+  });
+  test("chainInfo looks up CHAINS, Tron, else null", () => {
+    expect(chainInfo("728126428")).toBe(TRON_CHAIN);
+    expect(chainInfo(1).name).toBe("Ethereum");
+    expect(chainInfo("999999")).toBeNull();
+  });
+  test("TRON_FETCH and storage key", () => {
+    expect(TRON_FETCH).toEqual({ maxLimit: 200, backoffMs: 5500, keylessRps: 2, keyedMaxRps: 10 });
+    expect(STORAGE_KEYS.tronKey).toBe("tronGridApiKey");
   });
 });

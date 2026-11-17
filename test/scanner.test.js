@@ -2,6 +2,10 @@ import { describe, test, expect } from "bun:test";
 import { runScan, loadOlder, selectedTypes } from "../src/scanner.js";
 import { TX_TYPE_GROUPS } from "../src/config.js";
 import { GraphStore } from "../src/graphStore.js";
+import { tronRows, tronTypes } from "../src/tron.js";
+import TX from "./fixtures/tron/transactions.json";
+import T20 from "./fixtures/tron/trc20.json";
+import INT from "./fixtures/tron/internal.json";
 
 // -----------------------------------------------------------------------------
 // Injected fakes for the client, limiter and (mostly) the store. The real
@@ -428,6 +432,19 @@ describe("loadOlder", () => {
     expect(logs.map((l) => l.key)).toEqual(["error.fetch"]);
   });
 
+  test("an api-kind fetch error (short Tron page) logs error.fetch, cursor unchanged, not complete", async () => {
+    const entry = { oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 };
+    const client = makeClient();
+    client.fetchAction = async () => { throw Object.assign(new Error("short"), { kind: "api" }); };
+    const store = seeded({ txlist: entry });
+    const logs = [];
+    const r = await lo({ client, store, onLog: (e) => logs.push(e) });
+    expect(r.errors).toBe(1);
+    expect(r.allDone).toBe(false);
+    expect(store.getNode(ID(R)).history.txlist).toEqual(entry);
+    expect(logs.map((l) => l.key)).toEqual(["error.fetch"]);
+  });
+
   test("plan_required stops the load", async () => {
     const client = makeClient();
     client.fetchAction = async () => {
@@ -535,5 +552,59 @@ describe("chain-scoped scans", () => {
     expect(store.getNode(`8453:${R}`).history.txlist.oldestBlock).toBe("7");
     expect(store.hasNode(`8453:${B}`)).toBe(true);
     expect(store.hasNode(`1:${B}`)).toBe(false);
+  });
+});
+
+describe("Tron ingestion", () => {
+  const TC = "728126428";
+  const TR = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+  const FIX = { txlist: TX, txlistinternal: INT, tokentx: T20 };
+  const tronClient = (throwAll = false) => {
+    const calls = [];
+    return {
+      calls,
+      async fetchAction(address, action, o = {}) {
+        calls.push({ address, action, ...o });
+        if (throwAll) throw new Error("boom");
+        return address === TR ? tronRows(action, FIX[action]) : [];
+      },
+    };
+  };
+
+  test("runScan: Tron ids, failed/skipped counts, ms cursor", async () => {
+    const store = new GraphStore();
+    const summary = await runScan({
+      client: tronClient(), store, limiter: fakeLimiter, chainId: TC, root: TR, maxDepth: 1,
+      maxTxPerAddress: 20, safetyCap: 300,
+      types: tronTypes(selectedTypes({ normal: true, internal: true, token: true })),
+    });
+    for (const n of store.listNodes()) expect(n.id).toMatch(/^728126428:41[0-9a-f]{40}$/);
+    expect(summary.failed).toBe(3);
+    expect(summary.skipped).toBe(3);
+    expect(store.getNode(`${TC}:${TR}`).history.txlist).toEqual({
+      oldestBlock: String(Math.min(...TX.data.map((i) => i.block_timestamp))),
+      blockPage: 0, pageSize: 0, done: true, count: TX.data.length,
+    });
+  });
+
+  test("loadOlder on a Tron node uses the ms cursor", async () => {
+    const store = new GraphStore();
+    store.addNode(TC, TR, { depth: 0, isRoot: true });
+    store.setHistory(`${TC}:${TR}`, "tokentx", { oldestBlock: "1794907752000", blockPage: 0, pageSize: 7, done: false, count: 7 });
+    const client = tronClient();
+    await loadOlder({ client, store, limiter: fakeLimiter, chainId: TC, address: TR, types: tronTypes(selectedTypes({ token: true })), maxTxPerAddress: 7 });
+    expect(client.calls[0]).toMatchObject({ address: TR, action: "tokentx", endblock: 1794907752000, page: 1, offset: 7, sort: "desc" });
+    const h = store.getNode(`${TC}:${TR}`).history.tokentx;
+    expect(h.done).toBe(false);
+    expect(h.oldestBlock).toBe(String(Math.min(...T20.data.map((i) => i.block_timestamp))));
+  });
+
+  test("error log shows the T... form", async () => {
+    const logs = [];
+    await runScan({
+      client: tronClient(true), store: new GraphStore(), limiter: fakeLimiter, chainId: TC, root: TR, maxDepth: 1,
+      maxTxPerAddress: 20, safetyCap: 300, types: tronTypes(selectedTypes({ normal: true })), onLog: (l) => logs.push(l),
+    });
+    expect(logs[0].params.address).toBe("TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi");
   });
 });

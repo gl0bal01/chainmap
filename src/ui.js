@@ -9,22 +9,13 @@
 // STAGE A: interface frozen. STAGE B: bodies implemented here.
 // =============================================================================
 
-import { formatTimestamp, formatUnits, isValidAddress, shortAddress } from "./format.js";
-import { TX_TYPE_GROUPS } from "./config.js";
+import { formatTimestamp, formatUnits, isValidAddress, shortAddress, displayAddress, explorerUrl } from "./format.js";
+import { edgeTypeKey } from "./tron.js";
 import { methodName } from "./selectors.js";
 import { summarizeCall, decodeCalldataWords, decodeInputText } from "./abiDecode.js";
 import { formatUsdDisplay } from "./usdPrice.js";
 import { flagsForEdge } from "./riskFlags.js";
 import { delayParts } from "./depositDetect.js";
-
-// action -> i18n labelKey (flattened from config.TX_TYPE_GROUPS), used to render
-// the edge "Type" cell (e.g. "tokentx" -> "tx.type.erc20").
-const ACTION_LABEL_KEY = {};
-Object.values(TX_TYPE_GROUPS).forEach((infos) => {
-  infos.forEach((info) => {
-    ACTION_LABEL_KEY[info.action] = info.labelKey;
-  });
-});
 
 // "Check other chains" result state -> details line text key.
 const PROBE_STATE_KEY = { active: "details.probeActive", inactive: "details.probeNone", plan: "details.probePlan", error: "details.probeError" };
@@ -121,7 +112,7 @@ export function renderNodeDetails(container, node, deps) {
     aliasValue = em;
   }
   table.appendChild(detailRow(i18n.t("details.alias"), aliasValue));
-  table.appendChild(detailRow(i18n.t("details.address"), node.address));
+  table.appendChild(detailRow(i18n.t("details.address"), displayAddress(node.address)));
   const knownSource = deps.getKnownSource && deps.getKnownSource(node.address);
   if (knownSource) {
     table.appendChild(detailRow(i18n.t("details.source"), knownSource));
@@ -170,11 +161,12 @@ export function renderNodeDetails(container, node, deps) {
     });
     table.appendChild(detailRow(i18n.t("details.history"), box));
   }
-  if (explorer) {
+  const nodeUrl = explorer && explorerUrl(node.chainId, "address", node.address);
+  if (nodeUrl) {
     table.appendChild(
       detailRow(
         i18n.t("details.link"),
-        explorerLink(`https://${explorer}/address/${node.address}`, i18n.t("details.viewOn", { explorer }))
+        explorerLink(nodeUrl, i18n.t("details.viewOn", { explorer }))
       )
     );
   }
@@ -437,10 +429,9 @@ export function renderEdgeDetails(container, edge, deps) {
 
   const table = document.createElement("table");
 
-  const typeKey = ACTION_LABEL_KEY[edge.action] || `tx.type.${edge.group}`;
-  table.appendChild(detailRow(i18n.t("details.type"), i18n.t(typeKey)));
-  table.appendChild(detailRow(i18n.t("details.from"), getAlias(edge.from) || edge.from));
-  table.appendChild(detailRow(i18n.t("details.to"), getAlias(edge.to) || edge.to));
+  table.appendChild(detailRow(i18n.t("details.type"), i18n.t(edgeTypeKey(edge))));
+  table.appendChild(detailRow(i18n.t("details.from"), getAlias(edge.from) || displayAddress(edge.from)));
+  table.appendChild(detailRow(i18n.t("details.to"), getAlias(edge.to) || displayAddress(edge.to)));
 
   let amountText = `${edge.amountText} ${edge.symbol}`;
   if (edge.amountIndeterminate) {
@@ -553,11 +544,12 @@ export function renderEdgeDetails(container, edge, deps) {
   }
   table.appendChild(detailRow(i18n.t("details.block"), edge.blockNumber));
   table.appendChild(detailRow(i18n.t("details.date"), formatTimestamp(edge.timeStamp, i18n.getLocale())));
-  if (explorer) {
+  const txUrl = explorer && explorerUrl(edge.chainId, "tx", edge.hash);
+  if (txUrl) {
     table.appendChild(
       detailRow(
         i18n.t("details.link"),
-        explorerLink(`https://${explorer}/tx/${edge.hash}`, i18n.t("details.viewTx"))
+        explorerLink(txUrl, i18n.t("details.viewTx"))
       )
     );
   }
@@ -577,15 +569,16 @@ export function renderBundleDetails(container, bundle, deps) {
   container.replaceChildren();
   const table = document.createElement("table");
   table.appendChild(detailRow(i18n.t("details.type"), i18n.t("details.bundleType")));
-  table.appendChild(detailRow(i18n.t("details.from"), getAlias(bundle.from) || bundle.from));
-  table.appendChild(detailRow(i18n.t("details.to"), getAlias(bundle.to) || bundle.to));
+  table.appendChild(detailRow(i18n.t("details.from"), getAlias(bundle.from) || displayAddress(bundle.from)));
+  table.appendChild(detailRow(i18n.t("details.to"), getAlias(bundle.to) || displayAddress(bundle.to)));
   table.appendChild(detailRow(i18n.t("details.count"), String(bundle.count)));
   table.appendChild(detailRow(i18n.t("details.total"), `${bundle.totalText} ${bundle.symbol}`.trim()));
-  if (explorer && bundle.from && bundle.to) {
+  const bundleUrl = explorer && bundle.from && bundle.to && explorerUrl(bundle.chainId, "address", bundle.from);
+  if (bundleUrl) {
     table.appendChild(
       detailRow(
         i18n.t("details.link"),
-        explorerLink(`https://${explorer}/address/${bundle.from}`, i18n.t("details.viewOn", { explorer }))
+        explorerLink(bundleUrl, i18n.t("details.viewOn", { explorer }))
       )
     );
   }
@@ -602,7 +595,7 @@ export function renderTwinDetails(container, link, { i18n }) {
   container.replaceChildren();
   const table = document.createElement("table");
   table.appendChild(detailRow(i18n.t("details.type"), i18n.t("details.twinType")));
-  table.appendChild(detailRow(i18n.t("details.address"), link.address));
+  table.appendChild(detailRow(i18n.t("details.address"), displayAddress(link.address)));
   table.appendChild(detailRow(i18n.t("filters.chains"), `${link.chains[0]} ↔ ${link.chains[1]}`));
   container.appendChild(table);
   const note = document.createElement("p");
@@ -677,12 +670,15 @@ export function createStatus(element) {
  * "contacting api.etherscan.io" states.
  * @param {HTMLElement} element
  * @param {import('./i18n.js').I18n} i18n
- * @returns {{ setActive:(active:boolean)=>void }}
+ * @returns {{ setActive:(active:boolean, host?:string)=>void }}
  */
 export function createRequestIndicator(element, i18n) {
-  function setActive(active) {
+  let current = "api.etherscan.io";
+  function setActive(active, host) {
+    if (!active) current = "api.etherscan.io";
+    else if (host) current = host;
     element.classList.toggle("active", !!active);
-    element.textContent = i18n.t(active ? "privacy.indicator.active" : "privacy.indicator.idle");
+    element.textContent = i18n.t(active ? "privacy.indicator.active" : "privacy.indicator.idle", { host: current });
   }
   return { setActive };
 }
@@ -733,8 +729,8 @@ export function renderQueryLog(container, entries, { i18n, dropped, unloggedData
     } else {
       cell(e.chainId);
       cell(e.action);
-      cell(shortAddress(e.params.address), e.params.address);
-      cell(`${e.params.page ?? "—"}/${e.params.offset ?? "—"}`);
+      cell(shortAddress(e.params.address), displayAddress(e.params.address));
+      cell(`${e.params.page ?? "—"}/${e.params.offset ?? e.params.limit ?? "—"}`);
     }
     cell(e.httpStatus ?? "—");
     cell(e.rows ?? "—");

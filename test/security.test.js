@@ -27,14 +27,15 @@ test("USD toggle ships unchecked", () => {
 });
 
 describe("Content-Security-Policy", () => {
-  test("connect-src is exactly self + Etherscan + DefiLlama coins", () => {
+  test("connect-src is exactly self + Etherscan + DefiLlama coins + TronGrid", () => {
     const m = html.match(/connect-src([^;]*);/);
-    expect(m[1].trim().split(/\s+/)).toEqual(["'self'", "https://api.etherscan.io", "https://coins.llama.fi"]);
+    expect(m[1].trim().split(/\s+/)).toEqual(["'self'", "https://api.etherscan.io", "https://coins.llama.fi", "https://api.trongrid.io"]);
   });
   test("top comment names both runtime hosts", () => {
     const top = html.slice(0, html.indexOf("<html"));
     expect(top).toContain("api.etherscan.io");
     expect(top).toContain("coins.llama.fi");
+    expect(top).toContain("api.trongrid.io");
   });
   test("declares frame-ancestors 'none' (clickjacking, CWE-1021)", () => {
     expect(html).toMatch(/frame-ancestors\s+'none'/);

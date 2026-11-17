@@ -18,6 +18,7 @@ the tool. Open **Demo mode** (no API key needed) and follow along.
 7. [Sampling ≠ full history](#7-sampling--full-history)
 8. [Failed & reverted transactions](#8-failed--reverted-transactions)
 9. [The EVM & multichain](#9-the-evm--multichain)
+   - [Tron (via TronGrid)](#tron-via-trongrid)
 10. [Investigation heuristics](#10-investigation-heuristics)
 11. [Evidence & provenance](#11-evidence--provenance)
 12. [Hands-on labs](#hands-on-labs)
@@ -148,6 +149,30 @@ and took the tokens.
 > deposit/system transactions whose sender is an aliased L1 contract; that could read as
 > "same key" across two such chains. The link is a signal, not proof of common ownership.
 > Coloring nodes by chain and drawing "same address only" links are not in this version.
+
+### Tron (via TronGrid)
+
+Tron is not an EVM chain, so chainmap reads it through TronGrid (opt-in, see the README).
+
+- **Two spellings of one address.** The familiar `T…` form is *base58check*: a `41` version
+  byte + 20 bytes + a 4-byte checksum, encoded in base58. The on-chain/API form is the same
+  payload as hex: `41` + 40 hex. chainmap stores the lowercase `41…` hex (it is the identity)
+  and shows `T…` only for display and links; `T…` is case-sensitive, so a lowercased one is
+  refused.
+- **Same key, same 20 bytes.** The same private key gives the same 20-byte body on Tron as on
+  an EVM chain. chainmap does **not** pair them (no twin, no "same key" link). Check by hand:
+  convert the `T…` to hex, drop the leading `41`, prefix `0x`: that is the EVM address.
+- **TRX is counted in sun**: 1 TRX = 1,000,000 sun (6 decimals), still base-unit integers.
+- **TRC-10 vs TRC-20.** TRC-10 are protocol-level assets identified by a numeric id, with no
+  decimals in the transfer record, so chainmap shows the raw amount marked indeterminate.
+  TRC-20 are smart-contract tokens (like ERC-20) with symbol and decimals; a token without a
+  symbol is shown as "TRC-20", never as TRX.
+- **Internal transactions** are value moves made by a contract during a call. A `rejected`
+  one was reverted and is dropped like a failed transaction.
+- **No block number on TRC-20 and internal rows**, only the block *time*. So the **Load older**
+  cursor on Tron is the block time in milliseconds, not a block number.
+- **Sampling.** Each address gets the latest N rows per type (TronGrid caps a request at 200);
+  **Load older** moves back by block time. It is still a sample, never the full history.
 
 ## 10. Investigation heuristics
 

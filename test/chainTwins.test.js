@@ -65,3 +65,12 @@ test("system senders (zero address, OP-stack depositor) are never key evidence",
   expect(ev.has(`10:${DEPOSITOR}`)).toBe(false);
   expect(sameAddressLinks([nd("1", ZERO), nd("10", ZERO)], ev)[0].basis).toBe("address");
 });
+
+test("Tron is never an EVM twin and its evidence is not eoa", async () => {
+  const { TRON_CHAIN_ID } = await import("../src/tron.js");
+  const { CHAINS } = await import("../src/config.js");
+  const body = "d1c4bb7b2f39aba5707711719b2236b5b605af2e", tr = "41" + body, ev = "0x" + body;
+  const edges = [ed("1", "txlist", ev, Y), ed(TRON_CHAIN_ID, "txlist", tr, Y)];
+  expect(sameAddressLinks([nd("1", ev), nd(TRON_CHAIN_ID, tr)], addressEvidence(edges, CHAINS))).toEqual([]);
+  expect(addressEvidence(edges, CHAINS).get(`${TRON_CHAIN_ID}:${tr}`)).not.toBe("eoa");
+});

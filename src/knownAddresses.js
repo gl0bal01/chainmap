@@ -9,6 +9,7 @@
 // =============================================================================
 
 import { DATA_PATHS } from "./config.js";
+import { TRON_CHAIN_ID } from "./tron.js";
 
 /** @typedef {{ label:string, category:string, source:string, added:string, symbol?:string, decimals?:number, note?:string }} KnownEntry */
 /**
@@ -47,7 +48,7 @@ export async function loadKnownAddresses(fetchImpl, path) {
 export function knownEntry(address, chainId, data) {
   if (!data || !address) return null;
   const addr = String(address).toLowerCase();
-  for (const key of [String(chainId), "*"]) {
+  for (const key of String(chainId) === TRON_CHAIN_ID ? [String(chainId)] : [String(chainId), "*"]) {
     const chain = Object.hasOwn(data, key) ? data[key] : null;
     if (chain && Object.hasOwn(chain, addr)) return chain[addr];
   }

@@ -1,7 +1,7 @@
 // =============================================================================
-// queryLog.js — in-memory log of Etherscan queries (evidence exports).
-// DOM-free, Node-testable. Never stores the API key: params are rebuilt from
-// PARAM_KEYS only. Bodies are hashed (SHA-256), not kept.
+// queryLog.js — in-memory log of Etherscan, DefiLlama and TronGrid queries
+// (evidence exports). DOM-free, Node-testable. Never stores an API key: params
+// are rebuilt from each source's key whitelist only. Bodies are hashed (SHA-256), not kept.
 // `sanitizeQueryLog` is the workspace trust boundary: every entry is rebuilt
 // from scratch, nothing from the input object is spread or copied through.
 // =============================================================================
@@ -9,6 +9,7 @@
 import { API_BASE, LIMITS } from "./config.js";
 import { parseChainId } from "./format.js";
 import { priceUrl } from "./usdPrice.js";
+import { TRON_CHAIN_ID, TRON_ACTIONS, TRON_PARAM_KEYS, tronUrl } from "./tron.js";
 
 export const PARAM_KEYS = ["chainid", "module", "action", "address", "startblock", "endblock", "page", "offset", "sort"];
 export const PRICE_PARAM_KEYS = ["coins", "searchWidth"];
@@ -22,6 +23,16 @@ const WIDTH_RE = /^\d{1,4}[mhdw]?$/;
 const COIN_RE = /^(?:[a-z0-9_-]{1,40}:0x[0-9a-f]{40}|coingecko:[a-z0-9-]{1,64})$/;
 const MAX_COINS_CHARS = 8000;
 const MAX_COIN_KEYS = 400;
+// TronGrid param forms (spec ruling 5); limit is canonical (ruling 35: no leading 0) and range-checked 1..200.
+const TRON_PARAM_RE = {
+  address: /^41[0-9a-f]{40}$/,
+  limit: /^[1-9]\d{0,2}$/,
+  only_confirmed: /^true$/,
+  search_internal: /^false$/,
+  min_timestamp: /^\d{1,16}$/,
+  max_timestamp: /^\d{1,16}$/,
+  fingerprint: /^[1-9A-HJ-NP-Za-km-z]{1,1024}$/,
+};
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -63,8 +74,9 @@ export function createQueryLog({ limit = LIMITS.queryLog } = {}) {
       try {
         const my = epoch;
         const price = rec.source === "defillama";
+        const tron = rec.source === "trongrid";
         const params = {};
-        for (const k of price ? PRICE_PARAM_KEYS : PARAM_KEYS) if (rec.params && has(rec.params, k)) params[k] = String(rec.params[k]);
+        for (const k of price ? PRICE_PARAM_KEYS : tron ? TRON_PARAM_KEYS : PARAM_KEYS) if (rec.params && has(rec.params, k)) params[k] = String(rec.params[k]);
         let sha256 = null;
         if (rec.body) {
           try { sha256 = await sha256Hex(rec.body); } catch { sha256 = null; }
@@ -74,6 +86,11 @@ export function createQueryLog({ limit = LIMITS.queryLog } = {}) {
           list.push({
             at: rec.at, source: "defillama", chainId: null, action: "batchHistorical", params,
             url: priceUrl(params.coins, params.searchWidth), httpStatus: rec.httpStatus, rows: rec.rows, sha256, outcome: rec.outcome,
+          });
+        } else if (tron) {
+          list.push({
+            at: rec.at, source: "trongrid", chainId: TRON_CHAIN_ID, action: rec.action, params,
+            url: tronUrl(rec.action, params), httpStatus: rec.httpStatus, rows: rec.rows, sha256, outcome: rec.outcome,
           });
         } else list.push({
           at: rec.at, chainId: String(rec.chainId), action: rec.action, params,
@@ -134,7 +151,7 @@ function validCoins(coins) {
   return JSON.stringify(o) === coins;
 }
 
-// Shared response metadata checks (Etherscan and price entries).
+// Shared response metadata checks (Etherscan, price and TronGrid entries).
 function validMeta(e) {
   return (e.httpStatus === null || (Number.isInteger(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599)) &&
     (e.rows === null || (Number.isInteger(e.rows) && e.rows >= 0)) &&
@@ -157,9 +174,30 @@ function rebuildPrice(e) {
   };
 }
 
+// Ruling 5: every rule must hold; params and url are rebuilt from the checked values.
+function rebuildTron(e) {
+  const at = normAt(e.at);
+  if (at === null || e.chainId !== TRON_CHAIN_ID || !TRON_ACTIONS.includes(e.action) || !validMeta(e)) return null;
+  if (!Reflect.ownKeys(e.params).every((k) => TRON_PARAM_KEYS.includes(k))) return null;
+  const params = {};
+  for (const k of TRON_PARAM_KEYS) {
+    if (!has(e.params, k)) continue;
+    const p = e.params[k];
+    if (typeof p !== "string" || !TRON_PARAM_RE[k].test(p)) return null;
+    params[k] = p;
+  }
+  const limit = Number(params.limit);
+  if (!params.address || !(limit >= 1 && limit <= 200) || !params.only_confirmed) return null;
+  if (has(params, "search_internal") !== (e.action === "txlist")) return null;
+  return {
+    at, source: "trongrid", chainId: TRON_CHAIN_ID, action: e.action, params,
+    url: tronUrl(e.action, params), httpStatus: e.httpStatus, rows: e.rows, sha256: e.sha256, outcome: e.outcome,
+  };
+}
+
 function rebuild(e) {
   if (!isObj(e) || !isObj(e.params)) return null;
-  if (has(e, "source")) return e.source === "defillama" ? rebuildPrice(e) : null;
+  if (has(e, "source")) return e.source === "defillama" ? rebuildPrice(e) : e.source === "trongrid" ? rebuildTron(e) : null;
   const chainId = parseChainId(e.chainId);
   const at = normAt(e.at);
   const ok =

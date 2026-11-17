@@ -15,6 +15,9 @@
 // are given); every node and edge they ingest is tagged with it. BFS sets stay
 // keyed by address because a run never leaves its chain.
 //
+// Endpoints are validated per chain (isChainAddress), so Tron 41-hex rows ingest;
+// fetch errors log the display form of the address (T... on Tron).
+//
 // loadOlder({ client, store, limiter, chainId, address, types, maxTxPerAddress, signal?, onLog? })
 //  Per-node "load older" paging by block cursor (history.js). Fetches ONE older
 //  page per selected type for node nodeId(chainId, address), ingests rows through the same path as
@@ -28,7 +31,7 @@
 // =============================================================================
 
 import { TX_TYPE_GROUPS } from "./config.js";
-import { isValidAddress, lc, isFailedTx, parseChainId, nodeId } from "./format.js";
+import { isChainAddress, displayAddress, lc, isFailedTx, parseChainId, nodeId } from "./format.js";
 import { nextRequest, advance } from "./history.js";
 
 /**
@@ -110,7 +113,7 @@ function ingestRows(store, chainId, cur, depth, typeInfo, txs) {
     }
     const from = lc(tx.from);
     const to = lc(tx.to || tx.contractAddress); // contract-creation fallback
-    if (!isValidAddress(from) || !isValidAddress(to)) {
+    if (!isChainAddress(chainId, from) || !isChainAddress(chainId, to)) {
       skipped++;
       continue;
     }
@@ -141,7 +144,7 @@ function reportFetchError(e, address, action, onLog) {
     onLog(
       planRequired
         ? { level: "error", key: "error.planRequired" }
-        : { level: "error", key: "error.fetch", params: { address, action, message } }
+        : { level: "error", key: "error.fetch", params: { address: displayAddress(address), action, message } }
     );
   }
   return planRequired;

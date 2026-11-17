@@ -10,7 +10,8 @@
 // =============================================================================
 
 import { RESOLUTION_PRESETS, EXPORT_PIXELS } from "../config.js";
-import { csvEscape, formatTimestamp, formatUnits } from "../format.js";
+import { csvEscape, formatTimestamp, formatUnits, displayAddress } from "../format.js";
+import { TRON_CHAIN_ID } from "../tron.js";
 import { nodeLabel, nodeVisual, edgeLabel, bridgeLinkVisual } from "./labels.js";
 import { methodName } from "../selectors.js";
 import { resolvedRecipient, flagsForEdge } from "../riskFlags.js";
@@ -305,6 +306,8 @@ const CSV_HEADER = [
 const DEPOSIT_CAVEAT = "; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet) - not an attribution";
 
 const BRIDGE_CSV_CAVEAT = "; bridge_inferred lists inferred bridge candidates (amount/time/recipient) - not facts - and confirmed-by-investigator is the investigator's assertion - not on-chain proof";
+// Comma-free form of evidence.TRON_CAVEAT (line 1 must stay one CSV cell).
+const TRON_CSV_CAVEAT = "; tron rows come from TronGrid (api.trongrid.io) - latest N per address per type by block time - TRC-20 and internal rows have no block number - TRC-10 amounts are raw base units - identical TRC-20 transfers within one transaction appear once";
 const BRIDGE_STATUS = { confirmed: "confirmed-by-investigator", rejected: "rejected-by-investigator" };
 
 const depositEvidenceText = (d) =>
@@ -363,14 +366,15 @@ export function buildCsvRows(store, ctx) {
     ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete" +
       (multiChain ? "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer" : "") +
       (nodes.some((n) => deposits.has(n.id)) ? DEPOSIT_CAVEAT : "") +
-      (bridgeParts.size ? BRIDGE_CSV_CAVEAT : "")],
+      (bridgeParts.size ? BRIDGE_CSV_CAVEAT : "") +
+      (nodes.some((n) => n.chainId === TRON_CHAIN_ID) ? TRON_CSV_CAVEAT : "")],
     CSV_HEADER,
   ];
 
   for (const n of nodes) {
     const d = deposits.get(n.id);
     rows.push([
-      "node", n.address, n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
+      "node", displayAddress(n.address), n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
       "", "", "", "", "", "", "", "",
       "", "", "", "", "", n.chainId,
       d ? d.label : "", d ? depositEvidenceText(d) : "", "", "",
@@ -400,7 +404,7 @@ export function buildCsvRows(store, ctx) {
     }
     rows.push([
       "edge", "", "", "", "",
-      e.group || "", e.from || "", e.to || "", e.amountText || "", e.symbol || "",
+      e.group || "", displayAddress(e.from || ""), displayAddress(e.to || ""), e.amountText || "", e.symbol || "",
       e.hash || "", e.blockNumber || "", fmtTs(e.timeStamp),
       method, sig, realRecipient, decodedAmount, flags, e.chainId, "", "", usdCell, (bridgeParts.get(e.key) || []).join(" | "),
     ]);
@@ -455,7 +459,7 @@ export function exportCsv(store, deps) {
  * @param {import('../graphStore.js').GraphStore} store
  * @param {Parameters<typeof exportPng>[2] & Parameters<typeof buildCsvRows>[1] & {
  *           exportedAt:string, retrieval:object|null, workspaceText:string, queryLogText:string,
- *           manifest:{ chains:object[], roots:string[], sampling:object, data:object } }} deps
+ *           manifest:{ chains:object[], roots:string[], sampling:object, providers:object[], data:object } }} deps
  * @returns {Promise<void>}
  */
 export async function exportEvidenceBundle(view, store, deps) {

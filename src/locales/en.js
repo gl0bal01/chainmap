@@ -11,11 +11,17 @@ export default {
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Etherscan API key",
   "form.apiKey.placeholder": "Your Etherscan API key",
-  "form.rememberKey": "Remember API key on this browser",
+  "form.rememberKey": "Remember API keys on this browser",
   "form.chain.label": "Chain",
   "form.address.label": "Address to analyze",
   "form.address.placeholder": "0x…",
   "detect.evm": "✓ EVM address — pick the chain, then Start",
+  "chain.tronOption": "Tron — via TronGrid (opt-in)",
+  "tron.notice": "Tron is read through TronGrid (api.trongrid.io), contacted only when you press Start, Estimate or Load older on Tron. TronGrid sees the Tron addresses you scan, your TronGrid key if you set one, and your IP address. Etherscan and DefiLlama receive nothing about Tron.",
+  "form.tronKey.label": "TronGrid API key (optional)",
+  "form.tronKey.placeholder": "Optional — sent only to TronGrid",
+  "form.tronKey.hint": "Sent only to api.trongrid.io, in a request header. Without a key chainmap stays at 2 requests per second. No Etherscan key is needed for Tron.",
+  "detect.tron": "⚠ Tron address — choose Tron (TronGrid) in Chain to scan it; TronGrid will then see this address.",
   "detect.nonEvm": "⚠ Looks like a {chain} address. This tool scans EVM chains only.",
   "detect.unknown": "⚠ Unrecognized address format.",
   "detect.viewExplorer": "View on explorer",
@@ -73,12 +79,13 @@ export default {
   // --- form: transaction types ---------------------------------------------
   "form.types.normal": "Normal transactions",
   "form.types.internal": "Internal transactions",
-  "form.types.token": "Token transfers (ERC-20/721/1155)",
+  "form.types.token": "Token transfers (ERC-20/721/1155, TRC-20)",
 
   // short type names (legend, edge titles)
   "tx.type.normal": "Normal",
   "tx.type.internal": "Internal",
   "tx.type.erc20": "ERC-20",
+  "tx.type.trc20": "TRC-20",
   "tx.type.erc721": "ERC-721",
   "tx.type.erc1155": "ERC-1155",
 
@@ -245,9 +252,9 @@ export default {
 
   // --- privacy / transparency ----------------------------------------------
   "privacy.title": "Privacy",
-  "privacy.body": "Your API key and data never leave your browser. The only site contacted at runtime is api.etherscan.io — plus coins.llama.fi (DefiLlama) only while \"Show USD values\" is ticked: it receives token contracts and hour-rounded times, never the addresses you investigate.",
+  "privacy.body": "Your API keys and data never leave your browser. On EVM chains the only site contacted at runtime is api.etherscan.io. api.trongrid.io (TronGrid) is contacted only after you choose Tron: it sees the Tron addresses you scan, your TronGrid key if you set one, and your IP address. coins.llama.fi (DefiLlama) is contacted only while \"Show USD values\" is ticked: it receives token contracts and hour-rounded times, never the addresses you investigate.",
   "privacy.indicator.idle": "No outbound request",
-  "privacy.indicator.active": "Contacting api.etherscan.io…",
+  "privacy.indicator.active": "Contacting {host}…",
 
   // --- sampling caveat ------------------------------------------------------
   "sampling.banner": "Showing the latest {n} transactions per address per type — not full history. Sampled/partial data, not forensic-complete.",
@@ -286,6 +293,7 @@ export default {
   // --- errors ---------------------------------------------------------------
   "error.apiKeyRequired": "Please enter your Etherscan API key.",
   "error.invalidAddress": "Invalid Ethereum address (expected 0x + 40 hex chars).",
+  "error.invalidTronAddress": "Invalid Tron address (expected T… base58check or 41 + 40 hex chars).",
   "error.noTypeSelected": "Select at least one transaction type.",
   "error.selectNodesFirst": "Select at least one node (click, or ctrl/shift+click for several) before deleting.",
   "error.network": "Network error ({action}): {msg}",
@@ -303,6 +311,7 @@ export default {
   "status.loadOlderErrors": "Loaded {edges} new transfers for {addr} — {errors} request(s) failed (see log)",
   "error.busy": "Busy — wait for the current scan or load to finish (or press Stop).",
   "log.loadOlderDone": "Load older {addr}: {edges} new transfers, {nodes} new addresses, {calls} API calls",
+  "log.tronLimitCapped": "TronGrid returns at most 200 rows per request: sampling {n} per address per type (form asks {asked}).",
   "detect.planRequired": "Skipped (paid Etherscan plan needed): {chains}",
   "error.fetch": "Fetch failed for {address} ({action}): {message}",
 
@@ -338,7 +347,7 @@ export default {
   "log.usdNoData": "USD values stay off: the bundled known-address or spam data failed to load, so imitation and spam tokens could not be excluded. No price was requested.",
   "queryLog.priceSource": "DefiLlama",
   "queryLog.title": "Query log ({n})",
-  "queryLog.empty": "No Etherscan request logged in this session.",
+  "queryLog.empty": "No request logged in this session.",
   "queryLog.showing": "Showing the latest {shown} of {n} requests.",
   "queryLog.dropped": "{n} older entries were dropped (log limit {limit}).",
   "queryLog.unlogged": "Part of this graph was not retrieved under this log (demo, a workspace saved without a query log, or invalid entries in a loaded file).",
@@ -362,10 +371,11 @@ export default {
   "log.queryLogExported": "Query log exported ({n} entries).",
   "log.queryLogInvalid": "{n} invalid query-log entries in the file were ignored.",
   "export.footer.app": "chainmap {version} — exported {at} UTC",
-  "export.footer.retrieved": "Data retrieved {first} to {last} UTC from api.etherscan.io — logged requests: {n} (see query log)",
+  "export.footer.retrieved": "Data retrieved {first} to {last} UTC from {hosts} — logged requests: {n} (see query log)",
   "export.footer.retrievalUnknown": "Retrieval time unknown — no query log",
   "export.footer.partial": "Part of this graph has no logged retrieval (demo, older workspace or dropped log entries)",
   "export.footer.sampling": "Sampled data: latest transactions per address per type — not full on-chain history",
+  "export.footer.tron": "Tron data from TronGrid (api.trongrid.io): latest rows per address per type by block time; TRC-10 amounts in raw base units.",
   "export.footer.signals": "Known labels, risk flags, imitation-token, likely-deposit and same-key marks are signals, not facts",
   "export.footer.bridges": "Dashed bridge links are inferred candidates — verify; 'confirmed by investigator' is the investigator's assertion.",
   "details.bridgeType": "Inferred bridge link — verify",

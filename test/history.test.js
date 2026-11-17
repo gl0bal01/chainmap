@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { nextRequest, advance, hasMoreHistory, historyState, sanitizeHistory } from "../src/history.js";
+import { createTronClient } from "../src/tronClient.js";
 const rows = (...b) => b.map((n, i) => ({ blockNumber: String(n), hash: "0x" + i }));
 const E = (o) => ({ oldestBlock: "800", blockPage: 0, pageSize: 0, done: false, count: 3, ...o });
 
@@ -81,4 +82,36 @@ describe("queries + sanitize", () => {
     expect(sanitizeHistory(null)).toBeUndefined();
     expect(sanitizeHistory({ bogus: {} })).toBeUndefined();
   });
+});
+
+describe("advance: Tron ms cursor", () => {
+  test("cursor preferred over blockNumber", () =>
+    expect(advance(undefined, [{ blockNumber: "88077921", cursor: "1794907755000" }, { blockNumber: "88077699", cursor: "1794907089000" }], 2, { page: 1, offset: 2 }))
+      .toEqual({ oldestBlock: "1794907089000", blockPage: 0, pageSize: 0, done: false, count: 2 }));
+  test("a full page of skipped rows still advances", () =>
+    expect(advance(undefined, [{ from: "", to: "", cursor: "1794600000000" }, { from: "", to: "", cursor: "1794500000000" }], 2, { page: 1, offset: 2 }))
+      .toEqual({ oldestBlock: "1794500000000", blockPage: 0, pageSize: 0, done: false, count: 2 }));
+  // Pin: already passes before the change (cannot go RED).
+  test("in-block page past the last fingerprint moves below the block", () =>
+    expect(advance({ oldestBlock: "1794907752000", blockPage: 2, pageSize: 3, done: false, count: 3 }, [], 3,
+      { startblock: 1794907752000, endblock: 1794907752000, page: 2, offset: 3 }))
+      .toEqual({ oldestBlock: "1794907751999", blockPage: 0, pageSize: 0, done: false, count: 3 }));
+});
+
+// Ruling 32: a short TronGrid page that still carries a fingerprint is filled by the client,
+// so the history entry sees a full batch and stays open.
+test("a filled Tron page is a full batch, not done", async () => {
+  const pages = [
+    { success: true, data: [{ block_timestamp: 1794907755000 }], meta: { fingerprint: "F1" } },
+    { success: true, data: [{ block_timestamp: 1794907089000 }, { block_timestamp: 1794900000000 }], meta: {} },
+  ];
+  let i = 0;
+  const fetchImpl = async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(pages[Math.min(i++, pages.length - 1)]));
+    return { status: 200, arrayBuffer: async () => bytes.buffer };
+  };
+  const req = nextRequest(undefined, 3);
+  const got = await createTronClient({ fetchImpl, minIntervalMs: 1 })
+    .fetchAction("41d1c4bb7b2f39aba5707711719b2236b5b605af2e", "txlist", { offset: req.offset });
+  expect(advance(undefined, got, 3, req)).toEqual({ oldestBlock: "1794900000000", blockPage: 0, pageSize: 0, done: false, count: 3 });
 });

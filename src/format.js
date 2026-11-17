@@ -1,3 +1,6 @@
+import { chainInfo } from "./config.js";
+import { TRON_CHAIN_ID, isTronAddress, toTronBase58 } from "./tron.js";
+
 // =============================================================================
 // format.js — pure, DOM-free formatting / validation / key helpers.
 //
@@ -84,7 +87,30 @@ export function trimZero(s) {
  */
 export function shortAddress(addr) {
   if (typeof addr !== "string") return "";
-  return addr.slice(0, 5) + "…" + addr.slice(-4);
+  const d = displayAddress(addr);
+  return d.slice(0, 5) + "…" + d.slice(-4);
+}
+
+/** @returns {boolean} address validity for the given chain (Tron: canonical 41-hex). */
+export function isChainAddress(chainId, addr) {
+  return String(chainId) === TRON_CHAIN_ID ? isTronAddress(addr) : isValidAddress(addr);
+}
+
+/** Human-facing form: canonical Tron hex -> base58check; anything else unchanged. */
+export function displayAddress(addr) {
+  return isTronAddress(addr) ? toTronBase58(addr) : addr;
+}
+
+/** @returns {string|null} explorer link, null for an unknown chain. */
+export function explorerUrl(chainId, kind, value) {
+  const info = chainInfo(chainId);
+  if (!info) return null;
+  if (String(chainId) === TRON_CHAIN_ID) {
+    return kind === "tx"
+      ? `https://tronscan.org/#/transaction/${value}`
+      : `https://tronscan.org/#/address/${displayAddress(value)}`;
+  }
+  return `https://${info.explorer}/${kind === "tx" ? "tx" : "address"}/${value}`;
 }
 
 const HTML_ESCAPE_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };

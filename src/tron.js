@@ -1,0 +1,190 @@
+// Tron foundation (DOM-free): chain id, base58check address codec, TronGrid URL
+// builder, per-chain sampling helpers and the edge type label key. Imports only config.js.
+import { TRON_API, TRON_FETCH, TX_TYPE_GROUPS } from "./config.js";
+
+export const TRON_CHAIN_ID = "728126428";
+export const TRON_ACTIONS = ["txlist", "txlistinternal", "tokentx"];
+export const TRON_PARAM_KEYS = ["address", "limit", "only_confirmed", "search_internal", "min_timestamp", "max_timestamp", "fingerprint"];
+
+const K = new Uint32Array([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+]);
+
+/** FIPS 180-4 SHA-256, synchronous (Web Crypto is async-only). */
+export function sha256(bytes) {
+  const len = bytes.length;
+  const padded = new Uint8Array(((len + 9 + 63) >> 6) << 6);
+  padded.set(bytes);
+  padded[len] = 0x80;
+  const dv = new DataView(padded.buffer);
+  dv.setUint32(padded.length - 8, Math.floor(len / 0x20000000));
+  dv.setUint32(padded.length - 4, (len << 3) >>> 0);
+  const H = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+  const w = new Uint32Array(64);
+  const rr = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let o = 0; o < padded.length; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rr(w[i - 15], 7) ^ rr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rr(w[i - 2], 17) ^ rr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+      const t2 = ((rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    H[0] += a; H[1] += b; H[2] += c; H[3] += d; H[4] += e; H[5] += f; H[6] += g; H[7] += h;
+  }
+  const out = new Uint8Array(32);
+  const odv = new DataView(out.buffer);
+  H.forEach((v, i) => odv.setUint32(i * 4, v));
+  return out;
+}
+
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const HEX41 = /^41[0-9a-fA-F]{40}$/;
+const T58 = /^T[1-9A-HJ-NP-Za-km-z]{33}$/;
+const checksum = (payload) => sha256(sha256(payload)).slice(0, 4);
+
+/** 41-hex -> base58check "T..." (display only), or null if not 41+40 hex. */
+export function toTronBase58(hex) {
+  if (typeof hex !== "string" || !HEX41.test(hex)) return null;
+  const payload = Uint8Array.from(hex.match(/../g), (b) => parseInt(b, 16));
+  const full = new Uint8Array(25);
+  full.set(payload);
+  full.set(checksum(payload), 21);
+  let n = 0n;
+  for (const b of full) n = (n << 8n) | BigInt(b);
+  let s = "";
+  for (; n > 0n; n /= 58n) s = B58[Number(n % 58n)] + s;
+  return s; // first byte 0x41 is non-zero, so no leading-zero '1' padding
+}
+
+/** "T..." (checksum-verified, case-sensitive) or 41-hex (any case) -> lowercase 41-hex, else null. No trimming. */
+export function parseTronAddress(input) {
+  if (typeof input !== "string") return null;
+  if (HEX41.test(input)) return input.toLowerCase();
+  if (!T58.test(input)) return null;
+  let n = 0n;
+  for (const ch of input) n = n * 58n + BigInt(B58.indexOf(ch));
+  if (n >> 200n) return null; // more than 25 bytes
+  const bytes = new Uint8Array(25);
+  for (let i = 24; i >= 0; i--, n >>= 8n) bytes[i] = Number(n & 0xffn);
+  if (bytes[0] !== 0x41) return null;
+  const ck = checksum(bytes.slice(0, 21));
+  if (ck.some((v, i) => v !== bytes[21 + i])) return null;
+  return Array.from(bytes.slice(0, 21), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Canonical form only: 41 + 40 lowercase hex. */
+export const isTronAddress = (s) => typeof s === "string" && /^41[0-9a-f]{40}$/.test(s);
+
+const PATHS = { txlist: "transactions", txlistinternal: "internal-transactions", tokentx: "transactions/trc20" };
+export const tronPath = (action) => PATHS[action] ?? null;
+
+/** TronGrid URL: path per action, present TRON_PARAM_KEYS (minus address) in fixed order; the key never goes here. */
+export function tronUrl(action, params) {
+  const qs = TRON_PARAM_KEYS.slice(1)
+    .filter((k) => params[k] !== undefined && params[k] !== null)
+    .map((k) => `${k}=${encodeURIComponent(params[k])}`)
+    .join("&");
+  return `${TRON_API}/v1/accounts/${params.address}/${tronPath(action)}?${qs}`;
+}
+
+const TRC20_KEY = "tx.type.trc20";
+
+/** Keep the actions TronGrid serves; tokentx is relabelled TRC-20. Input is not mutated. */
+export function tronTypes(types) {
+  return types
+    .filter((t) => TRON_ACTIONS.includes(t.action))
+    .map((t) => (t.action === "tokentx" ? { ...t, labelKey: TRC20_KEY } : t));
+}
+
+const ACTION_KEYS = new Map(Object.values(TX_TYPE_GROUPS).flat().map((t) => [t.action, t.labelKey]));
+/** i18n key of an edge's tx type (details + hover title): a Tron tokentx is TRC-20, else the action's, else the group's. */
+export const edgeTypeKey = (edge) =>
+  edge.chainId === TRON_CHAIN_ID && edge.action === "tokentx" ? TRC20_KEY : ACTION_KEYS.get(edge.action) || `tx.type.${edge.group}`;
+
+/** Per-address sample size: TronGrid caps limit at 200. */
+export const sampleSize = (chainId, n) => (String(chainId) === TRON_CHAIN_ID ? Math.min(n, TRON_FETCH.maxLimit) : n);
+
+// ---- TronGrid rows -> shared RawTx shape. Always one row per input item (page-length invariant). ----
+const isObj = (x) => x !== null && typeof x === "object";
+const msParts = (ms) => (Number.isSafeInteger(ms) && ms >= 0 ? [String(Math.floor(ms / 1000)), String(ms)] : ["", ""]);
+/** JSON-number amount: absent -> "0"; safe non-negative integer -> ok; else String(v) with ok:false (decimals become ""). */
+const sun = (v) => (v == null ? { value: "0", ok: true } : { value: String(v), ok: Number.isSafeInteger(v) && v >= 0 });
+
+function skippedRow(hash, blockNumber, ms) {
+  const [timeStamp, cursor] = msParts(ms);
+  return { hash: typeof hash === "string" ? hash : "", blockNumber, timeStamp, cursor, from: "", to: "" };
+}
+
+function txlistRow(t) {
+  const blockNumber = Number.isSafeInteger(t.blockNumber) ? String(t.blockNumber) : "";
+  const skip = () => skippedRow(t.txID, blockNumber, t.block_timestamp);
+  const c = t.raw_data?.contract?.[0];
+  const v = c?.parameter?.value;
+  if (!isObj(v)) return skip();
+  const from = parseTronAddress(v.owner_address);
+  const isTrigger = c.type === "TriggerSmartContract";
+  const to = parseTronAddress(isTrigger ? v.contract_address : v.to_address);
+  if (!from || !to || !["TransferContract", "TransferAssetContract", "TriggerSmartContract"].includes(c.type)) return skip();
+  const [timeStamp, cursor] = msParts(t.block_timestamp);
+  const amt = sun(isTrigger ? v.call_value : v.amount);
+  const trc10 = c.type === "TransferAssetContract";
+  return {
+    hash: t.txID, blockNumber, timeStamp, cursor, from, to, value: amt.value,
+    isError: t.ret?.[0]?.contractRet === "SUCCESS" ? "0" : "1",
+    tokenSymbol: trc10 ? "TRC10:" + (v.asset_name || "?") : "",
+    tokenDecimal: !trc10 && amt.ok ? "6" : "",
+  };
+}
+
+function internalRow(t) {
+  const from = parseTronAddress(t.from_address);
+  const to = parseTronAddress(t.to_address);
+  if (!from || !to) return skippedRow(t.tx_id, "", t.block_timestamp);
+  const [timeStamp, cursor] = msParts(t.block_timestamp);
+  const amt = sun(t.data?.call_value?._); // other keys are TRC-10, ignored
+  return {
+    hash: t.tx_id, blockNumber: "", timeStamp, cursor, from, to, value: amt.value,
+    isError: t.data?.rejected === true ? "1" : "0",
+    logIndex: t.internal_tx_id, tokenSymbol: "", tokenDecimal: amt.ok ? "6" : "",
+  };
+}
+
+function trc20Row(t) {
+  const from = parseTronAddress(t.from);
+  const to = parseTronAddress(t.to);
+  const contractAddress = parseTronAddress(t.token_info?.address);
+  if (t.type !== "Transfer" || !from || !to || !contractAddress) return skippedRow(t.transaction_id, "", t.block_timestamp);
+  const [timeStamp, cursor] = msParts(t.block_timestamp);
+  const d = t.token_info.decimals;
+  // Ruling 34: only a digit string is determinate (a JSON number may be rounded, "" is BigInt 0).
+  const ok = typeof t.value === "string" && /^\d+$/.test(t.value);
+  const value = t.value == null ? "" : String(t.value);
+  return {
+    hash: t.transaction_id, blockNumber: "", timeStamp, cursor, from, to, value, contractAddress,
+    tokenSymbol: t.token_info.symbol || "TRC-20", // never fall back to TRX
+    tokenName: t.token_info.name || "",
+    tokenDecimal: ok && Number.isInteger(d) && d >= 0 && d <= 77 ? String(d) : "",
+    logIndex: "v" + value,
+  };
+}
+
+const ROW = { txlist: txlistRow, txlistinternal: internalRow, tokentx: trc20Row };
+
+/** TronGrid response -> RawTx[]; rows.length === json.data.length, [] when data is not an array. */
+export function tronRows(action, json) {
+  if (!Array.isArray(json?.data)) return [];
+  return json.data.map((t) => (isObj(t) ? ROW[action](t) : skippedRow("", "", undefined)));
+}

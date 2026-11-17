@@ -506,3 +506,39 @@ test("filters.showBridges is kept only as a boolean", () => {
   expect(f(false).showBridges).toBe(false);
   expect("showBridges" in f("no")).toBe(false);
 });
+
+describe("Tron nodes and edges (v3)", () => {
+  const TC = "728126428";
+  const T1 = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e"; // TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi
+  const T2 = "41a6b0facf3655f61d7d89db8171de7cf2d65ebc7c";
+  const USDT = "41a614f803b6fd780986a42c78ec9c7f77e6ded13c";
+  const HASH = "cbccd13069781c4bb714f81fb91e33caedd694ff0c0865de24a938cd0d22f65e";
+  const tnode = (address, over = {}) => ({ chainId: TC, address, depth: 1, isRoot: false, alias: null, ...over });
+  const tedge = (from, to, over = {}) => ({
+    chainId: TC, key: `${TC}|tokentx|${HASH}|${from}|${to}|${USDT}||v5870000`, action: "tokentx", group: "token", color: "#fff",
+    from, to, hash: HASH, symbol: "USDT", tokenContract: USDT, tokenId: "", value: "5870000", amountText: "5.87",
+    amountIndeterminate: false, timeStamp: "1794907752", blockNumber: "", ...over,
+  });
+
+  test("Tron round-trip in v3", () => {
+    const history = { tokentx: { oldestBlock: "1794834225000", blockPage: 0, pageSize: 20, done: false, count: 3 } };
+    const nodes = [tnode(T1, { depth: 0, isRoot: true, history }), tnode(T2)];
+    const edges = [tedge(T2, T1)];
+    const ws = serializeWorkspace({ root: T1, nodes, edges });
+    const res = parseWorkspace(JSON.stringify(ws));
+    expect(res.ok).toBe(true);
+    expect(res.data.version).toBe(3);
+    expect(res.data.nodes).toEqual(nodes);
+    expect(res.data.edges).toEqual(edges);
+  });
+
+  test("rejections: base58, a Tron address on an EVM chain, an EVM address on Tron", () => {
+    const B58 = "TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi";
+    const res = parseWorkspace({ version: 3, graph: {
+      nodes: [tnode(T1), tnode(T2), tnode(B58), { ...tnode(T1), chainId: "1" }, tnode("0x" + "a".repeat(40))],
+      edges: [tedge(T2, T1), tedge(B58, T1, { hash: "x" })],
+    } });
+    expect(res.data.nodes.map((n) => `${n.chainId}:${n.address}`)).toEqual([`${TC}:${T1}`, `${TC}:${T2}`]);
+    expect(res.data.edges.map((e) => e.from)).toEqual([T2]);
+  });
+});

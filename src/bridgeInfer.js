@@ -12,6 +12,7 @@ import { decodeCall } from "./abiDecode.js";
 import { decimalsFor } from "./usdPrice.js";
 import { isValidAddress, parseChainId } from "./format.js";
 import { CHAINS, LIMITS } from "./config.js";
+import { TRON_CHAIN_ID } from "./tron.js";
 import { normAt } from "./queryLog.js";
 import { units, secs } from "./depositDetect.js";
 
@@ -98,7 +99,7 @@ export function inferBridges(nodes, edges, ctx) {
   const incident = new Map(); // node id -> edges
   const values = [];
   for (const e of edges || []) {
-    if (!e) continue;
+    if (!e || e.chainId === TRON_CHAIN_ID) continue; // Tron is never a bridge side
     if (e.action === "txlist" && e.hash) push(calls, `${e.chainId}|${e.hash}`, e);
     push(incident, e.fromId, e);
     if (e.toId !== e.fromId) push(incident, e.toId, e);

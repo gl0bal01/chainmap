@@ -12,7 +12,7 @@
 // NOTE: needs vis-network + a real DOM; manual canvas QA deferred to Stage C+.
 // =============================================================================
 
-import { TX_TYPE_GROUPS, CHAINS } from "../config.js";
+import { CHAINS } from "../config.js";
 import * as labels from "./labels.js";
 import { passesFilters, filtersActive, edgeAmountNumber, edgeWidth, bundleEdges, ageColor } from "../display.js";
 import { findCycleNodes } from "../roundTrips.js";
@@ -21,6 +21,7 @@ import { edgeSeverity } from "../riskFlags.js";
 import { methodName } from "../selectors.js";
 import { decodeInputText } from "../abiDecode.js";
 import { escapeHtml } from "../format.js";
+import { edgeTypeKey } from "../tron.js";
 import { hasMoreHistory } from "../history.js";
 import { addressEvidence, sameAddressLinks } from "../chainTwins.js";
 
@@ -51,15 +52,8 @@ import { addressEvidence, sameAddressLinks } from "../chainTwins.js";
  * @property {()=>void} destroy
  */
 
-// Etherscan action -> i18n label key, reused for edge hover titles.
-const ACTION_LABEL_KEYS = new Map();
-Object.values(TX_TYPE_GROUPS).forEach((infos) => {
-  infos.forEach((info) => ACTION_LABEL_KEYS.set(info.action, info.labelKey));
-});
-
 function edgeTitle(edge, i18n) {
-  const key = ACTION_LABEL_KEYS.get(edge.action) || `tx.type.${edge.group}`;
-  return i18n.t(key);
+  return i18n.t(edgeTypeKey(edge));
 }
 
 // Hover tooltip for a contract-call edge: type + decoded method (selector name)

@@ -11,11 +11,13 @@
 // file only orchestrates — it never mutates vis DataSets directly.
 // =============================================================================
 
-import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, APP_VERSION, PRICE_FETCH, TX_TYPE_GROUPS } from "./config.js";
+import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, APP_VERSION, PRICE_FETCH, TX_TYPE_GROUPS, chainInfo, TRON_FETCH } from "./config.js";
 import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
-import { isValidAddress, isFailedTx, shortAddress, nodeId } from "./format.js";
+import { isValidAddress, isFailedTx, shortAddress, displayAddress, nodeId, explorerUrl } from "./format.js";
+import { TRON_CHAIN_ID, parseTronAddress, tronTypes, sampleSize } from "./tron.js";
+import { createTronClient } from "./tronClient.js";
 import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress, isAllChainEntry } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
@@ -37,7 +39,7 @@ import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
 import { createQueryLog } from "./queryLog.js";
-import { CAVEATS, retrievalSummary, observedSampling, knownDataSnapshot, queryLogDocument, footerLines, fileStamp } from "./evidence.js";
+import { CAVEATS, retrievalSummary, observedSampling, providersSummary, providerHost, knownDataSnapshot, queryLogDocument, footerLines, fileStamp } from "./evidence.js";
 import { runScan, loadOlder, selectedTypes } from "./scanner.js";
 import { historyState } from "./history.js";
 import { createGraphView } from "./render/network.js";
@@ -63,7 +65,9 @@ const clampInt = (raw, { min, max }, fallback) => {
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
 };
-const chainById = (id) => CHAINS.find((c) => String(c.id) === String(id));
+// EVM + Tron (ruling 17). EVM-only lists (Look, Load-on-chain, probe, twins evidence) use CHAINS.
+const chainById = chainInfo;
+const isTron = (id) => String(id) === TRON_CHAIN_ID;
 // Explorer host for a record's chain; an unknown chain gets no link (no fallback host).
 const explorerFor = (id) => chainById(id)?.explorer || null;
 const chainLabel = (id) => chainById(id)?.name || t("chain.unknown", { id });
@@ -91,6 +95,7 @@ function syncChainUi() {
   $("twinToggleRow").hidden = cs.length < 2;
   $("legendTwinKey").hidden = cs.length < 2 || !$("twinToggle").checked;
   $("bridgeToggleRow").hidden = cs.length < 2;
+  syncTronBox();
   refreshChainFilter();
   applyDisplayOptions(); // also refreshes the projection
 }
@@ -101,6 +106,8 @@ const formTypes = () =>
     internal: $("typeInternal").checked,
     token: $("typeToken").checked,
   });
+// The types a load on `chainId` fetches: TronGrid serves txlist, internal and TRC-20 only.
+const typesFor = (chainId, types = formTypes()) => (isTron(chainId) ? tronTypes(types) : types);
 
 // --- i18n bootstrap ---------------------------------------------------------
 const dictionaries = { en, fr };
@@ -284,6 +291,21 @@ const makeClient = (apiKey, chainId) => {
   const epoch = queryLog.epoch;
   return createEtherscanClient({ apiKey, chainId, onQuery: (r) => queryLog.add(r, epoch).then(refreshQueryLogUi) });
 };
+// Same epoch rule. The TronGrid key goes to the client only (header), never to a log line.
+const makeTronClient = (rps) => {
+  const epoch = queryLog.epoch;
+  return createTronClient({
+    apiKey: $("tronKey").value.trim() || undefined,
+    minIntervalMs: 1000 / rps,
+    onQuery: (r) => queryLog.add(r, epoch).then(refreshQueryLogUi),
+  });
+};
+const clientFor = (chainId, rps) => (isTron(chainId) ? makeTronClient(rps) : makeClient($("apiKey").value.trim(), chainId));
+const formRps = () => clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps);
+// Ruling 10: TronGrid gets 2 rps keyless, the form rate capped at 10 with a key.
+const rpsFor = (chainId) =>
+  !isTron(chainId) ? formRps() : $("tronKey").value.trim() ? Math.min(formRps(), TRON_FETCH.keyedMaxRps) : TRON_FETCH.keylessRps;
+const hostFor = (chainId) => providerHost(isTron(chainId) ? "trongrid" : undefined);
 // Title on every change; the table only while the panel is open.
 function refreshQueryLogUi() {
   const entries = queryLog.entries();
@@ -456,13 +478,27 @@ function populateChains() {
     opt.textContent = `${c.name} (chainid ${c.id})`;
     sel.appendChild(opt);
   });
-  sel.value = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
-  if (!sel.value) { // stale stored chain no longer in CHAINS
-    sel.value = "1";
-    localStorage.setItem(STORAGE_KEYS.chainId, "1");
-  }
+  // Tron is an explicit per-session choice (ruling 16): never persisted, never restored.
+  const tron = document.createElement("option");
+  tron.value = TRON_CHAIN_ID;
+  tron.setAttribute("data-i18n", "chain.tronOption");
+  tron.textContent = t("chain.tronOption");
+  sel.appendChild(tron);
+  const stored = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
+  sel.value = CHAINS.some((c) => String(c.id) === stored) ? stored : "1";
+  if (sel.value !== stored) localStorage.setItem(STORAGE_KEYS.chainId, "1"); // stale or Tron: written back only when stale
   // The selector is only the chain for the next scan: nodes keep their own chain.
-  sel.addEventListener("change", () => localStorage.setItem(STORAGE_KEYS.chainId, sel.value));
+  sel.addEventListener("change", () => {
+    if (sel.value !== TRON_CHAIN_ID) localStorage.setItem(STORAGE_KEYS.chainId, sel.value);
+    syncTronBox();
+  });
+  syncTronBox();
+}
+
+// Ruling 38: the TronGrid notice + key field show while Tron is the selected chain OR the graph
+// holds a Tron node (its Load older contacts TronGrid whatever the selector says).
+function syncTronBox() {
+  $("tronBox").hidden = !isTron($("chainSelect").value) && !store?.chains().includes(TRON_CHAIN_ID);
 }
 
 // Bundled local datasets: known-address labels + spam token list. Same-origin
@@ -489,27 +525,28 @@ async function loadLocalData() {
 }
 
 function wirePersistedInputs() {
-  const apiKey = $("apiKey");
   const rememberKey = $("rememberKey");
-  // The key is a bearer credential. Persist to localStorage ONLY when the user
-  // opts in ("Remember"); otherwise keep it in sessionStorage (cleared when the
+  // Keys are bearer credentials. Persist to localStorage ONLY when the user
+  // opts in ("Remember"); otherwise keep them in sessionStorage (cleared when the
   // tab closes). A key already saved from a previous session keeps the toggle on.
-  const persisted = localStorage.getItem(STORAGE_KEYS.apiKey);
-  apiKey.value = persisted ?? sessionStorage.getItem(STORAGE_KEYS.apiKey) ?? "";
-  if (rememberKey) rememberKey.checked = persisted != null;
+  const keys = [[$("apiKey"), STORAGE_KEYS.apiKey], [$("tronKey"), STORAGE_KEYS.tronKey]];
+  for (const [input, name] of keys) input.value = localStorage.getItem(name) ?? sessionStorage.getItem(name) ?? "";
+  if (rememberKey) rememberKey.checked = keys.some(([, name]) => localStorage.getItem(name) != null);
 
-  const persistApiKey = () => {
-    const val = apiKey.value.trim();
-    if (rememberKey && rememberKey.checked) {
-      localStorage.setItem(STORAGE_KEYS.apiKey, val);
-      sessionStorage.removeItem(STORAGE_KEYS.apiKey);
-    } else {
-      sessionStorage.setItem(STORAGE_KEYS.apiKey, val);
-      localStorage.removeItem(STORAGE_KEYS.apiKey);
-    }
-  };
-  apiKey.addEventListener("change", persistApiKey);
-  if (rememberKey) rememberKey.addEventListener("change", persistApiKey);
+  for (const [input, name] of keys) {
+    const persist = () => {
+      const val = input.value.trim();
+      if (rememberKey && rememberKey.checked) {
+        localStorage.setItem(name, val);
+        sessionStorage.removeItem(name);
+      } else {
+        sessionStorage.setItem(name, val);
+        localStorage.removeItem(name);
+      }
+    };
+    input.addEventListener("change", persist);
+    if (rememberKey) rememberKey.addEventListener("change", persist);
+  }
 
   const fmt = $("addressFormat");
   fmt.value = localStorage.getItem(STORAGE_KEYS.addressFormat) || DEFAULTS.addressFormat;
@@ -531,9 +568,19 @@ function renderAddressDetect() {
   el.className = "detect";
   const res = detectAddress($("address").value);
   if (!res.input) return;
+  const tron = res.isEvm ? null : parseTronAddress(res.input);
   if (res.isEvm) {
     el.classList.add("ok");
     el.textContent = t("detect.evm");
+  } else if (tron) { // hint only: never touches the selector, sends no request
+    el.classList.add("warn");
+    el.textContent = t("detect.tron") + " ";
+    const a = document.createElement("a");
+    a.href = explorerUrl(TRON_CHAIN_ID, "address", tron);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = t("detect.viewExplorer");
+    el.appendChild(a);
   } else if (res.primary) {
     el.classList.add("warn");
     el.textContent = t("detect.nonEvm", { chain: res.matches.map((m) => m.name).join(" / ") }) + " ";
@@ -550,7 +597,9 @@ function renderAddressDetect() {
 }
 
 // Sampling banner carries a {n} param, so applyTo (param-less) can't own it.
+let samplingN = DEFAULTS.maxTxPerAddress; // the N last shown (TronGrid may cap the form's)
 function showSamplingBanner(n) {
+  samplingN = n;
   const banner = $("samplingBanner");
   banner.hidden = false;
   banner.textContent = t("sampling.banner", { n });
@@ -558,7 +607,7 @@ function showSamplingBanner(n) {
 
 function refreshDynamicI18n() {
   if (!$("samplingBanner").hidden) {
-    showSamplingBanner(clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress));
+    showSamplingBanner(samplingN);
   }
   if (indicator) indicator.setActive(scanning);
   renderAddressDetect();
@@ -614,7 +663,7 @@ const unsupportedChain = (chainId) => (chainById(chainId) ? null : { key: "error
 
 // Why a scan or load on `chainId` can't run now ({key, params?}), or null.
 function loadRefusal(chainId, types = formTypes()) {
-  if (!$("apiKey").value.trim()) return { key: "error.apiKeyRequired" };
+  if (!isTron(chainId) && !$("apiKey").value.trim()) return { key: "error.apiKeyRequired" };
   if (!types.length) return { key: "error.noTypeSelected" };
   return unsupportedChain(chainId);
 }
@@ -659,6 +708,7 @@ const probeCache = new Map();
 async function checkOtherChains(id) {
   const node = store.getNode(id);
   if (!node) return;
+  if (isTron(node.chainId)) return rerenderDetails(); // ruling 40: never probe a Tron address on Etherscan
   if (scanning || detecting) return rerenderDetails();
   if (!$("apiKey").value.trim()) {
     logger.log({ level: "error", key: "error.apiKeyRequired" });
@@ -683,6 +733,7 @@ async function checkOtherChains(id) {
 async function loadOnChain(id, chainId) {
   const src = store.getNode(id);
   if (!src) return;
+  if (isTron(src.chainId)) return rerenderDetails(); // ruling 40: a Tron address has no EVM twin
   return loadNewNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot }, formTypes());
 }
 
@@ -727,7 +778,7 @@ function showNodeDetails(id) {
   const node = store.getNode(id);
   if (!node) return;
   currentDetail = { kind: "node", id };
-  const types = formTypes();
+  const types = typesFor(node.chainId);
   renderNodeDetails($("detailsContent"), node, {
     i18n,
     explorer: explorerFor(node.chainId),
@@ -739,11 +790,11 @@ function showNodeDetails(id) {
       return source && isAllChainEntry(a, node.chainId, knownData) ? `${source} — ${t("details.allChainsListing")}` : source;
     },
     history: historyState(node, types.map((x) => x.action)).map((h, i) => ({ ...h, labelKey: types[i].labelKey })),
-    pageSize: clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress),
+    pageSize: sampleSize(node.chainId, clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress)),
     onLoadOlder: () => loadOlderFor(id),
     busy: scanning || detecting,
     loadBlocked: unsupportedChain(node.chainId),
-    otherChains: otherChainsFor(node),
+    otherChains: isTron(node.chainId) ? null : otherChainsFor(node), // ruling 3: no twins / other-chain loads for Tron
   });
 }
 
@@ -791,7 +842,7 @@ function clearDetails() {
 function promptAlias(id) {
   const node = store.getNode(id);
   if (!node) return;
-  const next = window.prompt(t("alias.prompt", { addr: node.address }), node.alias || "");
+  const next = window.prompt(t("alias.prompt", { addr: displayAddress(node.address) }), node.alias || "");
   if (next === null) return; // cancelled
   store.setAlias(id, next.trim() || null); // store emits alias:set -> view refreshes
   if (currentDetail && currentDetail.kind === "node" && currentDetail.id === id) {
@@ -816,9 +867,9 @@ function buildSearchRecords() {
       kind: "node",
       id: node.id,
       title: alias || known || shortAddress(node.address),
-      subtitle: multi ? `${node.address} · ${chainLabel(node.chainId)}` : node.address,
+      subtitle: multi ? `${displayAddress(node.address)} · ${chainLabel(node.chainId)}` : displayAddress(node.address),
       text: [alias, known, category].filter(Boolean).map((s) => s.toLowerCase()),
-      hex: [node.address],
+      hex: [node.address, displayAddress(node.address)],
     });
   }
   for (const edge of store.listEdges()) {
@@ -909,10 +960,10 @@ function revealAndFocus(record) {
 // in-flight fetches AND drops the limiter queue. Callers check `scanning` first;
 // that check plus this synchronous set is what keeps scans/loads from
 // overlapping (loadOlder's counts are store-wide deltas, overlap would mis-credit).
-async function withBusy(fn) {
+async function withBusy(fn, { rps, host } = {}) {
   scanning = true;
   const abortController = new AbortController();
-  const limiter = new RateLimiter(clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps));
+  const limiter = new RateLimiter(rps ?? formRps());
   const onStop = () => {
     abortController.abort();
     limiter.clear();
@@ -922,7 +973,7 @@ async function withBusy(fn) {
   $("stopBtn").disabled = false;
   $("address").disabled = true;
   $("detectChainBtn").disabled = true;
-  indicator.setActive(true);
+  indicator.setActive(true, host ?? "api.etherscan.io");
   $("stopBtn").addEventListener("click", onStop, { once: true });
   rerenderDetails(); // load button -> disabled while busy
   try {
@@ -952,6 +1003,22 @@ function afterGraphChange() {
   if (!inv.ok) console.warn(`graphStore invariant violation: ${inv.errors.length} issue(s)`);
 }
 
+// The address field as a root on `chainId` (canonical lowercase), or null after logging why.
+// Tron takes a checksummed T… or 41 hex in any case; the field is already trimmed.
+function parseRoot(chainId, address) {
+  const root = isTron(chainId) ? parseTronAddress(address) : isValidAddress(address) ? address.toLowerCase() : null;
+  if (!root) logger.log({ level: "error", key: isTron(chainId) ? "error.invalidTronAddress" : "error.invalidAddress" });
+  return root;
+}
+
+// Per-address N on `chainId` (ruling 14: TronGrid caps it at 200); logs when the form asks for more.
+function sampleFor(chainId) {
+  const asked = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
+  const n = sampleSize(chainId, asked);
+  if (n < asked) logger.log({ level: "info", key: "log.tronLimitCapped", params: { n, asked } });
+  return n;
+}
+
 async function startScan() {
   if (scanning) return;
 
@@ -959,18 +1026,20 @@ async function startScan() {
   const address = $("address").value.trim();
   const chainId = $("chainSelect").value;
   const maxDepth = clampInt($("depth").value, LIMITS.depth, DEFAULTS.depth);
-  const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
   const safetyCap = clampInt($("safetyCap").value, LIMITS.safetyCap, DEFAULTS.safetyCap);
-  const types = formTypes();
+  const types = typesFor(chainId);
 
-  if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
-  if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
+  if (!apiKey && !isTron(chainId)) return logger.log({ level: "error", key: "error.apiKeyRequired" });
+  const root = parseRoot(chainId, address);
+  if (!root) return;
   // Roots accumulate on any supported chain: another chain adds a root on that chain.
-  const refusal = loadRefusal(chainId);
+  const refusal = loadRefusal(chainId, types);
   if (refusal) return logger.log({ level: "error", ...refusal });
   const before = store.chains();
 
-  const client = makeClient(apiKey, chainId);
+  const maxTxPerAddress = sampleFor(chainId);
+  const rps = rpsFor(chainId);
+  const client = clientFor(chainId, rps);
 
   collapseControls(); // give the map the full surface once a scan begins
 
@@ -979,7 +1048,7 @@ async function startScan() {
   logger.log({
     level: "info",
     key: "log.scanStart",
-    params: { root: address.toLowerCase(), depth: maxDepth, types: types.map((x) => t(x.labelKey)).join(", ") },
+    params: { root: displayAddress(root), depth: maxDepth, types: types.map((x) => t(x.labelKey)).join(", ") },
   });
 
   const summary = await withBusy(({ signal, limiter }) =>
@@ -988,7 +1057,7 @@ async function startScan() {
       store,
       limiter,
       chainId,
-      root: address,
+      root,
       maxDepth,
       maxTxPerAddress,
       safetyCap,
@@ -1006,7 +1075,8 @@ async function startScan() {
           })
         ),
       onLog: (e) => logger.log(e),
-    })
+    }),
+    { rps, host: hostFor(chainId) }
   );
 
   if (!summary) return; // runScan only rejects on programmer error; guard the post-scan path anyway
@@ -1033,20 +1103,21 @@ async function loadOlderFor(id, types = formTypes()) {
   if (!node) return;
   // Busy (or probing chains): ignore, but re-render so the clicked button isn't left disabled.
   if (scanning || detecting) return rerenderDetails();
-  const apiKey = $("apiKey").value.trim();
+  types = typesFor(node.chainId, types);
   const refusal = loadRefusal(node.chainId, types);
   if (refusal) {
     logger.log({ level: "error", ...refusal });
     return rerenderDetails();
   }
 
-  const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
+  const maxTxPerAddress = sampleFor(node.chainId);
   showSamplingBanner(maxTxPerAddress); // loaded rows are a sample too (demo/workspace graphs hide it)
   status.set(t("status.loadingOlder", { addr: shortAddress(node.address) }));
 
+  const rps = rpsFor(node.chainId);
   const res = await withBusy(({ signal, limiter }) =>
     loadOlder({
-      client: makeClient(apiKey, node.chainId),
+      client: clientFor(node.chainId, rps),
       store,
       limiter,
       chainId: node.chainId,
@@ -1055,7 +1126,8 @@ async function loadOlderFor(id, types = formTypes()) {
       maxTxPerAddress,
       signal,
       onLog: (e) => logger.log(e),
-    })
+    }),
+    { rps, host: hostFor(node.chainId) }
   );
 
   afterGraphChange();
@@ -1063,7 +1135,7 @@ async function loadOlderFor(id, types = formTypes()) {
   logger.log({
     level: "info",
     key: "log.loadOlderDone",
-    params: { addr: node.address, edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
+    params: { addr: displayAddress(node.address), edges: res.newEdges, nodes: res.newNodes, calls: res.apiCalls },
   });
   const done = { edges: res.newEdges, addr: shortAddress(node.address), errors: res.errors };
   const key = res.stopped ? "status.loadOlderStopped" : res.errors ? "status.loadOlderErrors" : "status.loadOlderDone";
@@ -1264,7 +1336,7 @@ function exportContext() {
     const confirmed = l.decision === "confirmed";
     return { a: l.a, b: l.b, confirmed, label: t(confirmed ? "bridge.linkConfirmed" : "bridge.link") };
   });
-  const footer = footerLines({ t, appVersion: APP_VERSION, exportedAt, retrieval, bridges: bridgeLinks.length > 0 });
+  const footer = footerLines({ t, appVersion: APP_VERSION, exportedAt, retrieval, bridges: bridgeLinks.length > 0, tron: store.chains().includes(TRON_CHAIN_ID) });
   return { exportedAt, retrieval, bridgeLinks, footer };
 }
 // The live view's badge line (network.js), baked into PNG/PDF.
@@ -1288,10 +1360,16 @@ function currentFilters() {
 }
 
 // The ONE workspace / query-log text builders: Save and the evidence bundle write these exact bytes.
+// Ruling 23: a Tron root is saved as its canonical 41 hex. Ruling 33: only a valid 0x address is
+// lowercased; anything else is kept as typed, so a base58-looking string is never lowercased.
+const savedRoot = () => {
+  const v = $("address").value.trim();
+  return parseTronAddress(v) ?? (isValidAddress(v) ? v.toLowerCase() : v || null);
+};
 const workspaceText = (savedAt) =>
   JSON.stringify(
     serializeWorkspace({
-      root: $("address").value.trim().toLowerCase() || null,
+      root: savedRoot(),
       nodes: store.listNodes(),
       edges: store.listEdges(),
       filters: currentFilters(),
@@ -1325,7 +1403,8 @@ function applyWorkspace(ws) {
   store.loadSnapshot(ws.nodes, ws.edges);
   // A single-chain graph drives the selector (the chain for the next scan).
   const cs = store.chains();
-  if (cs.length === 1 && chainById(cs[0])) $("chainSelect").value = cs[0];
+  if (cs.length === 1 && CHAINS.some((c) => String(c.id) === cs[0])) $("chainSelect").value = cs[0];
+  syncTronBox();
   const f = ws.filters || {};
   $("minAmount").value = f.minAmount || 0;
   $("hideZeroToggle").checked = !!f.hideZero;
@@ -1362,8 +1441,16 @@ function logWorkspaceRefusal(res) {
   logger.log(res.errorKey ? { level: "error", key: res.errorKey } : { level: "error", key: "log.workspaceError", params: { error: res.error } });
 }
 
+// Ruling 31: v1/v2 files predate Tron, so their chain fallback is never Tron: the selector when it
+// is an EVM chain, else the stored EVM chain, else Ethereum.
+const legacyChain = () => {
+  const isEvm = (v) => CHAINS.some((c) => String(c.id) === v);
+  const stored = localStorage.getItem(STORAGE_KEYS.chainId);
+  return isEvm($("chainSelect").value) ? $("chainSelect").value : isEvm(stored) ? stored : "1";
+};
+
 function loadWorkspaceFromText(text) {
-  const res = parseWorkspace(text, { fallbackChainId: $("chainSelect").value });
+  const res = parseWorkspace(text, { fallbackChainId: legacyChain() });
   if (!res.ok) return logWorkspaceRefusal(res);
   const ws = res.data;
   if (!applyWorkspace(ws)) return;
@@ -1386,7 +1473,7 @@ async function loadDemo() {
   try {
     const resp = await fetch(DATA_PATHS.demo);
     if (!resp.ok) throw new Error(String(resp.status));
-    const res = parseWorkspace(await resp.json(), { fallbackChainId: $("chainSelect").value });
+    const res = parseWorkspace(await resp.json(), { fallbackChainId: legacyChain() });
     if (!res.ok) return logWorkspaceRefusal(res);
     if (!applyWorkspace(res.data)) return;
     bridgeDecisions = new Map();
@@ -1405,24 +1492,24 @@ async function runEstimate() {
   const apiKey = $("apiKey").value.trim();
   const address = $("address").value.trim();
   const chainId = $("chainSelect").value;
-  if (!apiKey) return logger.log({ level: "error", key: "error.apiKeyRequired" });
-  if (!isValidAddress(address)) return logger.log({ level: "error", key: "error.invalidAddress" });
-  const types = formTypes();
+  if (!apiKey && !isTron(chainId)) return logger.log({ level: "error", key: "error.apiKeyRequired" });
+  const root = parseRoot(chainId, address);
+  if (!root) return;
+  const types = typesFor(chainId);
   if (!types.length) return logger.log({ level: "error", key: "error.noTypeSelected" });
 
   const maxDepth = clampInt($("depth").value, LIMITS.depth, DEFAULTS.depth);
-  const maxTxPerAddress = clampInt($("maxTxPerAddress").value, LIMITS.maxTxPerAddress, DEFAULTS.maxTxPerAddress);
+  const maxTxPerAddress = sampleFor(chainId);
   const safetyCap = clampInt($("safetyCap").value, LIMITS.safetyCap, DEFAULTS.safetyCap);
-  const rps = clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps);
+  const rps = rpsFor(chainId);
   const limiter = new RateLimiter(rps);
-  const client = makeClient(apiKey, chainId);
-  const root = address.toLowerCase();
+  const client = clientFor(chainId, rps);
 
-  indicator.setActive(true);
+  indicator.setActive(true, hostFor(chainId));
   let neighbors = 0;
   try {
     for (const ti of types) {
-      const txs = await limiter.run(() => client.fetchAction(address, ti.action, { offset: maxTxPerAddress }));
+      const txs = await limiter.run(() => client.fetchAction(root, ti.action, { offset: maxTxPerAddress }));
       const set = new Set();
       for (const tx of txs) {
         if (isFailedTx(tx)) continue;
@@ -1433,7 +1520,7 @@ async function runEstimate() {
     }
   } catch (e) {
     indicator.setActive(false);
-    return logger.log({ level: "error", key: "error.fetch", params: { address: root, action: "estimate", message: e.message || String(e) } });
+    return logger.log({ level: "error", key: "error.fetch", params: { address: displayAddress(root), action: "estimate", message: e.message || String(e) } });
   }
   indicator.setActive(false);
 
@@ -1525,6 +1612,7 @@ function wireControls() {
           },
           observed: observedSampling(queryLog.entries()),
         },
+        providers: providersSummary(queryLog.entries()),
         data: { knownAddresses: knownDataSnapshot(knownData) },
         bridges: bridgeCounts(),
         prices: {
@@ -1706,3 +1794,7 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
+// Test seam (ruling 40): Tron details offer no other-chain actions, so the Tron guards in these two
+// are unreachable from the UI; the integration test calls them directly on the same instance.
+export { checkOtherChains, loadOnChain };

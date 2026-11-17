@@ -6,6 +6,7 @@
 import { APP_VERSION, PRICE_API } from "./config.js";
 import { sha256Hex, windowOf } from "./queryLog.js";
 import { createZip } from "./zip.js";
+import { TRON_CHAIN_ID } from "./tron.js";
 
 export const BRIDGE_CAVEAT = "Inferred bridge links are candidates computed from amount, timing and recipient in the loaded data — leads to verify on both explorers, never proof; \"confirmed by investigator\" records the investigator's assertion, not an on-chain fact.";
 
@@ -22,6 +23,8 @@ export const CAVEATS = [
 ];
 export const USD_CAVEAT =
   "USD values are estimates: a DefiLlama price within 1 hour of each transaction multiplied by the exact token amount; blank when unknown, pending or not priced (NFT, zero-value, imitation, spam-list, root contract, unknown data, unsupported chain).";
+export const TRON_CAVEAT =
+  "Tron data comes from TronGrid (api.trongrid.io), latest N per address per type by block time; TRC-20 and internal rows carry no block number; TRC-10 amounts are raw base units; identical TRC-20 transfers within one transaction appear once.";
 export const PARTIAL_CAVEAT =
   "Part of this graph has no logged retrieval (demo, a workspace saved without a query log, or dropped log entries).";
 
@@ -39,24 +42,41 @@ export function knownDataSnapshot(knownData) {
   return { entries, ofacPublished };
 }
 
-// Price (defillama) entries carry a `source`; Etherscan entries never do.
-const fromEtherscan = (es) => es.filter((e) => e.source === undefined);
+// Etherscan entries have no `source`; TronGrid entries are "trongrid", price entries "defillama".
+// Every provider but DefiLlama supplied graph data, so all of them count as retrieval.
+const PROVIDERS = [
+  { source: undefined, name: "Etherscan v2", host: "api.etherscan.io", saw: "EVM addresses and request parameters, the Etherscan API key (URL parameter, never logged) and the client IP address" },
+  { source: "trongrid", name: "TronGrid", host: "api.trongrid.io", saw: "Tron addresses and request parameters, the optional TronGrid API key (request header, never logged) and the client IP address" },
+  { source: "defillama", name: "DefiLlama", host: "coins.llama.fi", saw: "coin ids and hour-rounded timestamps while USD values are on, and the client IP address; never investigated addresses" },
+];
+const fromGraphProviders = (es) => es.filter((e) => e.source !== "defillama");
+/** Host of a query-log source (undefined = Etherscan), read from PROVIDERS. */
+export const providerHost = (source) => PROVIDERS.find((p) => p.source === source).host;
+const hostOf = (e) => providerHost(e.source);
 
 export function retrievalSummary(state) {
-  const es = fromEtherscan(state.entries);
+  const es = fromGraphProviders(state.entries);
   if (!es.length) return null;
   const w = windowOf(es);
   return {
     queries: es.length, dropped: state.dropped, first: w.first, last: w.last,
     fullyLogged: state.dropped === 0 && state.unloggedData === false,
+    hosts: [...new Set(es.map(hostOf))].sort(),
   };
 }
 
+/** Providers present in the log (fixed order), with what each one saw and its request count. */
+export function providersSummary(entries) {
+  return PROVIDERS
+    .map(({ source, ...p }) => ({ ...p, queries: entries.filter((e) => e.source === source).length }))
+    .filter((p) => p.queries > 0);
+}
+
 export function observedSampling(all) {
-  const entries = fromEtherscan(all);
+  const entries = fromGraphProviders(all);
   const uniq = (xs) => [...new Set(xs.filter((x) => x !== undefined))];
   return {
-    pageSizes: uniq(entries.map((e) => e.params.offset)).sort((a, b) => a - b),
+    pageSizes: uniq(entries.map((e) => e.params.offset ?? e.params.limit)).sort((a, b) => a - b),
     sorts: uniq(entries.map((e) => e.params.sort)).sort(),
     actions: uniq(entries.map((e) => e.action)).sort(),
   };
@@ -67,6 +87,7 @@ export async function buildManifest(input) {
   for (const f of input.files) files.push({ name: f.name, bytes: f.bytes.length, sha256: await sha256Hex(f.bytes) });
   const p = input.prices;
   const caveats = input.retrieval && input.retrieval.fullyLogged ? [...CAVEATS] : [...CAVEATS, PARTIAL_CAVEAT];
+  if (input.chains?.some((c) => c.chainId === TRON_CHAIN_ID)) caveats.push(TRON_CAVEAT);
   if (p?.shown) caveats.push(USD_CAVEAT);
   const b = input.bridges && input.bridges.candidates > 0 ? input.bridges : null;
   if (b) caveats.push(BRIDGE_CAVEAT);
@@ -79,6 +100,7 @@ export async function buildManifest(input) {
     graph: input.graph,
     sampling: input.sampling,
     retrieval: input.retrieval,
+    providers: input.providers ?? [],
     data: input.data,
     prices: p && (p.shown || p.queries > 0)
       ? {
@@ -123,14 +145,15 @@ export async function buildEvidenceZip(input) {
 const utc = (iso) => iso.slice(0, 19).replace("T", " ");
 
 /** Provenance footer text (PNG/PDF) as translated lines. */
-export function footerLines({ t, appVersion, exportedAt, retrieval, bridges }) {
+export function footerLines({ t, appVersion, exportedAt, retrieval, bridges, tron }) {
   return [
     t("export.footer.app", { version: appVersion, at: utc(exportedAt) }),
     retrieval
-      ? t("export.footer.retrieved", { first: utc(retrieval.first), last: utc(retrieval.last), n: retrieval.queries })
+      ? t("export.footer.retrieved", { first: utc(retrieval.first), last: utc(retrieval.last), n: retrieval.queries, hosts: retrieval.hosts.join(" + ") })
       : t("export.footer.retrievalUnknown"),
     ...(retrieval && !retrieval.fullyLogged ? [t("export.footer.partial")] : []),
     t("export.footer.sampling"),
+    ...(tron ? [t("export.footer.tron")] : []),
     t("export.footer.signals"),
     ...(bridges ? [t("export.footer.bridges")] : []),
   ];

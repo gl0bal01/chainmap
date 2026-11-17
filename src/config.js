@@ -110,6 +110,18 @@ export const CHAINS = [
   { id: 6343,     name: "MegaETH (testnet)",            explorer: "testnet-mega.etherscan.io",      native: "ETH" },
 ];
 
+/** Tron (opt-in via TronGrid). Deliberately NOT in CHAINS: it is not an Etherscan
+ *  v2 chain, so it never joins Look/probe/price/bridge lists. Id is 0x2b6653dc. */
+export const TRON_CHAIN = { id: 728126428, name: "Tron", explorer: "tronscan.org", native: "TRX" };
+export const TRON_API = "https://api.trongrid.io";
+export const TRON_FETCH = { maxLimit: 200, backoffMs: 5500, keylessRps: 2, keyedMaxRps: 10 };
+
+/** Lookup a chain record by id (number|string): CHAINS entry, TRON_CHAIN, or null. */
+export function chainInfo(id) {
+  const n = Number(id);
+  return CHAINS.find((c) => c.id === n) || (n === TRON_CHAIN.id ? TRON_CHAIN : null);
+}
+
 /** Chains probed by "Detect chain", in priority order. All are in CHAINS.
  *  Ethereum, Base, Arbitrum One, Optimism, Polygon, BNB, Avalanche, Linea,
  *  Blast, Gnosis, Mantle, Celo. zkSync Era (324) / Scroll (534352) are NOT on
@@ -248,6 +260,7 @@ export const LLAMA_CHAINS = {
 /** localStorage keys (the only persistence; never leaves the browser). */
 export const STORAGE_KEYS = {
   apiKey: "etherscanApiKey",
+  tronKey: "tronGridApiKey",
   chainId: "etherscanChainId",
   addressFormat: "addressFormat",
   locale: "locale",
