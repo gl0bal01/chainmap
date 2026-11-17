@@ -11,7 +11,7 @@
 // file only orchestrates — it never mutates vis DataSets directly.
 // =============================================================================
 
-import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, APP_VERSION, PRICE_FETCH } from "./config.js";
+import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, APP_VERSION, PRICE_FETCH, TX_TYPE_GROUPS } from "./config.js";
 import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
@@ -28,6 +28,7 @@ import { flagsForEdge } from "./riskFlags.js";
 import { buildCanonicalIndex, isFakeToken } from "./fakeToken.js";
 import { parseSpamList, isSpam } from "./display.js";
 import { findDeposits } from "./depositDetect.js";
+import { inferBridges } from "./bridgeInfer.js";
 import { detectAddress } from "./blockchainDetect.js";
 import { rankChainActivity, probeChains } from "./chainProbe.js";
 import { methodName } from "./selectors.js";
@@ -50,6 +51,7 @@ import {
   createLogger,
   renderChainFilter,
   renderTwinDetails,
+  renderBridgeDetails,
   createStatus,
   createRequestIndicator,
   renderQueryLog,
@@ -145,6 +147,100 @@ function recomputeDeposits() {
   if (!changed.length) return;
   view.refreshNodes(changed);
   if (currentDetail?.kind === "node" && changed.includes(currentDetail.id)) rerenderDetails();
+}
+
+// Inferred bridge links: derived like depositMap (never stored, never fed back into the store).
+// Investigator decisions are session state; they never reach inferBridges (ruling 2).
+let bridgeState = { deposits: new Map(), candidates: [] };
+let bridgeDecisions = new Map(); // candidate id -> { deposit, release, decision, at }
+const bridgeCtx = { ...depositCtx, nativeSymbol: (c) => chainById(c)?.native || null };
+// Look loads the full value set whatever the form boxes say (ruling 1).
+const VALUE_TYPES = [TX_TYPE_GROUPS.normal[0], TX_TYPE_GROUPS.internal[0], TX_TYPE_GROUPS.token[0]];
+const bridgeSig = () => JSON.stringify([[...bridgeState.deposits.values()], bridgeState.candidates]);
+// A decision shows only on the exact pair it was made on (its two edge keys; the id is never parsed).
+const decisionOf = (c) => {
+  const d = bridgeDecisions.get(c.id);
+  return d && d.deposit === c.depositKey && d.release === c.releaseKey ? d : null;
+};
+function recomputeBridges() {
+  const prev = bridgeSig();
+  bridgeState = inferBridges(store.listNodes(), store.listEdges(), bridgeCtx);
+  syncBridgeLinks();
+  if (bridgeSig() !== prev && (currentDetail?.kind === "bridge" || currentDetail?.kind === "edge")) rerenderDetails();
+}
+// The view draws exactly what it is given: rejected candidates are left out here. Compared with
+// the view's own list (a reset empties it, a node:remove sweep leaves it stale): an unchanged list
+// is not resent, since setBridgeLinks rebuilds bundles (never mid-scan for nothing).
+function syncBridgeLinks() {
+  const links = [];
+  for (const c of bridgeState.candidates) {
+    const decision = decisionOf(c)?.decision ?? null;
+    if (decision !== "rejected") links.push({ id: c.id, a: c.a, b: c.b, level: c.level, decision });
+  }
+  if (JSON.stringify(links) !== JSON.stringify(view.getBridgeLinks())) view.setBridgeLinks(links);
+}
+function decideBridge(id, decision) {
+  const c = bridgeState.candidates.find((x) => x.id === id);
+  if (!c) return rerenderDetails();
+  if (decision) bridgeDecisions.set(id, { deposit: c.depositKey, release: c.releaseKey, decision, at: new Date().toISOString() });
+  else bridgeDecisions.delete(id);
+  syncBridgeLinks();
+  rerenderDetails();
+}
+// Also opens rejected candidates (from the deposit row's Open); a vanished one clears the panel.
+function showBridgeDetails(id) {
+  const c = bridgeState.candidates.find((x) => x.id === id);
+  const edgeOf = (key) => store.listEdges().find((e) => e.key === key);
+  const dep = c && bridgeState.deposits.get(c.depositKey);
+  const D = dep && edgeOf(c.depositKey);
+  const R = D && edgeOf(c.releaseKey);
+  if (!R) return clearDetails();
+  currentDetail = { kind: "bridge", id };
+  const side = (e) => ({ amountText: e.amountText, symbol: e.symbol, chainName: chainLabel(e.chainId), explorer: explorerFor(e.chainId), hash: e.hash });
+  renderBridgeDetails($("detailsContent"), {
+    ...c,
+    rejected: bridgeState.candidates.filter((x) => x.depositKey === c.depositKey && decisionOf(x)?.decision === "rejected").length,
+    deposit: { ...side(D), bridgeLabel: dep.bridgeLabel },
+    release: { ...side(R), recipient: R.to },
+    decision: decisionOf(c),
+  }, {
+    i18n,
+    busy: scanning || detecting,
+    onConfirm: () => decideBridge(id, "confirmed"),
+    onReject: () => decideBridge(id, "rejected"),
+    onClear: () => decideBridge(id, null),
+    onLoadOlder: () => lookForRelease(c.depositKey, R.chainId),
+  });
+}
+// The "Bridge deposit" row of a deposit edge's details.
+function bridgeDepositView(dep) {
+  // Look chains: the decoded destination first, then probe order, then table order (stable sort).
+  const rank = (c) => (String(c.id) === dep.destChainId ? -1 : probePriority(c.id));
+  return {
+    bridgeLabel: dep.bridgeLabel,
+    recipient: dep.recipient,
+    basis: dep.basis,
+    destChainName: dep.destChainId ? chainLabel(dep.destChainId) : null,
+    depositorCategory: depositCtx.known(dep.from, dep.chainId)?.category ?? null,
+    candidates: bridgeState.candidates.filter((c) => c.depositKey === dep.key).map((c) => ({
+      id: c.id, level: c.level, chainName: chainLabel(store.getNode(c.b)?.chainId), status: decisionOf(c)?.decision || "unreviewed",
+    })),
+    lookChains: CHAINS.filter((c) => String(c.id) !== dep.chainId).sort((x, y) => rank(x) - rank(y))
+      .map((c) => ({ chainId: String(c.id), name: c.name })),
+    busy: scanning || detecting,
+    onOpen: showBridgeDetails,
+    onLook: (chainId) => lookForRelease(dep.key, chainId),
+  };
+}
+// Look (and an uncovered candidate's Load older): the deposit's recipient on `chainId`, full value
+// set, one click = one load. An existing node gets its next older page; else it is added and loaded.
+function lookForRelease(depositKey, chainId) {
+  const dep = bridgeState.deposits.get(depositKey);
+  const depositor = dep && store.getNode(dep.fromId);
+  if (!dep?.recipient || !depositor) return rerenderDetails();
+  const id = nodeId(chainId, dep.recipient);
+  if (store.hasNode(id)) return loadOlderFor(id, VALUE_TYPES);
+  return loadNewNode(chainId, dep.recipient, { depth: depositor.depth + 1, isRoot: false }, VALUE_TYPES);
 }
 
 // Query log (evidence exports): every Etherscan request any feature makes, keyed-out.
@@ -315,7 +411,7 @@ function dropStaleTwinDetail() {
 // --- scan lifecycle state ---------------------------------------------------
 let scanning = false; // a scan OR a load is running (see withBusy) — never both
 /** Remember the current details selection so it can be re-rendered on locale change. */
-let currentDetail = null; // { kind:'node'|'edge', id }
+let currentDetail = null; // { kind:'node'|'edge'|'bridge', id }
 
 // ---------------------------------------------------------------------------
 // Static shell wiring (config-driven)
@@ -355,6 +451,7 @@ async function loadLocalData() {
     /* spam list optional for the graph; USD stays off without it */
   }
   if (view) recomputeDeposits(); // known + spam data feed the heuristic
+  if (view) recomputeBridges(); // no bridge is known before this, so nothing was inferred
   if (view) applyDisplayOptions(); // re-project: spam sets + edge flags (known data, canonical index)
   return Object.keys(knownData).length > 0 && spamOk;
 }
@@ -484,9 +581,9 @@ function wirePanels() {
 const unsupportedChain = (chainId) => (chainById(chainId) ? null : { key: "error.unknownChain", params: { id: chainId } });
 
 // Why a scan or load on `chainId` can't run now ({key, params?}), or null.
-function loadRefusal(chainId) {
+function loadRefusal(chainId, types = formTypes()) {
   if (!$("apiKey").value.trim()) return { key: "error.apiKeyRequired" };
-  if (!formTypes().length) return { key: "error.noTypeSelected" };
+  if (!types.length) return { key: "error.noTypeSelected" };
   return unsupportedChain(chainId);
 }
 
@@ -550,21 +647,27 @@ async function checkOtherChains(id) {
 }
 
 // One first-load page of this address on another chain (no BFS). The new node takes the
-// source's depth and root flag, never its alias; if nothing could be fetched it is removed again.
+// source's depth and root flag, never its alias.
 async function loadOnChain(id, chainId) {
   const src = store.getNode(id);
   if (!src) return;
+  return loadNewNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot }, formTypes());
+}
+
+// One first-load page of `address` on `chainId` (no BFS) into a new node with `meta`, for
+// `types`; if nothing could be fetched the node is removed again. Shared by loadOnChain and Look.
+async function loadNewNode(chainId, address, meta, types) {
   if (scanning || detecting) return rerenderDetails();
-  const refusal = loadRefusal(chainId);
+  const refusal = loadRefusal(chainId, types);
   if (refusal) {
     logger.log({ level: "error", ...refusal });
     return rerenderDetails();
   }
-  const newId = nodeId(chainId, src.address);
+  const newId = nodeId(chainId, address);
   if (store.hasNode(newId)) return rerenderDetails(); // already there: never load into, or remove, an existing node
   const before = store.chains();
-  store.addNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot });
-  const res = await loadOlderFor(newId);
+  store.addNode(chainId, address, meta);
+  const res = await loadOlderFor(newId, types);
   if (res && !res.stopped && !res.errors && res.newEdges === 0) {
     store.removeNodes([newId]); // fetched fine, nothing there: never keep an isolated node
     logger.log({ level: "info", key: "log.loadOnChainNone", params: { chain: chainLabel(chainId) } });
@@ -615,6 +718,7 @@ function showNodeDetails(id) {
 function showEdgeDetails(edgeKey) {
   const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
   if (!data) return;
+  if (data.bridge) return showBridgeDetails(data.id);
   currentDetail = { kind: "edge", id: edgeKey };
   if (data.twin) {
     const lab = (id) => chainLabel(store.getNode(id)?.chainId);
@@ -631,13 +735,15 @@ function showEdgeDetails(edgeKey) {
   if (data.memberKeys) renderBundleDetails($("detailsContent"), data, deps);
   else {
     const usd = usdFn();
-    renderEdgeDetails($("detailsContent"), data, { ...deps, usd: usd ? usd(data) : null });
+    const dep = bridgeState.deposits.get(data.key);
+    renderEdgeDetails($("detailsContent"), data, { ...deps, usd: usd ? usd(data) : null, bridgeDeposit: dep ? bridgeDepositView(dep) : null });
   }
 }
 
 function rerenderDetails() {
   if (!currentDetail) return;
   if (currentDetail.kind === "node") showNodeDetails(currentDetail.id);
+  else if (currentDetail.kind === "bridge") showBridgeDetails(currentDetail.id);
   else showEdgeDetails(currentDetail.id);
 }
 
@@ -887,14 +993,13 @@ async function startScan() {
 
 // Details-panel "Load older": fetch the next older page per selected type for
 // one node, on THAT node's chain. Counterparties are added, never expanded.
-async function loadOlderFor(id) {
+async function loadOlderFor(id, types = formTypes()) {
   const node = store.getNode(id);
   if (!node) return;
   // Busy (or probing chains): ignore, but re-render so the clicked button isn't left disabled.
   if (scanning || detecting) return rerenderDetails();
   const apiKey = $("apiKey").value.trim();
-  const types = formTypes();
-  const refusal = loadRefusal(node.chainId);
+  const refusal = loadRefusal(node.chainId, types);
   if (refusal) {
     logger.log({ level: "error", ...refusal });
     return rerenderDetails();
@@ -934,6 +1039,7 @@ async function loadOlderFor(id) {
 function resetGraph() {
   if (scanning) return;
   store.reset(); // view clears via 'reset' event
+  bridgeDecisions = new Map();
   logger.clear();
   status.clear();
   clearDetails();
@@ -1218,6 +1324,7 @@ function loadWorkspaceFromText(text) {
   if (!res.ok) return logWorkspaceRefusal(res);
   const ws = res.data;
   if (!applyWorkspace(ws)) return;
+  bridgeDecisions = new Map(ws.bridgeDecisions);
   // A file without a query log is "unknown", not "empty": its graph has no logged retrieval.
   if (ws.queryLog) queryLog.load(ws.queryLog);
   else {
@@ -1238,6 +1345,7 @@ async function loadDemo() {
     const res = parseWorkspace(await resp.json(), { fallbackChainId: $("chainSelect").value });
     if (!res.ok) return logWorkspaceRefusal(res);
     if (!applyWorkspace(res.data)) return;
+    bridgeDecisions = new Map();
     // The demo was never retrieved under this log, whatever the file holds.
     queryLog.clear();
     queryLog.markUnlogged();
@@ -1503,7 +1611,7 @@ function init() {
   store.subscribe((e) => {
     if (e.type === "alias:set" || depositQueued) return;
     depositQueued = true;
-    setTimeout(() => { depositQueued = false; recomputeDeposits(); }, 0);
+    setTimeout(() => { depositQueued = false; recomputeDeposits(); recomputeBridges(); }, 0);
   });
   // While USD is on, want the keys a graph change made priceable: new edges, or a root removed /
   // nodes updated (isRoot), which can turn a "root" skip into a key. Coalesced to one macrotask.
