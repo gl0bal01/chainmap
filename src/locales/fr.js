@@ -375,7 +375,7 @@ export default {
   "details.bridgeSenderMint": "Expéditeur de la sortie : émission de jetons (adresse zéro)",
   "details.bridgeSenderOther": "Expéditeur de la sortie : pas un pont connu",
   "details.bridgeUntrusted": "Actif : absent de la liste de jetons de référence — confiance maintenue faible",
-  "details.bridgeManyReleases": "{n} sorties candidates pour ce dépôt ({r} rejetées par l'enquêteur)",
+  "details.bridgeManyReleases": "{n} sorties candidates pour ce dépôt ({r} rejetée(s) par l'enquêteur)",
   "details.bridgeManyDeposits": "Cette sortie pourrait aussi provenir de {m} autre(s) dépôt(s)",
   "details.bridgeUncovered": "Les transactions chargées du destinataire sur {chain} ne remontent pas jusqu'à l'heure du dépôt — chargez les plus anciennes pour chercher plus loin",
   "details.bridgeDecision": "Décision de l'enquêteur",
