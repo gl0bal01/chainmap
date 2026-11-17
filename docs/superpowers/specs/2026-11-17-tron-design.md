@@ -324,3 +324,39 @@ fine); fixture trimming; whether `displayAddress` caches base58 results (fine if
   not used. Tronscan appears only as an outbound explorer link (never fetched), like every
   EVM explorer.
 - Leads merge to local main only; no push/tag/release/version bump.
+
+## Builder-check rulings
+
+14. **One sample-size helper.** `sampleSize(chainId, n)` (pure; `min(n, 200)` for Tron, `n`
+    otherwise) is applied in `startScan`, `runEstimate` and `loadOlderFor` (so Look and
+    `loadNewNode` inherit it), and the banner and `log.tronLimitCapped` show its result. The
+    Tron client **rejects** a `limit` above 200 with an `api` error instead of clamping, so a
+    missed call site fails visibly instead of making a 200-row page look short. Test: Load
+    older on a Tron node with the form at 500 sends `limit=200` and leaves the cursor not done
+    after a full page. Cost if wrong: none (stricter).
+15. **Fingerprint hops are paced inside the client.** The outer `fetchAction` holds one limiter
+    slot; before each hop the client waits `minIntervalMs` (abortable), given at creation as
+    `1000 / rps` for the operation's rate. A nested `limiter.run` is not used (the queue is
+    serialized). Any overrun still lands in the 429 retry path. Cost if wrong: a 5 s
+    suspension on very busy blocks, retried.
+16. **Tron is never written to or restored from `STORAGE_KEYS.chainId`.** The change handler
+    skips the write when the value is Tron (the previous EVM value stays stored); at load a
+    stored value that is not an EVM `CHAINS` id falls back to `"1"`. A workspace or demo
+    load only ever moves the selector to an EVM chain (the single-chain auto-select uses
+    `CHAINS`), and Detect only selects probed EVM chains. Test: select Tron, reload → the
+    selector shows the last EVM chain; load a Tron-only workspace → selector unchanged.
+    Cost if wrong: one extra click.
+17. **Which lookups move to `chainInfo`.** `chainInfo` (EVM + Tron) for: main's
+    `chainById`/`explorerFor`/`chainLabel`/`getChainTag`/`unsupportedChain`, graphStore's
+    native ticker, and the selector option list. `CHAINS` (EVM only) stays for: Look chains,
+    the Load-on-chain picker, the probe set and Detect, bridgeInfer `CHAIN_IDS`,
+    `addressEvidence(…, CHAINS)` (Tron gets no `eoa` evidence), the workspace single-chain
+    selector move, `LLAMA_CHAINS`. Cost if wrong: see ruling 2.
+18. **Every human-facing address and explorer link is in scope.** The builder greps every
+    place that shows `node.address`, `edge.from`/`to`, `tokenContract`, a query-log
+    `params.address` or builds an explorer URL (labels, details, bundle rows, search, palette,
+    status/log params, CSV, PDF/PNG, query-log table, bridge/twin rows) and routes it through
+    `displayAddress`/`shortAddress`/the explorer helper. Tests pin labels, node and edge
+    details, CSV, search and both explorer URLs for a Tron node. Provider-specific wording
+    ("Etherscan calls") becomes provider-neutral where Tron can reach it. Cost if wrong: a
+    hex `41…` string shown somewhere (correct, but unfamiliar).
