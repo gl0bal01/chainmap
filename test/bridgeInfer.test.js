@@ -319,10 +319,11 @@ describe("sanitizeBridgeDecisions", () => {
   });
 
   test("cap: only LIMITS.bridgeDecisions items are read, the rest are counted invalid", () => {
-    const many = Array.from({ length: LIMITS.bridgeDecisions + 3 }, () => item());
-    const r = sanitizeBridgeDecisions(many, has);
-    expect(r.decisions.size).toBe(1);
-    expect(r.invalid).toBe(LIMITS.bridgeDecisions - 1 + 3);
+    const many = Array.from({ length: LIMITS.bridgeDecisions + 3 }, (_, i) => item({ release: `137|r${i}` }));
+    const r = sanitizeBridgeDecisions(many, () => true);
+    expect(r.decisions.size).toBe(LIMITS.bridgeDecisions);
+    expect(r.invalid).toBe(3);
+    expect([...r.decisions.keys()].pop().endsWith(`r${LIMITS.bridgeDecisions - 1}`)).toBe(true);
   });
 
   test("duplicates: the first occurrence wins", () => {
