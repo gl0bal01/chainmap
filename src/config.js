@@ -8,7 +8,7 @@
 
 /** Etherscan v2 unified multichain endpoint. The chain is chosen via `chainid`,
  *  not a different host — one host for every supported chain. */
-export const APP_VERSION = "1.6.0";
+export const APP_VERSION = "1.7.0";
 export const API_BASE = "https://api.etherscan.io/v2/api";
 
 /**
