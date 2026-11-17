@@ -3185,12 +3185,14 @@ test("inferred bridge links: dashed curved overlay, level tooltip, confirmed sty
     expect(items()[0].label).toBe("confirmed by investigator");
     expect(items()[0].title).toContain("confirmed by the investigator");
     expect(items()[0].color.color).not.toBe(inferred);
+    expect(adds).toBe(1);
     const got = view.getBridgeLinks();
     got[0].level = "x";
     expect(view.getBridgeLinks()).toEqual([{ ...link, decision: "confirmed" }]);
     i18n.setLocale("fr");
     view.refreshProjection();
     expect(items()[0].label).toBe("confirmé par l'enquêteur");
+    expect(adds).toBe(1);
     view.setBridgeLinks([]);
     expect(items()).toEqual([]);
   } finally {
@@ -3211,7 +3213,13 @@ test("bridge links ride through filters and bundles like twins, never make a nod
     expect(view.hasRenderedNode(ID("137", N3))).toBe(false);
     view.setDisplayOptions({ minAmount: 0 });
     view.setBundling(true);
-    expect(view.network.edges.get().some((e) => e.id === "bridge:x")).toBe(true);
+    const bundledIds = view.network.edges.get().map((e) => String(e.id));
+    expect(bundledIds.filter((id) => id !== "bridge:x" && !id.startsWith("bundle:"))).toEqual([]);
+    expect(bundledIds).toContain("bridge:x");
+    expect(bundledIds.some((id) => id.includes("undefined"))).toBe(false);
+    view.setBridgeLinks([]);
+    expect(view.network.edges.get().some((e) => String(e.id).startsWith("bridge:"))).toBe(false);
+    view.setBridgeLinks([{ id: "x", a: ID("1", ROOT), b: ID("137", N3), level: "low", decision: null }]);
     expect(view.getEdgeData("bridge:x")).toMatchObject({ bridge: true, id: "x" });
     view.setBundling(false);
     store.reset();
