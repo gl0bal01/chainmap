@@ -17,7 +17,7 @@
 // a v2 file can never produce mixed chains. Newer than v3: refused.
 // =============================================================================
 
-import { lc, isValidAddress, parseChainId, nodeId } from "./format.js";
+import { lc, isChainAddress, parseChainId, nodeId } from "./format.js";
 import { sanitizeQueryLog } from "./queryLog.js";
 import { sanitizeBridgeDecisions } from "./bridgeInfer.js";
 
@@ -181,7 +181,7 @@ export function parseWorkspace(json, opts) {
     if (!raw || typeof raw !== "object") continue;
     const address = lc(raw.address);
     const chainId = chainOf(raw);
-    if (!isValidAddress(address) || chainId === null) continue;
+    if (chainId === null || !isChainAddress(chainId, address)) continue;
     const depth = Number(raw.depth);
     nodes.push({
       ...stripDangerousKeys(raw),
@@ -201,7 +201,7 @@ export function parseWorkspace(json, opts) {
     const from = lc(raw.from);
     const to = lc(raw.to);
     const chainId = chainOf(raw);
-    if (!rawKey || !isValidAddress(from) || !isValidAddress(to) || chainId === null) continue;
+    if (!rawKey || chainId === null || !isChainAddress(chainId, from) || !isChainAddress(chainId, to)) continue;
     // v2 keys are prefixed, not recomputed (EdgeRecord lacks logIndex).
     const key = v3 ? rawKey : `${chainId}|${rawKey}`;
     if (v3 && (!key.startsWith(chainId + "|") || !ids.has(nodeId(chainId, from)) || !ids.has(nodeId(chainId, to)))) continue;

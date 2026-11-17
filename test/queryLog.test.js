@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createQueryLog, sanitizeQueryLog, windowOf, PARAM_KEYS } from "../src/queryLog.js";
+import { createQueryLog, sanitizeQueryLog, windowOf, sha256Hex, PARAM_KEYS } from "../src/queryLog.js";
 import { API_BASE, PRICE_API, LLAMA_CHAINS } from "../src/config.js";
 import { priceUrl } from "../src/usdPrice.js";
 
@@ -278,5 +278,81 @@ describe("defillama entries", () => {
     const bad = { ...e, ...over, params: over.params ?? e.params };
     if (over.params) bad.params = { ...over.params };
     expect(sanitizeQueryLog({ entries: [bad], dropped: 0, unloggedData: false }).invalid).toBe(1);
+  });
+});
+
+const TA = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+const FP = "3dQBvGzkxF7nY2tR9wLpHcEjM5aSuW8KqZ1";
+const TP = { address: TA, limit: "20", only_confirmed: "true", search_internal: "false" };
+const trec = (over) => ({
+  at: "2026-11-17T10:00:00.000Z", source: "trongrid", chainId: "728126428", action: "txlist",
+  params: { ...TP }, httpStatus: 200, rows: 2, outcome: "ok", ...over,
+});
+// A saved tokentx entry as a workspace file holds it: params out of order, url forged.
+const tentry = () => ({
+  at: "2026-11-17T10:00:00.000Z", source: "trongrid", chainId: "728126428", action: "tokentx",
+  params: { fingerprint: FP, max_timestamp: "1794834225000", only_confirmed: "true", limit: "20", address: TA },
+  url: "https://evil/", httpStatus: 200, rows: 7, sha256: ABC, outcome: "ok",
+});
+const tsan = (e) => sanitizeQueryLog({ entries: [e], dropped: 0, unloggedData: false });
+
+describe("trongrid entries", () => {
+  test("TronGrid entry recorded", async () => {
+    const body = bytes();
+    const l = createQueryLog();
+    await l.add(trec({ params: { ...TP, apikey: "SECRET" }, body }));
+    const e = l.entries()[0];
+    expect(e).toEqual({
+      at: "2026-11-17T10:00:00.000Z", source: "trongrid", chainId: "728126428", action: "txlist", params: TP,
+      url: `https://api.trongrid.io/v1/accounts/${TA}/transactions?limit=20&only_confirmed=true&search_internal=false`,
+      httpStatus: 200, rows: 2, sha256: await sha256Hex(body), outcome: "ok",
+    });
+    expect(Object.keys(e)).toEqual(["at", "source", "chainId", "action", "params", "url", "httpStatus", "rows", "sha256", "outcome"]);
+    expect(JSON.stringify(l.entries())).not.toContain("SECRET");
+    expect(sanitizeQueryLog(l.toJSON())).toEqual({ ...l.toJSON(), invalid: 0 });
+  });
+
+  test("sanitise accepts and rebuilds", () => {
+    const s = tsan(tentry());
+    expect([s.invalid, s.unloggedData]).toEqual([0, false]);
+    const e = s.entries[0];
+    expect(e.url).toBe(`https://api.trongrid.io/v1/accounts/${TA}/transactions/trc20?limit=20&only_confirmed=true&max_timestamp=1794834225000&fingerprint=${FP}`);
+    expect(Object.keys(e.params)).toEqual(["address", "limit", "only_confirmed", "max_timestamp", "fingerprint"]);
+    expect(e).toEqual({ ...tentry(), params: e.params, url: e.url });
+    expect(tsan({ ...tentry(), params: { address: TA, limit: "200", only_confirmed: "true", min_timestamp: "1" } }).invalid).toBe(0);
+  });
+
+  const rejects = {
+    "chainId 1": (e) => { e.chainId = "1"; },
+    "chainId missing": (e) => { delete e.chainId; },
+    "chainId number": (e) => { e.chainId = 728126428; },
+    "action tokennfttx": (e) => { e.action = "tokennfttx"; },
+    "bad at": (e) => { e.at = "2026-11-17 10:00"; },
+    "address T…": (e) => { e.params.address = "TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi"; },
+    "address 0x…": (e) => { e.params.address = "0x" + "a".repeat(40); },
+    "address uppercase hex": (e) => { e.params.address = TA.toUpperCase(); },
+    "address missing": (e) => { delete e.params.address; },
+    "limit 0": (e) => { e.params.limit = "0"; },
+    "limit 201": (e) => { e.params.limit = "201"; },
+    "limit 2a": (e) => { e.params.limit = "2a"; },
+    "limit number 20": (e) => { e.params.limit = 20; },
+    "limit missing": (e) => { delete e.params.limit; },
+    "only_confirmed false": (e) => { e.params.only_confirmed = "false"; },
+    "only_confirmed missing": (e) => { delete e.params.only_confirmed; },
+    "search_internal missing on txlist": (e) => { e.action = "txlist"; },
+    "search_internal present on tokentx": (e) => { e.params.search_internal = "false"; },
+    "max_timestamp 17 digits": (e) => { e.params.max_timestamp = "12345678901234567"; },
+    "fingerprint with 0": (e) => { e.params.fingerprint = "3dQ0vG"; },
+    "fingerprint 1025 chars": (e) => { e.params.fingerprint = "a".repeat(1025); },
+    "extra param apikey": (e) => { e.params.apikey = "K"; },
+    "own __proto__ param": (e) => { e.params = JSON.parse(JSON.stringify(e.params).replace("{", '{"__proto__":{"x":"1"},')); },
+    "source tronscan": (e) => { e.source = "tronscan"; },
+    "outcome weird": (e) => { e.outcome = "weird"; },
+  };
+  test.each(Object.entries(rejects))("sanitise rejects: %s", (_n, change) => {
+    const e = tentry();
+    change(e);
+    const s = tsan(e);
+    expect([s.invalid, s.entries.length, s.unloggedData]).toEqual([1, 0, true]);
   });
 });
