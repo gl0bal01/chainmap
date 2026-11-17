@@ -3235,3 +3235,125 @@ test("bridge links ride through filters and bundles like twins, never make a nod
     view.destroy();
   }
 });
+
+const EVIL = '<img src=x onerror="alert(1)">';
+const uiEnv = async (locale = "en") => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  return { ui: await import("../src/ui.js"), i18n: createI18n({ dictionaries: { en, fr }, locale }) };
+};
+const bView = (over = {}) => ({
+  level: "high", amount: "equal", feeBps: 0, basis: "calldata", sender: "mint", senderLabel: null, trusted: true,
+  forDeposit: 1, forRelease: 1, rejected: 0, covered: true, delaySec: 1800,
+  deposit: { amountText: "20", symbol: "ETH", bridgeLabel: EVIL, chainName: "Ethereum", explorer: "etherscan.io", hash: "0xd1" },
+  release: { amountText: "20", symbol: EVIL, recipient: N2, chainName: "Polygon", explorer: "polygonscan.com", hash: "0xr1" },
+  decision: null, ...over,
+});
+const btnIn = (box, t) => [...box.querySelectorAll("button")].find((b) => b.textContent === t);
+
+test("bridge link details: every line via textContent; decision buttons call their handlers", async () => {
+  const { ui, i18n } = await uiEnv();
+  const calls = [];
+  const box = document.createElement("div");
+  const deps = { i18n, busy: false, onConfirm: () => calls.push("c"), onReject: () => calls.push("r"), onClear: () => calls.push("x"), onLoadOlder: () => calls.push("l") };
+  ui.renderBridgeDetails(box, bView(), deps);
+  expect(box.querySelector("img")).toBeNull();
+  const text = box.textContent;
+  for (const s of [
+    "Inferred bridge link — verify",
+    "Confidence: high — inferred from amount, timing and recipient; not proof",
+    `Deposit: 20 ETH into ${EVIL} on Ethereum`,
+    `Possible release: 20 ${EVIL} to ${N2} on Polygon`,
+    "Delay: 30 min", "Amount: equal", "Recipient: decoded from the deposit call",
+    "Release sender: token mint (zero address)", "Not reviewed",
+    "Inferred links are leads to verify on both explorers, never proof.",
+  ]) expect(text).toContain(s);
+  for (const s of ["candidate releases", "other deposit", "do not reach back", "curated token list"]) expect(text).not.toContain(s);
+  expect([...box.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://etherscan.io/tx/0xd1", "https://polygonscan.com/tx/0xr1"]);
+  expect(btnIn(box, "Clear decision").disabled).toBe(true);
+  expect(btnIn(box, "Load older on Polygon")).toBeUndefined();
+  btnIn(box, "Confirm (investigator)").click();
+  btnIn(box, "Reject").click();
+  expect(calls).toEqual(["c", "r"]);
+});
+
+test("bridge link details: fee, assumed recipient, bridge sender, untrusted, ambiguity, uncovered, decisions; French percent", async () => {
+  const { ui, i18n } = await uiEnv();
+  const calls = [];
+  const deps = (busy = false) => ({ i18n, busy, onConfirm() {}, onReject() {}, onClear() {}, onLoadOlder: () => calls.push("l") });
+  const render = (v, d = deps(), i = i18n) => { const b = document.createElement("div"); ui.renderBridgeDetails(b, v, { ...d, i18n: i }); return b; };
+  const low = bView({ level: "low", amount: "fee", feeBps: 250, basis: "sender", sender: "bridge", senderLabel: "L2 bridge", trusted: false, forDeposit: 3, rejected: 1, forRelease: 2, covered: false });
+  const box = render(low);
+  for (const s of [
+    "Amount: release is 2.50% lower — consistent with a bridge fee, or an unrelated transfer",
+    "Recipient: assumed to be the depositor's own address (not decoded) — this alone never raises confidence",
+    "Release sender: L2 bridge (a known bridge on Polygon)",
+    "Asset: not in the curated token list — confidence kept low",
+    "3 candidate releases for this deposit (1 rejected by the investigator)",
+    "This release also fits 1 other deposit(s)",
+    "The loaded transactions of the recipient on Polygon do not reach back to the deposit time — load older to look further",
+  ]) expect(box.textContent).toContain(s);
+  btnIn(box, "Load older on Polygon").click();
+  expect(calls).toEqual(["l"]);
+  expect(btnIn(render(low, deps(true)), "Load older on Polygon").disabled).toBe(true);
+  expect(render(bView({ sender: "other" })).textContent).toContain("Release sender: not a known bridge");
+  const at = "2026-11-17T10:00:00.000Z";
+  const c = render(bView({ decision: { decision: "confirmed", at } }));
+  expect(c.textContent).toContain("Confirmed by the investigator on 2026-11-17 10:00:00 UTC — an investigator assertion, not on-chain proof");
+  expect(btnIn(c, "Confirm (investigator)").disabled).toBe(true);
+  expect(btnIn(c, "Clear decision").disabled).toBe(false);
+  const r = render(bView({ decision: { decision: "rejected", at } }));
+  expect(r.textContent).toContain("Rejected by the investigator on 2026-11-17 10:00:00 UTC");
+  expect(btnIn(r, "Reject").disabled).toBe(true);
+  const fr = await uiEnv("fr");
+  expect(render(low, deps(), fr.i18n).textContent).toContain("sortie inférieure de 2,50 %");
+});
+
+test("edge details: Bridge deposit row — recipient basis, candidate lines with Open, Look select; textContent only", async () => {
+  const { ui, i18n } = await uiEnv();
+  const edge = {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N2, hash: "0x1",
+    symbol: "ETH", amountText: "5", amountIndeterminate: false, tokenContract: "", tokenId: "",
+    value: "5", timeStamp: "1700000000", blockNumber: "1", hasData: false, methodId: "",
+  };
+  const opened = [], looked = [];
+  const bd = (o = {}) => ({
+    bridgeLabel: EVIL, recipient: N2, basis: "calldata", destChainName: null, depositorCategory: null, candidates: [],
+    lookChains: [{ chainId: "8453", name: "Base" }, { chainId: "137", name: "Polygon" }], busy: false,
+    onOpen: (id) => opened.push(id), onLook: (c) => looked.push(c), ...o,
+  });
+  const render = (b) => {
+    const box = document.createElement("div");
+    ui.renderEdgeDetails(box, edge, { i18n, explorer: "etherscan.io", getAlias: () => null, bridgeDeposit: b });
+    return box;
+  };
+  const box = render(bd());
+  expect(box.querySelector("img")).toBeNull();
+  for (const s of [
+    "Bridge deposit", `Deposit into a known bridge: ${EVIL}`,
+    `Recipient on the other side: ${N2} — decoded from the deposit call`,
+    "No candidate release in the loaded data. Candidates come only from transactions already loaded on other chains.",
+    "Look for the release on",
+  ]) expect(box.textContent).toContain(s);
+  const sel = box.querySelector("select");
+  expect([...sel.options].map((o) => o.value)).toEqual(["8453", "137"]);
+  expect(sel.value).toBe("8453");
+  sel.value = "137";
+  btnIn(box, "Look").click();
+  expect(looked).toEqual(["137"]);
+  const withC = render(bd({ candidates: [{ id: "c1", level: "high", chainName: "Polygon", status: "confirmed" }, { id: "c2", level: "low", chainName: "Polygon", status: "rejected" }] }));
+  expect(withC.textContent).toContain("high · Polygon · confirmed by the investigator");
+  expect(withC.textContent).toContain("low · Polygon · rejected by the investigator");
+  expect(withC.textContent).not.toContain("No candidate");
+  [...withC.querySelectorAll("button")].filter((b) => b.textContent === "Open").forEach((b) => b.click());
+  expect(opened).toEqual(["c1", "c2"]);
+  expect(render(bd({ basis: "sender" })).textContent).toContain("— assumed to be the depositor's own address (not decoded)");
+  expect(render(bd({ destChainName: "Arbitrum One" })).textContent).toContain("Destination chain named in the call: Arbitrum One");
+  const unk = render(bd({ recipient: null, basis: null, depositorCategory: "exchange" }));
+  expect(unk.textContent).toContain("Recipient unknown — the depositor is a known exchange that may act for others; none is assumed.");
+  expect(unk.querySelector("select")).toBeNull();
+  expect(btnIn(unk, "Look")).toBeUndefined();
+  expect(btnIn(render(bd({ busy: true })), "Look").disabled).toBe(true);
+  expect(render(null).textContent).not.toContain("Bridge deposit");
+});
