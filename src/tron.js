@@ -109,3 +109,73 @@ export function tronTypes(types) {
 
 /** Per-address sample size: TronGrid caps limit at 200. */
 export const sampleSize = (chainId, n) => (String(chainId) === TRON_CHAIN_ID ? Math.min(n, TRON_FETCH.maxLimit) : n);
+
+// ---- TronGrid rows -> shared RawTx shape. Always one row per input item (page-length invariant). ----
+const isObj = (x) => x !== null && typeof x === "object";
+const msParts = (ms) => (Number.isSafeInteger(ms) && ms >= 0 ? [String(Math.floor(ms / 1000)), String(ms)] : ["", ""]);
+/** JSON-number amount: absent -> "0"; safe non-negative integer -> ok; else String(v) with ok:false (decimals become ""). */
+const sun = (v) => (v == null ? { value: "0", ok: true } : { value: String(v), ok: Number.isSafeInteger(v) && v >= 0 });
+
+function skippedRow(hash, blockNumber, ms) {
+  const [timeStamp, cursor] = msParts(ms);
+  return { hash: typeof hash === "string" ? hash : "", blockNumber, timeStamp, cursor, from: "", to: "" };
+}
+
+function txlistRow(t) {
+  const blockNumber = Number.isSafeInteger(t.blockNumber) ? String(t.blockNumber) : "";
+  const skip = () => skippedRow(t.txID, blockNumber, t.block_timestamp);
+  const c = t.raw_data?.contract?.[0];
+  const v = c?.parameter?.value;
+  if (!isObj(v)) return skip();
+  const from = parseTronAddress(v.owner_address);
+  const isTrigger = c.type === "TriggerSmartContract";
+  const to = parseTronAddress(isTrigger ? v.contract_address : v.to_address);
+  if (!from || !to || !["TransferContract", "TransferAssetContract", "TriggerSmartContract"].includes(c.type)) return skip();
+  const [timeStamp, cursor] = msParts(t.block_timestamp);
+  const amt = sun(isTrigger ? v.call_value : v.amount);
+  const trc10 = c.type === "TransferAssetContract";
+  return {
+    hash: t.txID, blockNumber, timeStamp, cursor, from, to, value: amt.value,
+    isError: t.ret?.[0]?.contractRet === "SUCCESS" ? "0" : "1",
+    tokenSymbol: trc10 ? "TRC10:" + v.asset_name : "",
+    tokenDecimal: !trc10 && amt.ok ? "6" : "",
+  };
+}
+
+function internalRow(t) {
+  const from = parseTronAddress(t.from_address);
+  const to = parseTronAddress(t.to_address);
+  if (!from || !to) return skippedRow(t.tx_id, "", t.block_timestamp);
+  const [timeStamp, cursor] = msParts(t.block_timestamp);
+  const amt = sun(t.data?.call_value?._); // other keys are TRC-10, ignored
+  return {
+    hash: t.tx_id, blockNumber: "", timeStamp, cursor, from, to, value: amt.value,
+    isError: t.data?.rejected === true ? "1" : "0",
+    logIndex: t.internal_tx_id, tokenSymbol: "", tokenDecimal: amt.ok ? "6" : "",
+  };
+}
+
+function trc20Row(t) {
+  const from = parseTronAddress(t.from);
+  const to = parseTronAddress(t.to);
+  const contractAddress = parseTronAddress(t.token_info?.address);
+  if (t.type !== "Transfer" || !from || !to || !contractAddress) return skippedRow(t.transaction_id, "", t.block_timestamp);
+  const [timeStamp, cursor] = msParts(t.block_timestamp);
+  const d = t.token_info.decimals;
+  const value = String(t.value);
+  return {
+    hash: t.transaction_id, blockNumber: "", timeStamp, cursor, from, to, value, contractAddress,
+    tokenSymbol: t.token_info.symbol || "TRC-20", // never fall back to TRX
+    tokenName: t.token_info.name || "",
+    tokenDecimal: Number.isInteger(d) && d >= 0 && d <= 77 ? String(d) : "",
+    logIndex: "v" + value,
+  };
+}
+
+const ROW = { txlist: txlistRow, txlistinternal: internalRow, tokentx: trc20Row };
+
+/** TronGrid response -> RawTx[]; rows.length === json.data.length, [] when data is not an array. */
+export function tronRows(action, json) {
+  if (!Array.isArray(json?.data)) return [];
+  return json.data.map((t) => (isObj(t) ? ROW[action](t) : skippedRow("", "", undefined)));
+}

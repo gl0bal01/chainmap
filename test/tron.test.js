@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { sha256, toTronBase58, parseTronAddress, isTronAddress, tronPath, tronUrl, tronTypes, sampleSize } from "../src/tron.js";
+import { sha256, toTronBase58, parseTronAddress, isTronAddress, tronPath, tronUrl, tronTypes, sampleSize, tronRows } from "../src/tron.js";
+import TX from "./fixtures/tron/transactions.json";
+import INT from "./fixtures/tron/internal.json";
+import T20 from "./fixtures/tron/trc20.json";
 import { selectedTypes } from "../src/scanner.js";
 
 const hex = (u8) => Buffer.from(u8).toString("hex");
@@ -50,4 +53,56 @@ test("tronTypes and sampleSize", () => {
   expect(sampleSize("728126428", 500)).toBe(200);
   expect(sampleSize("728126428", 20)).toBe(20);
   expect(sampleSize("1", 500)).toBe(500);
+});
+
+const skipped = (r, cursor) => {
+  expect(Object.keys(r).sort()).toEqual(["blockNumber", "cursor", "from", "hash", "timeStamp", "to"]);
+  expect(r.from).toBe("");
+  expect(r.to).toBe("");
+  if (cursor) expect(r.cursor).toBe(cursor);
+};
+
+test("txlist rows", () => {
+  const rows = tronRows("txlist", TX);
+  expect(rows.length).toBe(TX.data.length);
+  expect(rows[0]).toEqual({ hash: TX.data[0].txID, blockNumber: "87994205", timeStamp: "1794656502", cursor: "1794656502000", from: "41787d916c8c4fda95428184434152cec57b522df8", to: "416e0617948fe030a7e4970f8389d4ad295f249b7e", value: "8", isError: "0", tokenSymbol: "", tokenDecimal: "6" });
+  expect(rows[1]).toMatchObject({ tokenSymbol: "TRC10:1005190", tokenDecimal: "", value: "5870000" });
+  expect(rows[2]).toMatchObject({ to: "416e0617948fe030a7e4970f8389d4ad295f249b7e", value: "334255881" });
+  expect(rows[3].value).toBe("0");
+  expect(rows[4].isError).toBe("1");
+  expect(rows[5].isError).toBe("1");
+  skipped(rows[6], "1794600000000");
+  expect(rows[7].tokenDecimal).toBe("");
+  expect(rows[7].value).toBe("9007199254740992");
+});
+
+test("internal rows", () => {
+  const rows = tronRows("txlistinternal", INT);
+  expect(rows.length).toBe(INT.data.length);
+  expect(rows[0]).toEqual({ hash: "44bfa0d9be7324574add953560d299e6d34fe0ea5a4e4207de9722ddb9ac3987", blockNumber: "", timeStamp: "1794901176", cursor: "1794901176000", from: "416e0617948fe030a7e4970f8389d4ad295f249b7e", to: "41891cdb91d149f23b1a45d9c5ca78a88d0cb44c18", value: "334255881", isError: "0", logIndex: "03e5c7d37e24a915f65e1a6d649936de9f19aed577be8696c54ae85034551807", tokenSymbol: "", tokenDecimal: "6" });
+  expect(rows[1].isError).toBe("1");
+  expect(rows[2].value).toBe("0");
+  expect(rows[3].value).toBe("0");
+});
+
+test("trc20 rows", () => {
+  const rows = tronRows("tokentx", T20);
+  expect(rows.length).toBe(T20.data.length);
+  expect(rows[0]).toEqual({ hash: "cbccd13069781c4bb714f81fb91e33caedd694ff0c0865de24a938cd0d22f65e", blockNumber: "", timeStamp: "1794907752", cursor: "1794907752000", from: "41a6b0facf3655f61d7d89db8171de7cf2d65ebc7c", to: "41d1c4bb7b2f39aba5707711719b2236b5b605af2e", value: "5870000", contractAddress: "41a614f803b6fd780986a42c78ec9c7f77e6ded13c", tokenSymbol: "USDT", tokenName: "Tether USD", tokenDecimal: "6", logIndex: "v5870000" });
+  skipped(rows[3], "1794907752000");
+  expect(rows[4].tokenDecimal).toBe("");
+  skipped(rows[5], "1794907752000");
+  expect(rows[6].tokenSymbol).toBe("TRC-20");
+});
+
+test("page length invariant", () => {
+  expect(tronRows("tokentx", { data: "x" })).toEqual([]);
+  const rows = tronRows("txlist", { data: [null, 5] });
+  expect(rows.length).toBe(2);
+  rows.forEach((r) => skipped(r));
+  for (const [a, j] of [["txlist", TX], ["txlistinternal", INT], ["tokentx", T20]])
+    for (const r of tronRows(a, j)) {
+      expect(typeof r.cursor).toBe("string");
+      expect("input" in r).toBe(false);
+    }
 });
