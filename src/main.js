@@ -15,7 +15,8 @@ import { CHAINS, DEFAULTS, STORAGE_KEYS, LIMITS, DATA_PATHS, PROBE_CHAIN_IDS, AP
 import { createI18n } from "./i18n.js";
 import en from "./locales/en.js";
 import fr from "./locales/fr.js";
-import { isValidAddress, isFailedTx, shortAddress, nodeId } from "./format.js";
+import { isValidAddress, isFailedTx, shortAddress, nodeId, explorerUrl } from "./format.js";
+import { TRON_CHAIN_ID, parseTronAddress } from "./tron.js";
 import { loadKnownAddresses, knownEntry, knownLabel, knownCategory, chainsForKnownAddress, isAllChainEntry } from "./knownAddresses.js";
 import { serializeWorkspace, parseWorkspace } from "./workspace.js";
 import { estimateScan } from "./dryRun.js";
@@ -456,13 +457,26 @@ function populateChains() {
     opt.textContent = `${c.name} (chainid ${c.id})`;
     sel.appendChild(opt);
   });
-  sel.value = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
-  if (!sel.value) { // stale stored chain no longer in CHAINS
-    sel.value = "1";
-    localStorage.setItem(STORAGE_KEYS.chainId, "1");
-  }
+  // Tron is an explicit per-session choice (ruling 16): never persisted, never restored.
+  const tron = document.createElement("option");
+  tron.value = TRON_CHAIN_ID;
+  tron.setAttribute("data-i18n", "chain.tronOption");
+  tron.textContent = t("chain.tronOption");
+  sel.appendChild(tron);
+  const stored = localStorage.getItem(STORAGE_KEYS.chainId) || "1";
+  sel.value = CHAINS.some((c) => String(c.id) === stored) ? stored : "1";
+  if (sel.value !== stored) localStorage.setItem(STORAGE_KEYS.chainId, "1"); // stale or Tron: written back only when stale
   // The selector is only the chain for the next scan: nodes keep their own chain.
-  sel.addEventListener("change", () => localStorage.setItem(STORAGE_KEYS.chainId, sel.value));
+  sel.addEventListener("change", () => {
+    if (sel.value !== TRON_CHAIN_ID) localStorage.setItem(STORAGE_KEYS.chainId, sel.value);
+    syncTronBox();
+  });
+  syncTronBox();
+}
+
+// The TronGrid notice + key field show only while Tron is the selected chain.
+function syncTronBox() {
+  $("tronBox").hidden = $("chainSelect").value !== TRON_CHAIN_ID;
 }
 
 // Bundled local datasets: known-address labels + spam token list. Same-origin
@@ -489,27 +503,28 @@ async function loadLocalData() {
 }
 
 function wirePersistedInputs() {
-  const apiKey = $("apiKey");
   const rememberKey = $("rememberKey");
-  // The key is a bearer credential. Persist to localStorage ONLY when the user
-  // opts in ("Remember"); otherwise keep it in sessionStorage (cleared when the
+  // Keys are bearer credentials. Persist to localStorage ONLY when the user
+  // opts in ("Remember"); otherwise keep them in sessionStorage (cleared when the
   // tab closes). A key already saved from a previous session keeps the toggle on.
-  const persisted = localStorage.getItem(STORAGE_KEYS.apiKey);
-  apiKey.value = persisted ?? sessionStorage.getItem(STORAGE_KEYS.apiKey) ?? "";
-  if (rememberKey) rememberKey.checked = persisted != null;
+  const keys = [[$("apiKey"), STORAGE_KEYS.apiKey], [$("tronKey"), STORAGE_KEYS.tronKey]];
+  for (const [input, name] of keys) input.value = localStorage.getItem(name) ?? sessionStorage.getItem(name) ?? "";
+  if (rememberKey) rememberKey.checked = keys.some(([, name]) => localStorage.getItem(name) != null);
 
-  const persistApiKey = () => {
-    const val = apiKey.value.trim();
-    if (rememberKey && rememberKey.checked) {
-      localStorage.setItem(STORAGE_KEYS.apiKey, val);
-      sessionStorage.removeItem(STORAGE_KEYS.apiKey);
-    } else {
-      sessionStorage.setItem(STORAGE_KEYS.apiKey, val);
-      localStorage.removeItem(STORAGE_KEYS.apiKey);
-    }
-  };
-  apiKey.addEventListener("change", persistApiKey);
-  if (rememberKey) rememberKey.addEventListener("change", persistApiKey);
+  for (const [input, name] of keys) {
+    const persist = () => {
+      const val = input.value.trim();
+      if (rememberKey && rememberKey.checked) {
+        localStorage.setItem(name, val);
+        sessionStorage.removeItem(name);
+      } else {
+        sessionStorage.setItem(name, val);
+        localStorage.removeItem(name);
+      }
+    };
+    input.addEventListener("change", persist);
+    if (rememberKey) rememberKey.addEventListener("change", persist);
+  }
 
   const fmt = $("addressFormat");
   fmt.value = localStorage.getItem(STORAGE_KEYS.addressFormat) || DEFAULTS.addressFormat;
@@ -531,9 +546,19 @@ function renderAddressDetect() {
   el.className = "detect";
   const res = detectAddress($("address").value);
   if (!res.input) return;
+  const tron = res.isEvm ? null : parseTronAddress(res.input);
   if (res.isEvm) {
     el.classList.add("ok");
     el.textContent = t("detect.evm");
+  } else if (tron) { // hint only: never touches the selector, sends no request
+    el.classList.add("warn");
+    el.textContent = t("detect.tron") + " ";
+    const a = document.createElement("a");
+    a.href = explorerUrl(TRON_CHAIN_ID, "address", tron);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = t("detect.viewExplorer");
+    el.appendChild(a);
   } else if (res.primary) {
     el.classList.add("warn");
     el.textContent = t("detect.nonEvm", { chain: res.matches.map((m) => m.name).join(" / ") }) + " ";
@@ -1325,7 +1350,8 @@ function applyWorkspace(ws) {
   store.loadSnapshot(ws.nodes, ws.edges);
   // A single-chain graph drives the selector (the chain for the next scan).
   const cs = store.chains();
-  if (cs.length === 1 && chainById(cs[0])) $("chainSelect").value = cs[0];
+  if (cs.length === 1 && CHAINS.some((c) => String(c.id) === cs[0])) $("chainSelect").value = cs[0];
+  syncTronBox();
   const f = ws.filters || {};
   $("minAmount").value = f.minAmount || 0;
   $("hideZeroToggle").checked = !!f.hideZero;

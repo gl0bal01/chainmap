@@ -10,6 +10,9 @@ import { sha256Hex } from "../src/queryLog.js";
 import { USD_CAVEAT, BRIDGE_CAVEAT } from "../src/evidence.js";
 import EN from "../src/locales/en.js";
 import { readZip } from "./fixtures/readZip.js";
+import TRON_TX from "./fixtures/tron/transactions.json";
+import TRON_INTERNAL from "./fixtures/tron/internal.json";
+import TRON_TRC20 from "./fixtures/tron/trc20.json";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40); // 40-hex address helper
 const ROOT = A(1), N2 = A(2), N3 = A(3), N4 = A(4), TOKEN = A(9);
@@ -39,6 +42,11 @@ const SPAM_FIXTURE = { "*": [SPAM_STAR], "137": [SPAM_137] };
 // When set, API fetches wait on it (abortable via the request signal) so a test
 // can hold a scan/load in flight deterministically.
 let apiGate = null;
+// api.trongrid.io is never contacted: every request lands in tronCalls and is answered from the Task 2
+// fixtures. TRON_CANNED is mutable (tests swap a page in); tronStatus is the HTTP status served.
+const tronCalls = [];
+const TRON_CANNED = { "transactions": TRON_TX, "internal-transactions": TRON_INTERNAL, "transactions/trc20": TRON_TRC20 };
+let tronStatus = 200;
 // coins.llama.fi is never contacted: priceStub answers every price request and records whether
 // the USD box was on when it was sent. priceGate holds price requests like apiGate.
 const priceCalls = [];
@@ -79,6 +87,25 @@ function stubFetch() {
       } catch {
         return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) };
       }
+    }
+    if (u.startsWith("https://api.trongrid.io/")) {
+      tronCalls.push({ url: u, init });
+      if (apiGate) {
+        await new Promise((resolve, reject) => {
+          apiGate.then(resolve);
+          if (init && init.signal) {
+            init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+          }
+        });
+      }
+      const path = (u.match(/\/v1\/accounts\/[^/]+\/([^?]+)/) || [])[1];
+      const body = TRON_CANNED[path] || { data: [], success: true, meta: {} };
+      return {
+        ok: tronStatus >= 200 && tronStatus < 300,
+        status: tronStatus,
+        headers: { get: () => null },
+        arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(body)).buffer,
+      };
     }
     apiUrls.push(u);
     if (apiGate) {
@@ -145,6 +172,7 @@ beforeAll(async () => {
   globalThis.window = window;
   globalThis.document = window.document;
   globalThis.localStorage = window.localStorage;
+  window.localStorage.setItem("etherscanChainId", "728126428"); // stale Tron choice from an older build: boot must fall back (ruling 16)
   globalThis.sessionStorage = window.sessionStorage;
   globalThis.navigator = window.navigator;
   globalThis.Event = window.Event; // main.js dispatches `new Event("change")` on happy-dom elements
@@ -162,6 +190,12 @@ const $ = (id) => document.getElementById(id);
 test("shell renders in English by default", () => {
   expect($("startBtn").textContent).toBe("Start scan");
   expect($("stopBtn").textContent).toBe("Stop");
+});
+
+test("boot falls back from a stored Tron chain (ruling 16)", () => {
+  expect($("chainSelect").value).toBe("1");
+  expect(localStorage.getItem("etherscanChainId")).toBe("1");
+  expect($("tronBox").hidden).toBe(true);
 });
 
 test("real scan renders graph, drops failed tx, reports sampled counts", async () => {
@@ -3812,4 +3846,88 @@ test("indicator names the host", async () => {
   ind.setActive(false);
   ind.setActive(true);
   expect(el.textContent).toBe("Contacting api.etherscan.io…");
+});
+
+// ---------------------------------------------------------------------------
+// Tron (Task 9): selector, notice, key field, persistence, detect hint
+// ---------------------------------------------------------------------------
+const TRON_ID = "728126428";
+const TRON_A = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e", TRON_B = "41787d916c8c4fda95428184434152cec57b522df8";
+const tronEdge = () => {
+  const e = v3Edge({ chainId: TRON_ID, hash: "33cb58f5a86d30ca27d9107ed54a3c4a665eda7e14a3f8212a1daf21a00a296f", from: TRON_A, to: TRON_B, symbol: "TRX", value: "8", tokenDecimal: "6" });
+  return { ...e, key: `${TRON_ID}|txlist|${e.hash}|${TRON_A}|${TRON_B}||`, action: "txlist" };
+};
+
+test("no TronGrid request without choosing Tron", async () => {
+  try {
+    expect(tronCalls).toEqual([]); // app load and every earlier test
+    $("resetBtn").click();
+    $("address").value = TRON_T;
+    $("address").dispatchEvent(new window.Event("input"));
+    expect($("addressDetect").textContent).toContain("choose Tron (TronGrid)");
+    expect($("chainSelect").value).toBe("1");
+    $("detectChainBtn").click();
+    await until(() => /Not an EVM address/.test($("logContent").textContent || ""));
+    $("demoBtn").click();
+    await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
+    await dropWorkspace(JSON.stringify(v3ws([v3Node(TRON_ID, TRON_A, { depth: 0, isRoot: true }), v3Node(TRON_ID, TRON_B)], [tronEdge()])));
+    expect($("chainSelect").value).toBe("1");
+    expect($("tronBox").hidden).toBe(true);
+    const n = priceCalls.length;
+    tick(true);
+    await sleep(0);
+    expect(priceCalls.length).toBe(n);
+    tick(false);
+    await freshScan("20");
+    openRoot();
+    loadBtn().click();
+    await waitLoaded();
+    expect(tronCalls).toEqual([]);
+  } finally {
+    restoreForm();
+    $("address").value = "";
+  }
+});
+
+test("Tron selector: not persisted, shows notice and key field", async () => {
+  try {
+    setChain("42161");
+    setChain(TRON_ID);
+    expect(localStorage.getItem("etherscanChainId")).toBe("42161");
+    expect($("tronBox").hidden).toBe(false);
+    expect($("tronNotice").textContent).toContain("api.trongrid.io");
+    expect($("tronKey").type).toBe("password");
+    await dropWorkspace(JSON.stringify(v3ws([v3Node("1", ROOT, { depth: 0, isRoot: true })], [])));
+    expect($("chainSelect").value).toBe("1");
+    expect($("tronBox").hidden).toBe(true);
+    setChain(TRON_ID);
+    await dropWorkspace(JSON.stringify(v3ws([v3Node(TRON_ID, TRON_A, { depth: 0, isRoot: true }), v3Node(TRON_ID, TRON_B)], [tronEdge()])));
+    expect($("chainSelect").value).toBe(TRON_ID);
+    expect($("tronBox").hidden).toBe(false);
+  } finally {
+    restoreForm();
+  }
+});
+
+test("TronGrid key storage follows Remember", () => {
+  try {
+    $("rememberKey").checked = false;
+    $("tronKey").value = "K1";
+    $("tronKey").dispatchEvent(new window.Event("change"));
+    expect(sessionStorage.getItem("tronGridApiKey")).toBe("K1");
+    expect(localStorage.getItem("tronGridApiKey")).toBeNull();
+    $("rememberKey").checked = true;
+    $("rememberKey").dispatchEvent(new window.Event("change"));
+    expect(localStorage.getItem("tronGridApiKey")).toBe("K1");
+    expect(sessionStorage.getItem("tronGridApiKey")).toBeNull();
+  } finally {
+    $("rememberKey").checked = false;
+    $("rememberKey").dispatchEvent(new window.Event("change"));
+    $("tronKey").value = "";
+    $("tronKey").dispatchEvent(new window.Event("change"));
+    $("apiKey").value = "";
+    $("apiKey").dispatchEvent(new window.Event("change"));
+    localStorage.removeItem("tronGridApiKey"); sessionStorage.removeItem("tronGridApiKey");
+    localStorage.removeItem("etherscanApiKey"); sessionStorage.removeItem("etherscanApiKey");
+  }
 });

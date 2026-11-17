@@ -11,11 +11,17 @@ export default {
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Etherscan API key",
   "form.apiKey.placeholder": "Your Etherscan API key",
-  "form.rememberKey": "Remember API key on this browser",
+  "form.rememberKey": "Remember API keys on this browser",
   "form.chain.label": "Chain",
   "form.address.label": "Address to analyze",
   "form.address.placeholder": "0x…",
   "detect.evm": "✓ EVM address — pick the chain, then Start",
+  "chain.tronOption": "Tron — via TronGrid (opt-in)",
+  "tron.notice": "Tron is read through TronGrid (api.trongrid.io), contacted only when you press Start, Estimate or Load older on Tron. TronGrid sees the Tron addresses you scan, your TronGrid key if you set one, and your IP address. Etherscan and DefiLlama receive nothing about Tron.",
+  "form.tronKey.label": "TronGrid API key (optional)",
+  "form.tronKey.placeholder": "Optional — sent only to TronGrid",
+  "form.tronKey.hint": "Sent only to api.trongrid.io, in a request header. Without a key chainmap stays at 2 requests per second. No Etherscan key is needed for Tron.",
+  "detect.tron": "⚠ Tron address — choose Tron (TronGrid) in Chain to scan it; TronGrid will then see this address.",
   "detect.nonEvm": "⚠ Looks like a {chain} address. This tool scans EVM chains only.",
   "detect.unknown": "⚠ Unrecognized address format.",
   "detect.viewExplorer": "View on explorer",
@@ -246,7 +252,7 @@ export default {
 
   // --- privacy / transparency ----------------------------------------------
   "privacy.title": "Privacy",
-  "privacy.body": "Your API key and data never leave your browser. The only site contacted at runtime is api.etherscan.io — plus coins.llama.fi (DefiLlama) only while \"Show USD values\" is ticked: it receives token contracts and hour-rounded times, never the addresses you investigate.",
+  "privacy.body": "Your API keys and data never leave your browser. On EVM chains the only site contacted at runtime is api.etherscan.io. api.trongrid.io (TronGrid) is contacted only after you choose Tron: it sees the Tron addresses you scan, your TronGrid key if you set one, and your IP address. coins.llama.fi (DefiLlama) is contacted only while \"Show USD values\" is ticked: it receives token contracts and hour-rounded times, never the addresses you investigate.",
   "privacy.indicator.idle": "No outbound request",
   "privacy.indicator.active": "Contacting {host}…",
 

@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  v2 dev entry. CSP: no inline SCRIPT; runtime fetch hosts: api.etherscan.io, and coins.llama.fi only while "Show USD values" is ticked.
+  v2 dev entry. CSP: no inline SCRIPT; runtime fetch hosts: api.etherscan.io, api.trongrid.io only after Tron is chosen, and coins.llama.fi only while "Show USD values" is ticked.
   Libraries vendored locally (no CDN). style-src allows inline for vis runtime styles.
   Layout: graph is the primary surface; controls (left) + info (right) are collapsible
   panels toggled from the app bar, so the map can go full-bleed.
@@ -16,7 +16,7 @@
   script-src 'self';
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:;
-  connect-src 'self' https://api.etherscan.io https://coins.llama.fi;
+  connect-src 'self' https://api.etherscan.io https://coins.llama.fi https://api.trongrid.io;
   font-src 'self';
   object-src 'none';
   base-uri 'self';
@@ -99,6 +99,14 @@
                 <span data-i18n="form.rps.label">Requests / second</span>
                 <input id="rps" type="number" min="1" max="30" value="3" inputmode="numeric">
               </label>
+            </div>
+            <div id="tronBox" hidden>
+              <p id="tronNotice" class="hint" data-i18n="tron.notice"></p>
+              <label class="field">
+                <span data-i18n="form.tronKey.label">TronGrid API key (optional)</span>
+                <input id="tronKey" type="password" data-i18n-placeholder="form.tronKey.placeholder" autocomplete="off">
+              </label>
+              <small class="hint" data-i18n="form.tronKey.hint"></small>
             </div>
           </div>
           <div class="checks">

@@ -11,11 +11,17 @@ export default {
   // --- form: inputs ---------------------------------------------------------
   "form.apiKey.label": "Clé API Etherscan",
   "form.apiKey.placeholder": "Votre clé API Etherscan",
-  "form.rememberKey": "Mémoriser la clé API sur ce navigateur",
+  "form.rememberKey": "Mémoriser les clés API sur ce navigateur",
   "form.chain.label": "Chaîne",
   "form.address.label": "Adresse à analyser",
   "form.address.placeholder": "0x…",
   "detect.evm": "✓ Adresse EVM — choisissez la chaîne, puis Lancer",
+  "chain.tronOption": "Tron — via TronGrid (sur demande)",
+  "tron.notice": "Tron est lu via TronGrid (api.trongrid.io), contacté uniquement quand vous lancez un scan, une estimation ou un chargement d'historique sur Tron. TronGrid voit les adresses Tron analysées, votre clé TronGrid si vous en saisissez une, et votre adresse IP. Etherscan et DefiLlama ne reçoivent rien concernant Tron.",
+  "form.tronKey.label": "Clé API TronGrid (facultative)",
+  "form.tronKey.placeholder": "Facultative — envoyée uniquement à TronGrid",
+  "form.tronKey.hint": "Envoyée uniquement à api.trongrid.io, dans un en-tête de requête. Sans clé, chainmap se limite à 2 requêtes par seconde. Aucune clé Etherscan n'est nécessaire pour Tron.",
+  "detect.tron": "⚠ Adresse Tron — choisissez Tron (TronGrid) dans Chaîne pour l'analyser ; TronGrid verra alors cette adresse.",
   "detect.nonEvm": "⚠ Ressemble à une adresse {chain}. Cet outil ne scanne que les chaînes EVM.",
   "detect.unknown": "⚠ Format d'adresse non reconnu.",
   "detect.viewExplorer": "Voir sur l'explorateur",
@@ -245,7 +251,7 @@ export default {
 
   // --- privacy / transparency ----------------------------------------------
   "privacy.title": "Confidentialité",
-  "privacy.body": "Votre clé API et vos données ne quittent jamais votre navigateur. Le seul site contacté est api.etherscan.io — ainsi que coins.llama.fi (DefiLlama), uniquement quand « Afficher les valeurs en USD » est coché : il reçoit les contrats de jetons et des heures arrondies, jamais les adresses que vous examinez.",
+  "privacy.body": "Vos clés API et vos données ne quittent jamais votre navigateur. Sur les chaînes EVM, le seul site contacté est api.etherscan.io. api.trongrid.io (TronGrid) n'est contacté qu'après avoir choisi Tron : il voit les adresses Tron analysées, votre clé TronGrid si vous en saisissez une, et votre adresse IP. coins.llama.fi (DefiLlama) n'est contacté que lorsque « Afficher les valeurs en USD » est coché : il reçoit les contrats de jetons et des heures arrondies, jamais les adresses que vous examinez.",
   "privacy.indicator.idle": "Aucune requête sortante",
   "privacy.indicator.active": "Contact de {host}…",
 
