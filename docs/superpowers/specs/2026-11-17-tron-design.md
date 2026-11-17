@@ -360,3 +360,31 @@ fine); fixture trimming; whether `displayAddress` caches base58 results (fine if
     details, CSV, search and both explorer URLs for a Tron node. Provider-specific wording
     ("Etherscan calls") becomes provider-neutral where Tron can reach it. Cost if wrong: a
     hex `41…` string shown somewhere (correct, but unfamiliar).
+
+## Plan-contact rulings (lead)
+
+19. **Retrieval counts every data provider.** Evidence code counts all non-DefiLlama query-log
+    sources (Etherscan and TronGrid) as retrieval, keeps a `hosts` list, and the footer names
+    the hosts present instead of a fixed `api.etherscan.io`. Cost if wrong: none (more exact).
+20. **CSV line 1 stays comma-free**: the MANIFEST carries `TRON_CAVEAT` verbatim; the CSV uses a
+    comma-free variant, as the bridge caveat does. Cost if wrong: none.
+21. **No legend change**: the legend's token row already says "Token transfer". "TRC-20"
+    appears in edge details, edge hover and the node's history row. Cost if wrong: none.
+22. **CSV columns**: only `address`, `from` and `to` switch to `T…` (there is no token-contract
+    column). Cost if wrong: none.
+23. **The saved form address is never a lowercased base58 string**: when the field parses as
+    Tron, the workspace stores the canonical `41…` hex. Cost if wrong: none.
+24. **One Tron type filter** (`tronTypes`) in scan, estimate, Load older and node details, so
+    Tron nodes never list ERC-721/1155 as "not loaded". Cost if wrong: none.
+25. **Programmatic selector moves stay EVM-only** (workspace single-chain move checks `CHAINS`),
+    and each one re-syncs the Tron key field/notice visibility. Cost if wrong: one click.
+26. **Provider-neutral wording** where Tron can reach it: the request indicator names the host
+    in use, the privacy text adds TronGrid, the empty query-log text is neutral. Cost if
+    wrong: none.
+27. **No new invalid-key UI**: TronGrid's 401 goes through the generic fetch-error line with a
+    message saying TronGrid rejected the key (never the key itself). Cost if wrong: none.
+28. **A TRC-20 row with an empty symbol shows "TRC-20"** (set by the Tron row mapper), never
+    the native "TRX". Cost if wrong: none.
+29. **Bridge-detail links unchanged** (Tron edges never reach them). Cost if wrong: none.
+30. **Persistence test**: the integration harness seeds a stored Tron chain before main.js
+    boots and asserts the fallback; select-then-reload is checked in the browser smoke.
