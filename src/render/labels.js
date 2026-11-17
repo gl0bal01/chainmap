@@ -8,7 +8,7 @@
 // =============================================================================
 
 import { ROOT_COLOR } from "../config.js";
-import { shortAddress } from "../format.js";
+import { shortAddress, displayAddress } from "../format.js";
 
 /**
  * Discovered-node color from BFS depth (root uses config.ROOT_COLOR instead).
@@ -32,8 +32,8 @@ export function nodeLabel(node, opts) {
   const { address, alias } = node;
   const { addressFormat } = opts;
   const name = alias || (opts && opts.knownLabel) || null;
-  const displayAddress = addressFormat === "full" ? address : shortAddress(address);
-  const base = name ? `${name}\n(${displayAddress})` : displayAddress;
+  const shown = addressFormat === "full" ? displayAddress(address) : shortAddress(address);
+  const base = name ? `${name}\n(${shown})` : shown;
   return opts.chainTag ? `${base}\n${opts.chainTag}` : base;
 }
 
@@ -47,7 +47,8 @@ export function nodeVisual(node, opts) {
   const { address, alias, depth, isRoot } = node;
   const color = isRoot ? ROOT_COLOR : depthColor(depth);
   const name = alias || (opts && opts.knownLabel) || null;
-  const base = name ? `${name} — ${address}` : address;
+  const full = displayAddress(address);
+  const base = name ? `${name} — ${full}` : full;
   const title = opts && opts.chainTag ? `${base} · ${opts.chainTag}` : base;
   return { color, title };
 }

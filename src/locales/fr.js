@@ -78,6 +78,7 @@ export default {
   "tx.type.normal": "Normale",
   "tx.type.internal": "Interne",
   "tx.type.erc20": "ERC-20",
+  "tx.type.trc20": "TRC-20",
   "tx.type.erc721": "ERC-721",
   "tx.type.erc1155": "ERC-1155",
 
@@ -246,7 +247,7 @@ export default {
   "privacy.title": "Confidentialité",
   "privacy.body": "Votre clé API et vos données ne quittent jamais votre navigateur. Le seul site contacté est api.etherscan.io — ainsi que coins.llama.fi (DefiLlama), uniquement quand « Afficher les valeurs en USD » est coché : il reçoit les contrats de jetons et des heures arrondies, jamais les adresses que vous examinez.",
   "privacy.indicator.idle": "Aucune requête sortante",
-  "privacy.indicator.active": "Contact de api.etherscan.io…",
+  "privacy.indicator.active": "Contact de {host}…",
 
   // --- sampling caveat ------------------------------------------------------
   "sampling.banner": "Affiche les {n} dernières transactions par adresse et par type — pas l'historique complet. Données échantillonnées/partielles, non exhaustives.",
@@ -337,7 +338,7 @@ export default {
   "log.usdNoData": "Les valeurs USD restent désactivées : les données intégrées (adresses connues ou spam) n'ont pas pu être chargées, les faux jetons et le spam ne peuvent donc pas être exclus. Aucun prix n'a été demandé.",
   "queryLog.priceSource": "DefiLlama",
   "queryLog.title": "Journal des requêtes ({n})",
-  "queryLog.empty": "Aucune requête Etherscan enregistrée dans cette session.",
+  "queryLog.empty": "Aucune requête enregistrée dans cette session.",
   "queryLog.showing": "Affichage des {shown} dernières requêtes sur {n}.",
   "queryLog.dropped": "{n} entrées plus anciennes ont été supprimées (limite du journal : {limit}).",
   "queryLog.unlogged": "Une partie de ce graphe n'est pas couverte par ce journal (mode démo, espace de travail enregistré sans journal des requêtes, ou entrées invalides dans un fichier chargé).",

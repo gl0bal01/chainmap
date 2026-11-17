@@ -2348,11 +2348,11 @@ test("renderQueryLog: empty / dropped / unlogged notes", async () => {
   const { ui, i18n } = await qlogEnv();
   const c = document.createElement("div");
   ui.renderQueryLog(c, [], { i18n, dropped: 0, unloggedData: false, limit: 5000 });
-  expect(c.textContent).toContain("No Etherscan request logged in this session.");
+  expect(c.textContent).toContain("No request logged in this session.");
   ui.renderQueryLog(c, [qEntry(1)], { i18n, dropped: 7, unloggedData: true, limit: 5000 });
   expect(c.textContent).toContain("7 older entries were dropped (log limit 5000).");
   expect(c.textContent).toContain("Part of this graph was not retrieved under this log");
-  expect(c.textContent).not.toContain("No Etherscan request logged");
+  expect(c.textContent).not.toContain("No request logged");
 });
 
 const usdEdge = (over = {}) => ({
@@ -2641,7 +2641,7 @@ test("query log: reset clears it, workspace load restores it; delete-nodes keeps
       const saved = await (await nextBlob(dl, "saveBtn")).text();
       $("resetBtn").click();
       expect(qlogTitle()).toBe("Query log (0)");
-      expect($("queryLogContent").textContent).toContain("No Etherscan request logged in this session.");
+      expect($("queryLogContent").textContent).toContain("No request logged in this session.");
       await dropWorkspace(saved);
       expect(qlogTitle()).toBe(title);
       expect($("queryLogContent").querySelectorAll("tbody tr").length).toBe(n);
@@ -3757,4 +3757,59 @@ test("demo draws the illustrative high bridge link; the 0xb7 deposit shows an as
   } finally {
     $("resetBtn").click();
   }
+});
+
+// ---- Tron display (renderer-level) ----
+const TRON_HEX = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+const TRON_T = "TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi";
+
+test("Tron node and edge details show T… and Tronscan links", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const nc = document.createElement("div");
+  ui.renderNodeDetails(nc, { address: TRON_HEX, chainId: "728126428", depth: 0, isRoot: true, alias: null },
+    { i18n, explorer: "tronscan.org", onRename: () => {} });
+  expect(nc.textContent).toContain(TRON_T);
+  expect(nc.textContent).not.toContain("41d1c4");
+  expect(nc.querySelector("a").href).toBe(`https://tronscan.org/#/address/${TRON_T}`);
+
+  const hash = "ab".repeat(32);
+  const edge = (chainId) => ({
+    key: "k", chainId, action: "tokentx", group: "token", from: TRON_HEX, to: "41" + "11".repeat(20), hash,
+    symbol: "USDT", amountText: "5", amountIndeterminate: false, tokenContract: "", tokenId: "",
+    value: "5", timeStamp: "1700000000", blockNumber: "1", hasData: false,
+  });
+  const ec = document.createElement("div");
+  ui.renderEdgeDetails(ec, edge("728126428"), { i18n, explorer: "tronscan.org", getAlias: () => null });
+  expect(ec.textContent).toContain("TRC-20");
+  expect(ec.textContent).toContain(TRON_T);
+  expect(ec.textContent).not.toContain("41d1c4");
+  expect(ec.querySelector("a").href).toBe(`https://tronscan.org/#/transaction/${hash}`);
+
+  const ev = document.createElement("div");
+  ui.renderEdgeDetails(ev, { ...edge("1"), from: A(1), to: A(2), hash: "0x1" }, { i18n, explorer: "etherscan.io", getAlias: () => null });
+  expect(ev.textContent).toContain("ERC-20");
+  expect(ev.querySelector("a").href).toBe("https://etherscan.io/tx/0x1");
+});
+
+test("query log renders a TronGrid row", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const c = document.createElement("div");
+  ui.renderQueryLog(c, [qEntry(1, { chainId: "728126428", action: "txlist", params: { address: TRON_HEX, limit: 20, only_confirmed: true } })],
+    { i18n, dropped: 0, unloggedData: false, limit: 5000 });
+  const tds = [...c.querySelectorAll("tbody td")];
+  expect(tds.some((td) => td.textContent === "TV6Mu…iuSi" && td.title === TRON_T)).toBe(true);
+  expect(tds.some((td) => td.textContent === "—/20")).toBe(true);
+});
+
+test("indicator names the host", async () => {
+  const { ui, i18n } = await qlogEnv();
+  const el = document.createElement("div");
+  const ind = ui.createRequestIndicator(el, i18n);
+  ind.setActive(true, "api.trongrid.io");
+  expect(el.textContent).toBe("Contacting api.trongrid.io…");
+  ind.setActive(true);
+  expect(el.textContent).toBe("Contacting api.trongrid.io…");
+  ind.setActive(false);
+  ind.setActive(true);
+  expect(el.textContent).toBe("Contacting api.etherscan.io…");
 });

@@ -102,3 +102,21 @@ test("chainTag adds a last label line and a title suffix; absent leaves today's 
   expect(nodeLabel(node, { addressFormat: "short", chainTag: null })).toBe(`Mine\n(${shortAddress(ADDR)})`);
   expect(nodeVisual(node, { chainTag: "Base" }).title).toBe(`Mine — ${ADDR} · Base`);
 });
+
+describe("tron labels", () => {
+  const HEX = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+  const T = "TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi";
+  test("full and short forms show T…", () => {
+    expect(nodeLabel({ address: HEX, alias: null }, { addressFormat: "full" })).toBe(T);
+    expect(nodeLabel({ address: HEX, alias: null }, { addressFormat: "short" })).toBe("TV6Mu…iuSi");
+  });
+  test("hover title shows T…, never the hex", () => {
+    const { title } = nodeVisual({ address: HEX, alias: null, depth: 0, isRoot: true });
+    expect(title).toContain("TV6Mu");
+    expect(title).not.toContain("41d1c4");
+  });
+  test("EVM labels unchanged", () => {
+    expect(nodeLabel({ address: ADDR, alias: null }, { addressFormat: "full" })).toBe(ADDR);
+    expect(nodeVisual({ address: ADDR, alias: null, depth: 0, isRoot: false }).title).toBe(ADDR);
+  });
+});

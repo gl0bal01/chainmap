@@ -21,6 +21,7 @@ import { edgeSeverity } from "../riskFlags.js";
 import { methodName } from "../selectors.js";
 import { decodeInputText } from "../abiDecode.js";
 import { escapeHtml } from "../format.js";
+import { TRON_CHAIN_ID } from "../tron.js";
 import { hasMoreHistory } from "../history.js";
 import { addressEvidence, sameAddressLinks } from "../chainTwins.js";
 
@@ -58,7 +59,9 @@ Object.values(TX_TYPE_GROUPS).forEach((infos) => {
 });
 
 function edgeTitle(edge, i18n) {
-  const key = ACTION_LABEL_KEYS.get(edge.action) || `tx.type.${edge.group}`;
+  const key = edge.chainId === TRON_CHAIN_ID && edge.action === "tokentx"
+    ? "tx.type.trc20"
+    : ACTION_LABEL_KEYS.get(edge.action) || `tx.type.${edge.group}`;
   return i18n.t(key);
 }
 

@@ -79,6 +79,7 @@ export default {
   "tx.type.normal": "Normal",
   "tx.type.internal": "Internal",
   "tx.type.erc20": "ERC-20",
+  "tx.type.trc20": "TRC-20",
   "tx.type.erc721": "ERC-721",
   "tx.type.erc1155": "ERC-1155",
 
@@ -247,7 +248,7 @@ export default {
   "privacy.title": "Privacy",
   "privacy.body": "Your API key and data never leave your browser. The only site contacted at runtime is api.etherscan.io — plus coins.llama.fi (DefiLlama) only while \"Show USD values\" is ticked: it receives token contracts and hour-rounded times, never the addresses you investigate.",
   "privacy.indicator.idle": "No outbound request",
-  "privacy.indicator.active": "Contacting api.etherscan.io…",
+  "privacy.indicator.active": "Contacting {host}…",
 
   // --- sampling caveat ------------------------------------------------------
   "sampling.banner": "Showing the latest {n} transactions per address per type — not full history. Sampled/partial data, not forensic-complete.",
@@ -338,7 +339,7 @@ export default {
   "log.usdNoData": "USD values stay off: the bundled known-address or spam data failed to load, so imitation and spam tokens could not be excluded. No price was requested.",
   "queryLog.priceSource": "DefiLlama",
   "queryLog.title": "Query log ({n})",
-  "queryLog.empty": "No Etherscan request logged in this session.",
+  "queryLog.empty": "No request logged in this session.",
   "queryLog.showing": "Showing the latest {shown} of {n} requests.",
   "queryLog.dropped": "{n} older entries were dropped (log limit {limit}).",
   "queryLog.unlogged": "Part of this graph was not retrieved under this log (demo, a workspace saved without a query log, or invalid entries in a loaded file).",
