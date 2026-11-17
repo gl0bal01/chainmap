@@ -10,7 +10,8 @@
  *             text:string[], hex:string[] }} SearchRecord
  *   title/subtitle = display strings (already resolved by caller).
  *   text = human strings matched with substring+fuzzy (alias, known-label, category, method sig).
- *   hex  = lowercased hex strings matched by substring/prefix (address, tx hash).
+ *   hex  = address/hash strings matched case-insensitively by substring/prefix: the canonical
+ *          address, its display form (a Tron node adds its T… base58check) and the tx hash.
  */
 
 const FUZZY_GAP_CAP = 80;
@@ -49,9 +50,10 @@ function subsequenceGaps(q, t) {
 }
 
 /**
- * Score a single hex field (address / tx hash) against the query.
+ * Score a single address / tx hash field against the query.
  * @param {string} q lowercase query
- * @param {string} hRaw hex field value (already lowercase per contract)
+ * @param {string} hRaw field value: lowercase hex, or a case-preserved display form such as
+ *   a Tron T… (lowercased here for matching only, never stored or shown lowercased)
  * @returns {number}
  */
 function scoreHexField(q, hRaw) {

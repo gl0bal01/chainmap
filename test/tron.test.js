@@ -35,6 +35,19 @@ test("parse rejects bad input; hex any case -> lowercase", () => {
   expect(isTronAddress(h.toUpperCase())).toBe(false);
   expect(isTronAddress(t)).toBe(false);
 });
+// Ruling 42 pins. Valid base58check T… strings whose version byte is 0x40 / 0x42, not 0x41.
+test("parse rejects a T… with a valid checksum but another version byte", () => {
+  expect(parseTronAddress("T5kkvFEP4A8K1xRq9sJcmjwzn9Ej6SJ9cQ")).toBeNull(); // 0x40 + d1c4…
+  expect(parseTronAddress("TtRxtTpxUX44epi1ChyFjzVa39kcYLmRjj")).toBeNull(); // 0x42 + d1c4…
+});
+// A 34-char T… is at most 199 bits, so the decoder's > 25-byte guard is unreachable: longer input
+// (which would decode to more than 25 bytes) is refused by the length pattern.
+test("parse rejects input that would decode to more than 25 bytes", () => {
+  const [, t] = VEC[0];
+  expect(parseTronAddress(t + "1")).toBeNull();
+  expect(parseTronAddress("T" + "z".repeat(34))).toBeNull();
+  expect(parseTronAddress("T" + "z".repeat(40))).toBeNull();
+});
 test("tronUrl: path per action, fixed param order, unknown keys dropped", () => {
   const A = VEC[0][0];
   expect(tronUrl("txlist", { search_internal: "false", only_confirmed: "true", limit: "20", address: A, apikey: "K" }))

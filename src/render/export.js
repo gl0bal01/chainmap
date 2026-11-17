@@ -459,7 +459,7 @@ export function exportCsv(store, deps) {
  * @param {import('../graphStore.js').GraphStore} store
  * @param {Parameters<typeof exportPng>[2] & Parameters<typeof buildCsvRows>[1] & {
  *           exportedAt:string, retrieval:object|null, workspaceText:string, queryLogText:string,
- *           manifest:{ chains:object[], roots:string[], sampling:object, data:object } }} deps
+ *           manifest:{ chains:object[], roots:string[], sampling:object, providers:object[], data:object } }} deps
  * @returns {Promise<void>}
  */
 export async function exportEvidenceBundle(view, store, deps) {
