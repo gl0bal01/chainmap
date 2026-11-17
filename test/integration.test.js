@@ -4104,8 +4104,14 @@ test("workspace root keeps the canonical hex", async () => {
   try {
     await tronScan();
     expect($("address").value).toBe(TRON_T);
-    const text = await withDownloads(async (dl) => (await nextBlob(dl, "saveBtn")).text());
-    expect(JSON.parse(text).root).toBe("41d1c4bb7b2f39aba5707711719b2236b5b605af2e");
+    const rootOf = () => withDownloads(async (dl) => JSON.parse(await (await nextBlob(dl, "saveBtn")).text()).root);
+    expect(await rootOf()).toBe("41d1c4bb7b2f39aba5707711719b2236b5b605af2e");
+    // Ruling 33: a base58-looking string that is not a valid Tron address is kept as typed, never lowercased.
+    const badT = TRON_T.slice(0, -1) + "j"; // checksum broken
+    $("address").value = badT;
+    expect(await rootOf()).toBe(badT);
+    $("address").value = "0x" + "AB".repeat(20); // a valid 0x address is still lowercased
+    expect(await rootOf()).toBe("0x" + "ab".repeat(20));
   } finally {
     $("tronKey").value = "";
     restoreForm();

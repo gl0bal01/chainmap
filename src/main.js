@@ -1360,10 +1360,11 @@ function currentFilters() {
 }
 
 // The ONE workspace / query-log text builders: Save and the evidence bundle write these exact bytes.
-// Ruling 23: a Tron root is saved as its canonical 41 hex, never as lowercased base58.
+// Ruling 23: a Tron root is saved as its canonical 41 hex. Ruling 33: only a valid 0x address is
+// lowercased; anything else is kept as typed, so a base58-looking string is never lowercased.
 const savedRoot = () => {
   const v = $("address").value.trim();
-  return parseTronAddress(v) ?? (v.toLowerCase() || null);
+  return parseTronAddress(v) ?? (isValidAddress(v) ? v.toLowerCase() : v || null);
 };
 const workspaceText = (savedAt) =>
   JSON.stringify(
