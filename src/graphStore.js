@@ -13,7 +13,7 @@
 // =============================================================================
 
 import { lc, formatUnits, trimZero, parseChainId, nodeId, edgeKey } from "./format.js";
-import { CHAINS } from "./config.js";
+import { chainInfo } from "./config.js";
 import { decodeCall } from "./abiDecode.js";
 import { sanitizeHistory } from "./history.js";
 
@@ -84,8 +84,7 @@ import { sanitizeHistory } from "./history.js";
 
 /** @param {string} chainId @returns {string} native ticker, "" for a chain not in CHAINS */
 function nativeTicker(chainId) {
-  const chain = CHAINS.find((c) => String(c.id) === chainId);
-  return chain ? chain.native : "";
+  return chainInfo(chainId)?.native ?? "";
 }
 
 export class GraphStore {

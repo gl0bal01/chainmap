@@ -522,3 +522,16 @@ describe("GraphStore — chain-scoped identity", () => {
     expect(s.checkInvariants().ok).toBe(true);
   });
 });
+
+describe("native ticker per chain", () => {
+  const T1 = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+  const T2 = "41" + "ab".repeat(20);
+  const add = (chain, tx) => new GraphStore().addEdge(edgeInput(T1, T2, tx, chain));
+  test("Tron native is TRX; TRC-20 keeps its symbol; unknown chain is blank", () => {
+    const e = add("728126428", { value: "8", tokenDecimal: "6", tokenSymbol: "", hash: "h" });
+    expect(e.symbol).toBe("TRX");
+    expect(e.amountText).toBe("0.000008");
+    expect(add("728126428", { value: "8", tokenDecimal: "6", tokenSymbol: "USDT", hash: "h" }).symbol).toBe("USDT");
+    expect(add("999999", { value: "8", tokenDecimal: "6", tokenSymbol: "", hash: "h" }).symbol).toBe("");
+  });
+});

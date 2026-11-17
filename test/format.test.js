@@ -3,7 +3,10 @@ import {
   csvEscape,
   edgeDedupKey,
   edgeKey,
+  displayAddress,
   escapeHtml,
+  explorerUrl,
+  isChainAddress,
   formatTimestamp,
   formatUnits,
   isFailedTx,
@@ -278,4 +281,33 @@ test("edgeKey prefixes the dedup key with the chain: one raw tx on chains 1 and 
   const tx = { hash: "0xh", from: "0xA", to: "0xB" };
   expect(edgeKey("1", "txlist", tx)).toBe("1|" + edgeDedupKey("txlist", tx));
   expect(edgeKey("1", "txlist", tx)).not.toBe(edgeKey("56", "txlist", tx));
+});
+
+describe("tron-aware helpers", () => {
+  const HEX = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+  const T = "TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi";
+  const EVM = "0x" + "ab".repeat(20);
+  test("isChainAddress", () => {
+    expect(isChainAddress("728126428", HEX)).toBe(true);
+    expect(isChainAddress("728126428", HEX.toUpperCase())).toBe(false);
+    expect(isChainAddress("728126428", T)).toBe(false);
+    expect(isChainAddress("728126428", EVM)).toBe(false);
+    expect(isChainAddress("1", HEX)).toBe(false);
+    expect(isChainAddress("1", EVM)).toBe(true);
+  });
+  test("displayAddress / shortAddress", () => {
+    expect(displayAddress(HEX)).toBe(T);
+    expect(displayAddress(EVM)).toBe(EVM);
+    expect(displayAddress("")).toBe("");
+    expect(displayAddress(undefined)).toBe(undefined);
+    expect(shortAddress(HEX)).toBe("TV6Mu…iuSi");
+  });
+  test("explorerUrl", () => {
+    const h = "cbccd13069781c4bb714f81fb91e33caedd694ff0c0865de24a938cd0d22f65e";
+    expect(explorerUrl("728126428", "address", HEX)).toBe("https://tronscan.org/#/address/" + T);
+    expect(explorerUrl("728126428", "tx", h)).toBe("https://tronscan.org/#/transaction/" + h);
+    expect(explorerUrl("1", "address", EVM)).toBe("https://etherscan.io/address/" + EVM);
+    expect(explorerUrl("42161", "tx", "0x1")).toBe("https://arbiscan.io/tx/0x1");
+    expect(explorerUrl("999999", "tx", "0x1")).toBe(null);
+  });
 });
