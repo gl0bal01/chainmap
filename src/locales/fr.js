@@ -79,7 +79,7 @@ export default {
   // --- form: transaction types ---------------------------------------------
   "form.types.normal": "Transactions normales",
   "form.types.internal": "Transactions internes",
-  "form.types.token": "Transferts de tokens (ERC-20/721/1155)",
+  "form.types.token": "Transferts de tokens (ERC-20/721/1155, TRC-20)",
 
   "tx.type.normal": "Normale",
   "tx.type.internal": "Interne",
@@ -251,7 +251,7 @@ export default {
 
   // --- privacy / transparency ----------------------------------------------
   "privacy.title": "Confidentialité",
-  "privacy.body": "Vos clés API et vos données ne quittent jamais votre navigateur. Sur les chaînes EVM, le seul site contacté est api.etherscan.io. api.trongrid.io (TronGrid) n'est contacté qu'après avoir choisi Tron : il voit les adresses Tron analysées, votre clé TronGrid si vous en saisissez une, et votre adresse IP. coins.llama.fi (DefiLlama) n'est contacté que lorsque « Afficher les valeurs en USD » est coché : il reçoit les contrats de jetons et des heures arrondies, jamais les adresses que vous examinez.",
+  "privacy.body": "Vos clés API et vos données ne quittent jamais votre navigateur. Sur les chaînes EVM, le seul site contacté est api.etherscan.io. api.trongrid.io (TronGrid) n'est contacté qu'une fois Tron choisi : il voit les adresses Tron analysées, votre clé TronGrid si vous en saisissez une, et votre adresse IP. coins.llama.fi (DefiLlama) n'est contacté que lorsque « Afficher les valeurs en USD » est coché : il reçoit les contrats de jetons et des heures arrondies, jamais les adresses que vous examinez.",
   "privacy.indicator.idle": "Aucune requête sortante",
   "privacy.indicator.active": "Contact de {host}…",
 

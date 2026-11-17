@@ -79,7 +79,7 @@ export default {
   // --- form: transaction types ---------------------------------------------
   "form.types.normal": "Normal transactions",
   "form.types.internal": "Internal transactions",
-  "form.types.token": "Token transfers (ERC-20/721/1155)",
+  "form.types.token": "Token transfers (ERC-20/721/1155, TRC-20)",
 
   // short type names (legend, edge titles)
   "tx.type.normal": "Normal",

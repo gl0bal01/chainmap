@@ -137,3 +137,14 @@ describe("Bridge wording", () => {
     }
   });
 });
+
+describe("Tron wording", () => {
+  it("the token box names TRC-20 in both locales (ruling 37)", () => {
+    expect(en["form.types.token"]).toBe("Token transfers (ERC-20/721/1155, TRC-20)");
+    expect(fr["form.types.token"]).toBe("Transferts de tokens (ERC-20/721/1155, TRC-20)");
+  });
+  it("French privacy text: TronGrid is contacted once Tron is chosen (ruling 36)", () => {
+    expect(fr["privacy.body"]).toContain("n'est contacté qu'une fois Tron choisi");
+    expect(fr["privacy.body"]).not.toContain("après avoir choisi");
+  });
+});
