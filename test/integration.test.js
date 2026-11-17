@@ -3603,10 +3603,12 @@ test("a confirmed decision: CSV status + caveat; the saved workspace carries it;
   const ws = JSON.parse(saved);
   expect(ws.version).toBe(3);
   expect(ws.bridgeDecisions).toEqual([{ deposit: DEP_KEY, release: REL_KEY, decision: "confirmed", at: expect.stringMatching(ISO) }]);
-  await loadAsDemo(bridgeWs());
-  await until(() => bridgeItems()[0]?.label === "inferred — verify");
+  await loadAsDemo(bridgeWs(), /Demo workspace loaded/, false); // no reset first: the demo load itself clears
+  await until(() => logCount(/Demo workspace loaded/g) === 2 && bridgeItems()[0]?.label === "inferred — verify");
+  expect(bridgeItems()[0].label).toBe("inferred — verify");
   await dropWorkspace(saved);
   await until(() => bridgeItems()[0]?.label === "confirmed by investigator");
+  expect(bridgeItems()[0].label).toBe("confirmed by investigator");
   await dropWorkspace(JSON.stringify({ ...ws, bridgeDecisions: [...ws.bridgeDecisions, { deposit: "x", release: "y", decision: "confirmed", at: "nope" }] }));
   expect($("logContent").textContent).toContain("1 invalid bridge decision(s) in the file were ignored.");
 })));
@@ -3643,9 +3645,16 @@ test("toggle off hides links and legend; PNG/PDF omit them and their footer line
     expect(csv).toContain("confidence=high;status=unreviewed");
     const saved = await (await nextBlob(dl, "saveBtn")).text();
     expect(JSON.parse(saved).filters.showBridges).toBe(false);
+    box.checked = true;
+    box.dispatchEvent(new window.Event("change"));
+    await until(() => bridgeItems().length === 1);
     await dropWorkspace(saved);
     expect(box.checked).toBe(false);
     expect(bridgeItems()).toEqual([]);
+    const { showBridges, ...filters } = JSON.parse(saved).filters;
+    await dropWorkspace(JSON.stringify({ ...JSON.parse(saved), filters }));
+    expect(box.checked).toBe(true);
+    await until(() => bridgeItems().length === 1);
   } finally {
     box.checked = true;
     box.dispatchEvent(new window.Event("change"));
