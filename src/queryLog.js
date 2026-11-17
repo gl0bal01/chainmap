@@ -23,10 +23,10 @@ const WIDTH_RE = /^\d{1,4}[mhdw]?$/;
 const COIN_RE = /^(?:[a-z0-9_-]{1,40}:0x[0-9a-f]{40}|coingecko:[a-z0-9-]{1,64})$/;
 const MAX_COINS_CHARS = 8000;
 const MAX_COIN_KEYS = 400;
-// TronGrid param forms (spec ruling 5); limit is also range-checked 1..200.
+// TronGrid param forms (spec ruling 5); limit is canonical (ruling 35: no leading 0) and range-checked 1..200.
 const TRON_PARAM_RE = {
   address: /^41[0-9a-f]{40}$/,
-  limit: /^\d{1,3}$/,
+  limit: /^[1-9]\d{0,2}$/,
   only_confirmed: /^true$/,
   search_internal: /^false$/,
   min_timestamp: /^\d{1,16}$/,

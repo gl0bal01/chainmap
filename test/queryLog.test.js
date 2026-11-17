@@ -335,6 +335,8 @@ describe("trongrid entries", () => {
     "limit 0": (e) => { e.params.limit = "0"; },
     "limit 201": (e) => { e.params.limit = "201"; },
     "limit 2a": (e) => { e.params.limit = "2a"; },
+    "limit 007 (not canonical)": (e) => { e.params.limit = "007"; },
+    "limit 020 (not canonical)": (e) => { e.params.limit = "020"; },
     "limit number 20": (e) => { e.params.limit = 20; },
     "limit missing": (e) => { delete e.params.limit; },
     "only_confirmed false": (e) => { e.params.only_confirmed = "false"; },
