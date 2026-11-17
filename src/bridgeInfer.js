@@ -3,7 +3,8 @@
 // A value transfer into a known bridge is a deposit; a later transfer on another
 // chain to the expected recipient, same asset, equal or fee-reduced amount, is a
 // CANDIDATE release: a lead with its observed factors and a low/medium/high level,
-// never a fact. Investigator decisions never enter here (they never change a level).
+// never a fact. Investigator decisions never reach inferBridges (they never change a level);
+// sanitizeBridgeDecisions below is their workspace trust boundary.
 // Display projection: reads the store's nodes/edges, never mutates them. Value math
 // is BigInt only.
 // =============================================================================
@@ -87,6 +88,8 @@ export function inferBridges(nodes, edges, ctx) {
     return String((k?.category === "token" && k.symbol) || e.symbol || "").toUpperCase();
   };
   const trusted = (e) => isNative(e) || trustedToken(contractOf(e), e.chainId);
+  // Ruling 8: same symbol, or a W-pair whose unwrapped side is the native of its own edge's chain.
+  const sameAsset = (x, cx, y, cy) => !!x && !!y && (x === y || (x === "W" + y && y === nativeOf(cy)) || (y === "W" + x && x === nativeOf(cx)));
 
   // One indexing pass (this runs after every graph change).
   const push = (m, k, e) => (m.get(k) || m.set(k, []).get(k)).push(e);
@@ -104,8 +107,23 @@ export function inferBridges(nodes, edges, ctx) {
       push(into, e.to, e);
     }
   }
+  // Ruling 7, indexed once: per node and action, the earliest deposit time an edge of that action
+  // inside the node's own fetched window reaches back to. Only block `oldestBlock` can be partly
+  // fetched, so an edge there proves only a strictly later deposit (one second later: integer times).
   const history = new Map();
-  for (const n of nodes || []) if (n) history.set(n.id, n.history);
+  const reach = new Map(); // `${nodeId}|${action}` -> earliest covered deposit time
+  for (const n of nodes || []) {
+    if (!n) continue;
+    history.set(n.id, n.history);
+    for (const x of (n.history && incident.get(n.id)) || []) {
+      const entry = VALUE_ACTIONS.has(x.action) ? n.history[x.action] : null;
+      if (!entry || entry.done === true) continue;
+      const oldest = units(entry.oldestBlock), ts = secs(x), block = units(x.blockNumber);
+      if (oldest === null || ts === null || block === null || block < oldest) continue;
+      const k = `${n.id}|${x.action}`;
+      reach.set(k, Math.min(reach.get(k) ?? Infinity, block > oldest ? ts : ts + 1));
+    }
+  }
 
   // Deposits.
   const depositEdges = [];
@@ -139,6 +157,8 @@ export function inferBridges(nodes, edges, ctx) {
   }
 
   // Raw candidates, one per (deposit, release tx): the smallest release edge key (ruling 3).
+  // ponytail: still deposits × releases into one recipient (N×M per hub); index releases by amount
+  // if a hub ever carries thousands of equal-sized pairs.
   const raw = []; // { D, E, groups: Map<relTx, {R, amount, feeBps}> }
   const depsOfRelease = new Map(); // relTx -> Set<deposit tx>
   for (const E of depositEdges) {
@@ -149,8 +169,7 @@ export function inferBridges(nodes, edges, ctx) {
       if (R.chainId === D.chainId || (D.destChainId && R.chainId !== D.destChainId) || R.from === R.to) continue;
       const t = secs(R);
       if (t === null || t < D.timeStamp || t - D.timeStamp > MAX_DELAY_SEC) continue;
-      const x = D.asset, y = assetOf(R);
-      if (!x || !y || !(x === y || (x === "W" + y && y === nativeOf(R.chainId)) || (y === "W" + x && x === nativeOf(D.chainId)))) continue;
+      if (!sameAsset(D.asset, D.chainId, assetOf(R), R.chainId)) continue;
       // Cross-multiply raw base units by the other side's decimals (BigInt only).
       const d = units(D.value) * 10n ** BigInt(decimalsFor(R));
       const r = units(R.value) * 10n ** BigInt(D.decimals);
@@ -173,18 +192,11 @@ export function inferBridges(nodes, edges, ctx) {
       const isTrusted = trusted(E) && trusted(R);
       const forDeposit = groups.size;
       const forRelease = depsOfRelease.get(relTx).size;
-      // Ruling 7: every arrival action is done, or an edge of the recipient's own fetched window reaches back.
+      // Ruling 7: every action a release of D's asset could arrive by on this chain (tokentx always;
+      // the native ones too when D's asset pairs with the native) is done, or its window reaches back.
       const h = history.get(R.toId);
-      const covered = !!h && (isNative(R) ? ["txlist", "txlistinternal"] : ["tokentx"]).every((a) => {
-        const entry = h[a];
-        if (!entry) return false;
-        if (entry.done === true) return true;
-        const oldest = units(entry.oldestBlock);
-        return oldest !== null && (incident.get(R.toId) || []).some((x) => {
-          const ts = secs(x), block = units(x.blockNumber);
-          return x.action === a && ts !== null && ts <= D.timeStamp && block !== null && block >= oldest;
-        });
-      });
+      const need = sameAsset(D.asset, D.chainId, nativeOf(R.chainId), R.chainId) ? ["tokentx", "txlist", "txlistinternal"] : ["tokentx"];
+      const covered = !!h && need.every((a) => !!h[a] && (h[a].done === true || (reach.get(`${R.toId}|${a}`) ?? Infinity) <= D.timeStamp));
       const unique = forDeposit === 1 && forRelease === 1 && covered;
       const level = unique && isTrusted && amount === "equal" && D.basis === "calldata" && sender !== "other" ? "high"
         : unique && isTrusted && (D.basis === "calldata" || sender !== "other") ? "medium" : "low";

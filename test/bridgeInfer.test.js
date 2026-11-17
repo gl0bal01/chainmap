@@ -17,6 +17,7 @@ const KNOWN = {
     [WETH]: { label: "WETH (PoS)", category: "token", symbol: "WETH" },
     [USDC137]: { label: "USDC (PoS)", category: "token", symbol: "USDC" },
   },
+  "42161": { [WETH]: { label: "WETH (Arbitrum)", category: "token", symbol: "WETH" } },
 };
 const NATIVE = { "1": "ETH", "137": "POL", "42161": "ETH" };
 const ctx = {
@@ -257,13 +258,59 @@ describe("factors and levels", () => {
     expect(cov([recip({ tokentx: DONE })])).toBe(true);
     expect(cov([recip({ tokentx: MORE })])).toBe(false);
     expect(cov([recip({ tokentx: MORE })], [old("50")])).toBe(true);
-    expect(cov([recip({ tokentx: MORE })], [old("49")])).toBe(false); // outside its own window (Open point 3)
+    expect(cov([recip({ tokentx: MORE })], [old("49")])).toBe(false); // outside its own window (spec ruling 7)
     const oldTx = edge("137", OTHER, RECIP, { value: "1", timeStamp: String(T - 10), blockNumber: "60" }); // txlist, in window
     expect(cov([recip({ tokentx: MORE })], [oldTx])).toBe(false); // an edge of another action never covers tokentx
     expect(only(run([d, r], [recip({ tokentx: MORE })])).level).toBe("low");
     const n = edge("42161", OTHER, RECIP, { action: "txlistinternal", timeStamp: String(T + 60) });
     expect(only(run([d, n], [recip({ txlist: DONE }, "42161")])).covered).toBe(false);
-    expect(only(run([d, n], [recip({ txlist: DONE, txlistinternal: DONE }, "42161")])).covered).toBe(true);
+    expect(only(run([d, n], [recip({ txlist: DONE, txlistinternal: DONE }, "42161")])).covered).toBe(false); // tokentx too: a WETH release could hide there
+    expect(only(run([d, n], [recip(ALL, "42161")])).covered).toBe(true);
+  });
+
+  test("covered: the deposit's asset sets the required actions, whatever kind the found release is (ETH ↔ WETH)", () => {
+    const wethArb = (over = {}) => edge("42161", ZERO, RECIP, { action: "tokentx", symbol: "WETH", tokenContract: WETH, tokenDecimal: "18", timeStamp: String(T + 1800), ...over });
+    const native = edge("42161", OTHER, RECIP, { action: "txlistinternal", timeStamp: String(T + 60) });
+    const tokenOnly = [recip({ tokentx: DONE }, "42161")];
+    // An ETH deposit: native ETH on Arbitrum could also be its release, and native history was never fetched.
+    expect(only(run([deposit(), wethArb()], tokenOnly))).toMatchObject({ covered: false, level: "low" });
+    expect(run([deposit(), wethArb(), native], tokenOnly).candidates.map((c) => c.level)).toEqual(["low", "low"]);
+    expect(only(run([deposit(), wethArb()], [recip(ALL, "42161")]))).toMatchObject({ covered: true, level: "high" });
+    // A WETH deposit (W-pair with Arbitrum's native ETH) needs the native actions too.
+    const wc = edge("1", USER, BRIDGE, { hash: "0xw1", value: "0", rawInput: call("0x4faa8a26", RECIP) });
+    const wd = edge("1", USER, BRIDGE, { hash: "0xw1", action: "tokentx", symbol: "WETH", tokenContract: OTHER, tokenDecimal: "18" });
+    expect(only(run([wc, wd, wethArb()], tokenOnly)).covered).toBe(false);
+    expect(only(run([wc, wd, wethArb()], [recip(ALL, "42161")])).covered).toBe(true);
+    // An asset no native release can match (ETH → Polygon, native POL) needs tokentx only.
+    expect(only(run([deposit(), mint()], [recip({ tokentx: DONE })])).covered).toBe(true);
+  });
+
+  test("covered: an edge in the boundary block `oldestBlock` proves only a deposit strictly after it (same-second boundary)", () => {
+    const d = deposit(), r = mint();
+    const MORE = { oldestBlock: "50", blockPage: 0, pageSize: 0, done: false, count: 20 };
+    const at = (blockNumber, ts) => edge("137", OTHER, RECIP, { action: "tokentx", symbol: "X", tokenContract: OTHER, tokenDecimal: "18", value: "1", timeStamp: String(ts), blockNumber });
+    const cov = (x) => only(run([d, r, x], [recip({ tokentx: MORE })])).covered;
+    expect(cov(at("50", T))).toBe(false); // block 50 may be partly fetched: a same-second release could hide in it
+    expect(cov(at("50", T - 1))).toBe(true);
+    expect(cov(at("51", T))).toBe(true); // a later block is fully fetched
+    expect(cov(at("51", T + 1))).toBe(false);
+  });
+
+  test("covered is indexed once per node, never rescanned per candidate (hub: 100×100 equal pairs + 3,000 other edges)", () => {
+    const MORE = { oldestBlock: "50", blockPage: 0, pageSize: 0, done: false, count: 20 };
+    const deps = Array.from({ length: 100 }, (_, i) => deposit({ timeStamp: String(T + i) }));
+    const rels = Array.from({ length: 100 }, (_, i) => mint({ timeStamp: String(T + 3600 + i) }));
+    let reads = 0;
+    const others = Array.from({ length: 3000 }, (_, i) => {
+      const e = edge("137", OTHER, RECIP, { action: "tokentx", symbol: "X", tokenContract: OTHER, tokenDecimal: "18", value: "1", timeStamp: String(T + 90000 + i) });
+      delete e.blockNumber;
+      Object.defineProperty(e, "blockNumber", { enumerable: true, get() { if (++reads > 3000) throw new Error("recipient edges rescanned per candidate"); return "60"; } });
+      return e;
+    });
+    const r = run([...deps, ...rels, ...others], [recip({ tokentx: MORE })]);
+    expect(r.candidates.length).toBe(10000);
+    expect(r.candidates.every((c) => !c.covered && c.level === "low")).toBe(true);
+    expect(reads).toBeLessThanOrEqual(3000);
   });
 
   test("level is always low|medium|high; inputs are never mutated", () => {
