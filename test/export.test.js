@@ -682,3 +682,11 @@ describe("usd_value", () => {
     });
   });
 });
+
+test("CSV real_recipient of a bridge call is the bridge (tx to), not the decoded destRecipient", () => {
+  const DEST = "0x" + "d".repeat(40);
+  const edge = { ...EDGE_1, hasData: true, methodId: "0x4faa8a26", methodArgs: [{ type: "address", value: DEST, name: "destRecipient" }] };
+  const row = buildCsvRows(makeFakeStore([], [edge]), { category: () => null }).find((r) => r[0] === "edge");
+  expect(row[14]).toBe("depositEtherFor(address)");
+  expect(row[15]).toBe(EDGE_1.to);
+});

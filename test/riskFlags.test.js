@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { decodeCall } from "../src/abiDecode.js";
 import { flagsForEdge, resolvedRecipient, MAX_UINT256, flagSeverity, edgeSeverity } from "../src/riskFlags.js";
 
 const A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -91,4 +92,15 @@ test("flagsForEdge looks the recipient up on the edge's own chain", () => {
   expect(flagsForEdge({ chainId: "1", to: A, methodArgs: [] }, ctx)).toContain("flag.mixer");
   expect(flagsForEdge({ chainId: "56", to: A, methodArgs: [] }, ctx)).not.toContain("flag.mixer");
   expect(seen).toEqual(["1", "56"]);
+});
+
+test("a bridge call into a known bridge still flags bridge, never hiddenRecipient", () => {
+  const BR = "0x" + "b".repeat(40), DEST = "0x" + "d".repeat(40);
+  const w = (h) => h.padStart(64, "0");
+  const edge = { chainId: "1", to: BR, methodId: "0x9a2ac6d5", methodArgs: decodeCall("0x9a2ac6d5" + w(DEST.slice(2)) + w("30d40") + w("60")).args };
+  expect(edge.methodArgs.map((a) => a.name)).toEqual(["destRecipient", "minGasLimit"]); // decoded, yet never read as `recipient`
+  const flags = flagsForEdge(edge, { category: (a, c) => (a === BR && c === "1" ? "bridge" : null) });
+  expect(flags).toContain("flag.bridge");
+  expect(flags).not.toContain("flag.hiddenRecipient");
+  expect(resolvedRecipient(edge)).toBe(BR);
 });
