@@ -402,3 +402,30 @@ Raised by the planner on contact with the code; these amend the design above.
     false one.
 11. **`decoded_amount`** fills for bridge calls whose param is named `amount` (raw base units, the
     column's existing rule). No column moves. *Cost if wrong:* none.
+
+## Execution and final-review rulings (lead)
+
+Executed by an opus sub-lead with subagent-driven development (one implementer and one reviewer per task,
+explicit models); final whole-branch review on **fable** ("ready with fixes": 0 Critical, 2 Important,
+10 Minor); one fix wave and a scoped opus re-review (all 11 addressed, nothing new).
+
+12. **`covered` amended (final review I1).** The required actions follow the *deposit's* asset, not only
+    the release's: `tokentx` always, plus `txlist` and `txlistinternal` when the deposit asset pairs
+    with the destination chain's native coin (an ETH deposit can come out as native ETH or as WETH).
+    Supersedes the per-release-asset wording of the Design section. *Cost if wrong:* a candidate stays
+    `low` until the recipient's other value types are loaded; never a false strength.
+13. **Block boundary (final review M8).** An edge in the `oldestBlock` block itself only proves coverage
+    for a deposit strictly earlier than that edge (that block may be partly fetched). *Cost if wrong:*
+    none — stricter.
+14. **Coverage indexed once (final review I2).** Per node and action the earliest covered time is
+    computed in one pass, not per candidate (100×100 pairs over 3,000 edges: 3.5 s → 0.1 s). The
+    deposits × releases-into-one-recipient loop stays (`ponytail:` comment; ~2 s at 400×400). *Cost if
+    wrong:* slow recompute on a pathological hub.
+15. **`setBridgeLinks` skips unchanged lists** so bundles are not rebuilt on every store event during a
+    scan. *Cost if wrong:* none found.
+16. **French "Recipient unknown" line shows the raw category word.** *Cost if wrong:* one untranslated
+    word.
+17. **`units`/`secs` helpers are exported from `depositDetect.js` and reused**, not copied. *Cost if
+    wrong:* two pure modules are coupled.
+18. **Declined:** making the shared integration `until` helper throw on timeout (about 140 existing tests
+    use it; out of P7 scope). Every P7 wait asserts afterwards instead.
