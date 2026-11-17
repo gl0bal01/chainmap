@@ -220,6 +220,92 @@ Limits, read them before relying on a mark:
 Worked example: in the demo, `0xdec0…0001` is funded by the root and swept to Binance 14
 ten minutes later, so it is marked (illustrative data).
 
+### Bridges: inferred links, not proof
+
+A **bridge** moves value between chains. Two designs matter here. A **lock-mint** bridge locks the
+asset in a contract on chain A and mints a wrapped copy on chain B. A **liquidity** bridge takes
+your deposit on A and a relayer pays you from its own stock on B, minus a fee. On the destination
+chain the "release" can look like a **mint from `0x0…0`** (a token transfer whose sender is the
+zero address), an **internal transaction from the L2 bridge contract**, or a **relayer fill** (an
+ordinary transfer from a relayer). None of these carries the deposit's identifier in the data
+chainmap reads, so the link between the two chains can only be **inferred**.
+
+chainmap labels 271 bridge contracts. A value transfer into one is a **bridge deposit**. It then
+proposes **candidate releases** from the transactions you have already loaded and draws each as a
+**dashed link, "inferred — verify"**. It is a lead to check on both explorers, never proof.
+
+What it needs, and how it reads it:
+
+- **The recipient basis.** The expected recipient on the other side is either **decoded from the
+  deposit call** (a known bridge function such as `depositEtherFor(address)` names it), or, when
+  nothing is decoded, **assumed to be the depositor's own address**. The fallback is a weaker basis
+  and **alone never raises confidence**. It is assumed only when the depositor is not a known
+  exchange, router, bridge, mixer or token on that chain, because those act for other people. Any
+  other depositor, including a known sanctioned actor, is assumed to receive at its own address.
+  For the others the details say "Recipient unknown" and no candidate is searched.
+- **Observed factors.** A release must be on another chain, to that recipient, after the deposit
+  and within **14 days**, in the same asset (ETH and WETH count as the same), and equal in amount
+  or **at most 3 % lower** (read as "consistent with a bridge fee, or an unrelated transfer").
+  Swaps (deposit USDC, receive ETH) are not proposed. Amounts are compared exactly (BigInt).
+  The release **sender** is also noted: a known bridge, a token mint, or neither. The asset is
+  *trusted* when it is native or a known token on its chain.
+- **The levels** (the first that holds):
+
+  | Level | Needs |
+  |---|---|
+  | `high` | unique, trusted asset, **equal** amount, recipient **decoded**, sender is a known bridge or a mint |
+  | `medium` | unique, trusted asset, and (recipient decoded **or** sender is a known bridge or a mint); a fee-reduced amount is capped here |
+  | `low` | everything else: fallback recipient alone, a second candidate on either side, an uncovered sample, an untrusted asset |
+
+  Even `high` is shown with "inferred — verify". No computed result is called confirmed.
+- **Coverage.** *Unique* needs the **recipient's own** loaded transactions to reach back to the
+  deposit time, so a better match cannot be hiding in history you did not load. This holds for
+  every way a release of the deposit's asset could arrive on that chain: token transfers always,
+  and native plus internal transactions too when the deposit's asset is (or wraps) that chain's
+  native coin, whatever kind the candidate found is. When it does not, the details say so and
+  offer **Load older**. (An edge that only appeared on a counterparty's page never proves
+  coverage.)
+- **One candidate per release transaction.** Several edges of one release transaction (for
+  example listed twice, as an internal and a token transfer) form a single candidate.
+- **Look for the release on {chain}.** One click loads the native, internal and token transactions
+  of the recipient there (one page each, logged in the query log; chainmap never scans a
+  destination chain by itself). If the recipient is already loaded on that chain it loads an older
+  page instead.
+- **Your decision is an assertion.** Confirm, reject or clear each candidate. It is recorded as
+  *confirmed by the investigator*, with its time, everywhere it appears (details, CSV
+  `bridge_inferred`, PNG/PDF, MANIFEST, workspace). It is **never on-chain proof** and it **never
+  changes a computed level**: rejecting one candidate does not make another `high`.
+
+Limits, read them before relying on a link:
+
+- **Candidates come only from loaded data**, which is sampled (see section 7). A release you have
+  not loaded cannot be proposed, and the absence of a candidate proves nothing.
+- **"Unique" is judged over the loaded data only**, across the chains you have loaded. When the
+  deposit call does not name a destination chain, a release on a chain you have not loaded cannot
+  be ruled out, even at `medium` or `high`. Load the recipient on other plausible chains to look
+  further.
+- **Routers and aggregators.** When a contract makes the deposit (including an internal transaction),
+  that contract is the depositor, not the person behind it. A known router gets no recipient;
+  an unknown contract is assumed to receive at its own address (`low`, at most `medium`).
+  There is no walk back to the originating wallet, since a router may pay out anywhere.
+- **Swaps across a bridge**, **multi-hop** chains of bridges and non-EVM destinations are not followed.
+- **Arbitrum aliasing:** a contract depositor can appear under an aliased address on L2, so the
+  assumed recipient is wrong and no candidate shows.
+- **`plan_required` chains:** a free-tier key can be refused on some chains; the Look request then
+  fails and no candidate appears.
+- **Decision ids follow the release transaction's smallest-keyed edge.** If a smaller-keyed edge of
+  the same release transaction is loaded later, the id changes: the old decision is kept and
+  saved in the workspace but is no longer shown.
+- **French wording of the unknown-recipient line:** the `{category}` word is the raw category
+  word (for example "exchange"), not translated.
+
+Worked example: the demo has an illustrative exploiter deposit of 20 ETH into Polygon's
+`RootChainManager` (a known bridge) whose `depositEtherFor` call names the recipient. On chain
+137 that recipient received 20 WETH minted from `0x0…0` thirty minutes later. The recipient is
+decoded, the amount equal, the sender a mint, the asset trusted and the recipient's history
+complete, so the candidate is `high`, still "inferred — verify". The demo's other deposit has no
+candidate, so it shows the **Look for the release** row instead (illustrative data).
+
 ---
 
 ## 11. Evidence & provenance
@@ -343,7 +429,7 @@ the next time the graph changes or the box is ticked again. A price failure neve
 body), and it is logged **before** its value can appear on screen. In the panel, the address
 column shows how many coins the request carried. Entries stay after you untick the box, and
 they are cleared with the rest of the log on Reset, workspace load or demo. In the
-CSV, `usd_value` is the **last** column, and line 1 says the values are estimates and how many
+CSV, `usd_value` comes after the deposit columns (`bridge_inferred` follows it), and line 1 says the values are estimates and how many
 of the priceable transfers were priced. In the evidence bundle, `MANIFEST.json` gets a
 `prices` block (source, `estimate: true`, whether USD was shown, the number of queries, priced
 and priceable transfers), and the USD caveat is added to its caveats. The PNG/PDF show no USD.

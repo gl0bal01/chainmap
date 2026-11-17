@@ -310,6 +310,127 @@ function usdValueNode(usd, edge, i18n) {
   return box;
 }
 
+/** A `<div>` line with untrusted text set via textContent. */
+function textLine(box, text) {
+  const d = document.createElement("div");
+  d.textContent = text;
+  box.appendChild(d);
+  return d;
+}
+
+function button(label, onClick, disabled) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = label;
+  b.disabled = !!disabled;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/**
+ * @typedef {{ bridgeLabel:string, recipient:(string|null), basis:('calldata'|'sender'|null),
+ *   destChainName:(string|null), depositorCategory:(string|null),
+ *   candidates:Array<{id:string, level:string, chainName:string, status:'unreviewed'|'confirmed'|'rejected'}>,
+ *   lookChains:Array<{chainId:string,name:string}>, busy:boolean,
+ *   onOpen:(id:string)=>void, onLook:(chainId:string)=>void }} BridgeDepositView
+ *   lookChains: first entry is the select default. recipient null = none assumed
+ *   (depositor category in depositorCategory); the Look row is then absent.
+ */
+function bridgeDepositNode(v, i18n) {
+  const box = document.createElement("div");
+  textLine(box, i18n.t("details.bridgeInto", { label: v.bridgeLabel }));
+  if (v.recipient == null) {
+    textLine(box, i18n.t("details.bridgeToUnknown", { category: v.depositorCategory || "" }));
+  } else {
+    textLine(box, i18n.t(v.basis === "sender" ? "details.bridgeToAssumed" : "details.bridgeToDecoded", { recipient: v.recipient }));
+  }
+  if (v.destChainName) textLine(box, i18n.t("details.bridgeDestChain", { chain: v.destChainName }));
+  if (!v.candidates.length) textLine(box, i18n.t("details.bridgeNoCandidate"));
+  for (const c of v.candidates) {
+    const line = textLine(box, i18n.t("details.bridgeCandidate", { level: i18n.t("bridge.level." + c.level), chain: c.chainName, status: i18n.t("bridge.status." + c.status) }) + " ");
+    line.appendChild(button(i18n.t("btn.bridgeOpen"), () => v.onOpen(c.id)));
+  }
+  if (v.recipient != null && v.lookChains.length) {
+    const row = textLine(box, i18n.t("details.bridgeLookOn") + " ");
+    const sel = document.createElement("select");
+    sel.setAttribute("aria-label", i18n.t("details.bridgeLookOn"));
+    for (const c of v.lookChains) {
+      const o = document.createElement("option");
+      o.value = c.chainId;
+      o.textContent = c.name;
+      sel.appendChild(o);
+    }
+    row.appendChild(sel);
+    row.appendChild(button(i18n.t("btn.bridgeLook"), () => v.onLook(sel.value), v.busy));
+  }
+  return box;
+}
+
+/**
+ * Render the details panel for an inferred bridge link. Every string is untrusted
+ * and set via textContent.
+ * @param {HTMLElement} container
+ * @param {{ level:string, amount:'equal'|'fee', feeBps:number, basis:'calldata'|'sender',
+ *   sender:'bridge'|'mint'|'other', senderLabel:(string|null), trusted:boolean,
+ *   forDeposit:number, forRelease:number, rejected:number, covered:boolean, delaySec:number,
+ *   deposit:{amountText:string,symbol:string,bridgeLabel:string,chainName:string,explorer:(string|null),hash:string},
+ *   release:{amountText:string,symbol:string,recipient:string,chainName:string,explorer:(string|null),hash:string},
+ *   decision:({decision:'confirmed'|'rejected', at:string}|null) }} view
+ * @param {{ i18n:import('./i18n.js').I18n, busy:boolean, onConfirm:()=>void, onReject:()=>void,
+ *   onClear:()=>void, onLoadOlder:()=>void }} deps
+ */
+export function renderBridgeDetails(container, view, deps) {
+  const { i18n } = deps;
+  const v = view;
+  container.replaceChildren();
+  const table = document.createElement("table");
+  table.appendChild(detailRow(i18n.t("details.type"), i18n.t("details.bridgeType")));
+  container.appendChild(table);
+
+  const box = document.createElement("div");
+  const link = (side) => side.explorer && explorerLink(`https://${side.explorer}/tx/${side.hash}`, i18n.t("details.viewTx"));
+  const withLink = (text, side) => {
+    const d = textLine(box, text);
+    const a = link(side);
+    if (a) { d.appendChild(document.createTextNode(" ")); d.appendChild(a); }
+  };
+  textLine(box, i18n.t("details.bridgeConfidence", { level: i18n.t("bridge.level." + v.level) }));
+  withLink(i18n.t("details.bridgeDeposit", { amount: v.deposit.amountText, symbol: v.deposit.symbol, bridge: v.deposit.bridgeLabel, chain: v.deposit.chainName }), v.deposit);
+  withLink(i18n.t("details.bridgeRelease", { amount: v.release.amountText, symbol: v.release.symbol, recipient: v.release.recipient, chain: v.release.chainName }), v.release);
+  textLine(box, i18n.t("details.bridgeDelay", { duration: i18n.t(delayParts(v.delaySec).key, delayParts(v.delaySec).params) }));
+  const sep = i18n.getLocale() === "fr" ? "," : ".";
+  const pct = `${Math.floor(v.feeBps / 100)}${sep}${String(v.feeBps % 100).padStart(2, "0")}`;
+  textLine(box, v.amount === "fee" ? i18n.t("details.bridgeAmountFee", { pct }) : i18n.t("details.bridgeAmountEqual"));
+  textLine(box, i18n.t(v.basis === "sender" ? "details.bridgeRecipientAssumed" : "details.bridgeRecipientDecoded"));
+  textLine(box, v.sender === "bridge"
+    ? i18n.t("details.bridgeSenderBridge", { label: v.senderLabel || "", chain: v.release.chainName })
+    : i18n.t(v.sender === "mint" ? "details.bridgeSenderMint" : "details.bridgeSenderOther"));
+  if (!v.trusted) textLine(box, i18n.t("details.bridgeUntrusted"));
+  if (v.forDeposit > 1) textLine(box, i18n.t("details.bridgeManyReleases", { n: v.forDeposit, r: v.rejected }));
+  if (v.forRelease > 1) textLine(box, i18n.t("details.bridgeManyDeposits", { m: v.forRelease - 1 }));
+  if (!v.covered) {
+    textLine(box, i18n.t("details.bridgeUncovered", { chain: v.release.chainName }));
+    box.appendChild(button(i18n.t("btn.bridgeLoadOlder", { chain: v.release.chainName }), deps.onLoadOlder, deps.busy));
+  }
+  container.appendChild(box);
+
+  const d = v.decision;
+  const at = d ? d.at.slice(0, 19).replace("T", " ") : "";
+  const dbox = document.createElement("div");
+  textLine(dbox, !d ? i18n.t("details.bridgeUnreviewed") : i18n.t(d.decision === "confirmed" ? "details.bridgeConfirmedAt" : "details.bridgeRejectedAt", { at }));
+  dbox.appendChild(button(i18n.t("btn.bridgeConfirm"), deps.onConfirm, d && d.decision === "confirmed"));
+  dbox.appendChild(button(i18n.t("btn.bridgeReject"), deps.onReject, d && d.decision === "rejected"));
+  dbox.appendChild(button(i18n.t("btn.bridgeClear"), deps.onClear, !d));
+  const t2 = document.createElement("table");
+  t2.appendChild(detailRow(i18n.t("details.bridgeDecision"), dbox));
+  container.appendChild(t2);
+
+  const note = document.createElement("p");
+  note.className = "hint";
+  note.textContent = i18n.t("details.bridgeFooter");
+  container.appendChild(note);
+}
+
 export function renderEdgeDetails(container, edge, deps) {
   const { i18n, explorer, getAlias } = deps;
   container.replaceChildren();
@@ -372,6 +493,7 @@ export function renderEdgeDetails(container, edge, deps) {
       table.appendChild(detailRow(i18n.t("details.flags"), warn));
     }
   }
+  if (deps.bridgeDeposit) table.appendChild(detailRow(i18n.t("details.bridgeDepositRow"), bridgeDepositNode(deps.bridgeDeposit, i18n)));
   if (edge.hasData && Array.isArray(edge.methodArgs)) {
     // Decoded leading static args, resolved for humans: addresses -> alias/known
     // label, uint amounts -> token-formatted best-effort (raw when decimals unknown).

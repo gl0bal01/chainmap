@@ -7,7 +7,7 @@ import KNOWN from "../data/known-addresses.json";
 import V2 from "./fixtures/workspace-v2.json";
 import { PROBE_CHAIN_IDS, APP_VERSION } from "../src/config.js";
 import { sha256Hex } from "../src/queryLog.js";
-import { USD_CAVEAT } from "../src/evidence.js";
+import { USD_CAVEAT, BRIDGE_CAVEAT } from "../src/evidence.js";
 import EN from "../src/locales/en.js";
 import { readZip } from "./fixtures/readZip.js";
 
@@ -654,7 +654,7 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   expect(store.checkInvariants().ok).toBe(true);
   expect(store.listEdges().length).toBe(dEdges.length); // no edge silently dropped
   expect(demo.version).toBe(3);
-  expect(store.chains()).toEqual(["1", "42161"]);
+  expect(store.chains()).toEqual(["1", "137", "42161"]);
   const { addressEvidence, sameAddressLinks } = await import("../src/chainTwins.js");
   const { CHAINS } = await import("../src/config.js");
   const keyLinks = sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS)).filter((l) => l.basis === "key");
@@ -748,9 +748,9 @@ test("demo marks the illustrative deposit: badge, tooltip, details row, risk rea
     expect(txt).toContain("likely exchange deposit address");
     const lines = (await captureCsv()).split("\n");
     expect(lines[0]).toContain("likely_deposit_of is a heuristic");
-    expect(lines[1].endsWith(",chain_id,likely_deposit_of,deposit_evidence,usd_value")).toBe(true);
+    expect(lines[1].endsWith(",chain_id,likely_deposit_of,deposit_evidence,usd_value,bridge_inferred")).toBe(true);
     const row = lines.find((l) => l.startsWith(`node,${DEPOSIT},`));
-    expect(row.endsWith(`,1,Binance 14 (hot wallet),wallet=${BINANCE14};swept=1/1;share=ETH:100%;max_delay_s=600,`)).toBe(true);
+    expect(row.endsWith(`,1,Binance 14 (hot wallet),wallet=${BINANCE14};swept=1/1;share=ETH:100%;max_delay_s=600,,`)).toBe(true);
   } finally {
     $("resetBtn").click();
   }
@@ -787,7 +787,7 @@ test("pruning the hot wallet removes the mark and its details row; reset + reloa
     expect($("detailsContent").textContent).not.toContain("Exchange deposit");
     const lines = (await captureCsv()).split("\n");
     expect(lines[0]).not.toContain("likely_deposit_of");
-    expect(lines.find((l) => l.startsWith(`node,${DEPOSIT},`)).endsWith(",1,,,")).toBe(true);
+    expect(lines.find((l) => l.startsWith(`node,${DEPOSIT},`)).endsWith(",1,,,,")).toBe(true);
   } finally {
     $("resetBtn").click();
     restoreForm();
@@ -1773,12 +1773,12 @@ test("CSV: chain_id on every row, per-chain flags, multi-chain caveat", async ()
     expect(lines[1].startsWith("row_type,")).toBe(true);
     const data = lines.filter((l) => /^(node|edge),/.test(l));
     expect(data.length).toBe(6);
-    for (const l of data) expect(/,(1|56),,,$/.test(l)).toBe(true);
+    for (const l of data) expect(/,(1|56),,,,$/.test(l)).toBe(true);
     const m1 = lines.find((l) => l.includes("0xm1")), m2 = lines.find((l) => l.includes("0xm2"));
     expect(m1).toContain("flag.mixer");
-    expect(m1.endsWith(",1,,,")).toBe(true);
+    expect(m1.endsWith(",1,,,,")).toBe(true);
     expect(m2).not.toContain("flag.mixer");
-    expect(m2.endsWith(",56,,,")).toBe(true);
+    expect(m2.endsWith(",56,,,,")).toBe(true);
   } finally {
     $("resetBtn").click();
     restoreForm();
@@ -2128,7 +2128,7 @@ test("chain filter: shown at 2 chains, hides one chain's nodes and edges, store 
     expect(net.edges.get().some((e) => e.id.startsWith("42161|"))).toBe(false);
     expect(net.nodes.get().filter((n) => String(n.id).startsWith("1:")).length).toBe(n1);
     expect(net.edges.get().filter((e) => e.id.startsWith("1|")).length).toBe(e1);
-    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161,,,"));
+    const rows = (await captureCsv()).split("\n").filter((l) => l.startsWith("node,") && l.endsWith(",42161,,,,"));
     expect(rows.length).toBe(3);
     URL.createObjectURL = (b) => ((captured = b), "blob:x");
     URL.revokeObjectURL = () => {};
@@ -2745,10 +2745,10 @@ test("PNG and PDF exports carry the provenance footer and the live view's deposi
           $(btn).click();
           await until(() => done.test($("logContent").textContent));
           expect(window.vis.Network.last.nodes.get(id).label.endsWith("\n" + live)).toBe(true);
-          expect(fx.texts.length).toBe(4);
+          expect(fx.texts.length).toBe(5);
           const ver = APP_VERSION.replace(/\./g, "\\.");
           expect(fx.texts[0]).toMatch(new RegExp(`^chainmap ${ver} — exported \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d UTC$`));
-          expect(fx.texts.slice(1)).toEqual([EN["export.footer.retrievalUnknown"], EN["export.footer.sampling"], EN["export.footer.signals"]]);
+          expect(fx.texts.slice(1)).toEqual([EN["export.footer.retrievalUnknown"], EN["export.footer.sampling"], EN["export.footer.signals"], EN["export.footer.bridges"]]);
         }
       });
       expect(pdfs.length).toBe(1);
@@ -2907,10 +2907,10 @@ test("usd: CSV usd_value last column and line-1 counts; MANIFEST prices block", 
     await usdLoad();
     const calls = await tickAndDrain();
     const lines = (await captureCsv()).split("\n");
-    expect(lines[1].endsWith(",usd_value")).toBe(true);
+    expect(lines[1].endsWith(",usd_value,bridge_inferred")).toBe(true);
     const row = (e) => lines.find((l) => l.includes(e.hash));
-    expect(row(USD_E.native).endsWith(",2000.00")).toBe(true);
-    expect(row(USD_E.tok).endsWith(",5.00")).toBe(true);
+    expect(row(USD_E.native).endsWith(",2000.00,")).toBe(true);
+    expect(row(USD_E.tok).endsWith(",5.00,")).toBe(true);
     for (const k of ["fake", "spam", "rootTok", "nft", "zero"]) expect([k, row(USD_E[k]).endsWith(",")]).toEqual([k, true]);
     expect(lines[0]).toContain("usd priced 2 of 2 priceable transfers");
 
@@ -3145,5 +3145,616 @@ test("usd: every coins.llama.fi request happened while the box was on", () => {
     const u = url.toLowerCase();
     expect(u.includes("testkey") || u.includes("apikey")).toBe(false);
     for (const h of hashes) expect(new RegExp(h + "(?![0-9a-f])").test(u)).toBe(false);
+  }
+});
+
+// --- P7 bridge tracing ---------------------------------------------------------
+const viewEnv = async () => {
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { createGraphView } = await import("../src/render/network.js");
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const store = new GraphStore();
+  const view = createGraphView(document.createElement("div"), store, { i18n, getAddressFormat: () => "short" });
+  return { store, view, i18n, items: () => view.network.edges.get().filter((e) => String(e.id).startsWith("bridge:")) };
+};
+
+test("inferred bridge links: dashed curved overlay, level tooltip, confirmed style, diff-synced, retitled in French", async () => {
+  const { store, view, i18n, items } = await viewEnv();
+  const { TX_TYPE_GROUPS } = await import("../src/config.js");
+  try {
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("137", N2, { depth: 1 });
+    const link = { id: "1|d>137|r", a: ID("1", ROOT), b: ID("137", N2), level: "high", decision: null };
+    const ds = view.network.edges.ds;
+    let adds = 0;
+    const add = ds.add.bind(ds);
+    ds.add = (x) => { adds++; return add(x); };
+    view.setBridgeLinks([link]);
+    view.setBridgeLinks([link]);
+    expect(adds).toBe(1);
+    const it = items()[0];
+    expect(it).toMatchObject({ id: "bridge:1|d>137|r", from: ID("1", ROOT), to: ID("137", N2), overlay: true, bridge: true,
+      label: "inferred — verify", title: "Inferred bridge link (high) — not proof", physics: false, dashes: [8, 5], smooth: { type: "curvedCW" } });
+    expect(it.data).toEqual({ bridge: true, ...link });
+    const inferred = it.color.color;
+    expect([...Object.values(TX_TYPE_GROUPS).flat().map((t) => t.color), "#8b93a3"]).not.toContain(inferred);
+    view.setBridgeLinks([{ ...link, decision: "confirmed" }]);
+    expect(items()[0].label).toBe("confirmed by investigator");
+    expect(items()[0].title).toContain("confirmed by the investigator");
+    expect(items()[0].color.color).not.toBe(inferred);
+    expect(adds).toBe(1);
+    const got = view.getBridgeLinks();
+    got[0].level = "x";
+    expect(view.getBridgeLinks()).toEqual([{ ...link, decision: "confirmed" }]);
+    i18n.setLocale("fr");
+    view.refreshProjection();
+    expect(items()[0].label).toBe("confirmé par l'enquêteur");
+    expect(adds).toBe(1);
+    view.setBridgeLinks([]);
+    expect(items()).toEqual([]);
+  } finally {
+    view.destroy();
+  }
+});
+
+test("bridge links ride through filters and bundles like twins, never make a node visible; reset clears; twins carry overlay", async () => {
+  const { store, view, items } = await viewEnv();
+  try {
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("1", N2, { depth: 1 });
+    store.addNode("137", N3, { depth: 1 });
+    store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1" } });
+    view.setBridgeLinks([{ id: "x", a: ID("1", ROOT), b: ID("137", N3), level: "low", decision: null }]);
+    view.setDisplayOptions({ minAmount: 999 });
+    expect(view.network.edges.get().map((e) => e.id)).toEqual(["bridge:x"]);
+    expect(view.hasRenderedNode(ID("137", N3))).toBe(false);
+    view.setDisplayOptions({ minAmount: 0 });
+    view.setBundling(true);
+    const bundledIds = view.network.edges.get().map((e) => String(e.id));
+    expect(bundledIds.filter((id) => id !== "bridge:x" && !id.startsWith("bundle:"))).toEqual([]);
+    expect(bundledIds).toContain("bridge:x");
+    expect(bundledIds.some((id) => id.includes("undefined"))).toBe(false);
+    view.setBridgeLinks([]);
+    expect(view.network.edges.get().some((e) => String(e.id).startsWith("bridge:"))).toBe(false);
+    view.setBridgeLinks([{ id: "x", a: ID("1", ROOT), b: ID("137", N3), level: "low", decision: null }]);
+    expect(view.getEdgeData("bridge:x")).toMatchObject({ bridge: true, id: "x" });
+    view.setBundling(false);
+    store.reset();
+    expect(view.getBridgeLinks()).toEqual([]);
+    expect(items()).toEqual([]);
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("42161", ROOT, { depth: 0, isRoot: true });
+    store.addNode("42161", N2, { depth: 1 });
+    store.addEdge({ chainId: "42161", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1", hash: "0x2" } });
+    view.setTwins(true);
+    expect(view.network.edges.get().filter((e) => e.twin).map((e) => [e.twin, e.overlay])).toEqual([[true, true]]);
+  } finally {
+    view.destroy();
+  }
+});
+
+const EVIL = '<img src=x onerror="alert(1)">';
+const uiEnv = async (locale = "en") => {
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  return { ui: await import("../src/ui.js"), i18n: createI18n({ dictionaries: { en, fr }, locale }) };
+};
+const bView = (over = {}) => ({
+  level: "high", amount: "equal", feeBps: 0, basis: "calldata", sender: "mint", senderLabel: null, trusted: true,
+  forDeposit: 1, forRelease: 1, rejected: 0, covered: true, delaySec: 1800,
+  deposit: { amountText: "20", symbol: "ETH", bridgeLabel: EVIL, chainName: "Ethereum", explorer: "etherscan.io", hash: "0xd1" },
+  release: { amountText: "20", symbol: EVIL, recipient: N2, chainName: "Polygon", explorer: "polygonscan.com", hash: "0xr1" },
+  decision: null, ...over,
+});
+const btnIn = (box, t) => [...box.querySelectorAll("button")].find((b) => b.textContent === t);
+
+test("bridge link details: every line via textContent; decision buttons call their handlers", async () => {
+  const { ui, i18n } = await uiEnv();
+  const calls = [];
+  const box = document.createElement("div");
+  const deps = { i18n, busy: false, onConfirm: () => calls.push("c"), onReject: () => calls.push("r"), onClear: () => calls.push("x"), onLoadOlder: () => calls.push("l") };
+  ui.renderBridgeDetails(box, bView(), deps);
+  expect(box.querySelector("img")).toBeNull();
+  const text = box.textContent;
+  for (const s of [
+    "Inferred bridge link — verify",
+    "Confidence: high — inferred from amount, timing and recipient; not proof",
+    `Deposit: 20 ETH into ${EVIL} on Ethereum`,
+    `Possible release: 20 ${EVIL} to ${N2} on Polygon`,
+    "Delay: 30 min", "Amount: equal", "Recipient: decoded from the deposit call",
+    "Release sender: token mint (zero address)", "Not reviewed",
+    "Inferred links are leads to verify on both explorers, never proof.",
+  ]) expect(text).toContain(s);
+  for (const s of ["candidate releases", "other deposit", "do not reach back", "curated token list"]) expect(text).not.toContain(s);
+  expect([...box.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://etherscan.io/tx/0xd1", "https://polygonscan.com/tx/0xr1"]);
+  expect(btnIn(box, "Clear decision").disabled).toBe(true);
+  expect(btnIn(box, "Load older on Polygon")).toBeUndefined();
+  btnIn(box, "Confirm (investigator)").click();
+  btnIn(box, "Reject").click();
+  expect(calls).toEqual(["c", "r"]);
+});
+
+test("bridge link details: fee, assumed recipient, bridge sender, untrusted, ambiguity, uncovered, decisions; French percent", async () => {
+  const { ui, i18n } = await uiEnv();
+  const calls = [];
+  const deps = (busy = false) => ({ i18n, busy, onConfirm() {}, onReject() {}, onClear() {}, onLoadOlder: () => calls.push("l") });
+  const render = (v, d = deps(), i = i18n) => { const b = document.createElement("div"); ui.renderBridgeDetails(b, v, { ...d, i18n: i }); return b; };
+  const low = bView({ level: "low", amount: "fee", feeBps: 250, basis: "sender", sender: "bridge", senderLabel: "L2 bridge", trusted: false, forDeposit: 3, rejected: 1, forRelease: 2, covered: false });
+  const box = render(low);
+  for (const s of [
+    "Amount: release is 2.50% lower — consistent with a bridge fee, or an unrelated transfer",
+    "Recipient: assumed to be the depositor's own address (not decoded) — this alone never raises confidence",
+    "Release sender: L2 bridge (a known bridge on Polygon)",
+    "Asset: not in the curated token list — confidence kept low",
+    "3 candidate releases for this deposit (1 rejected by the investigator)",
+    "This release also fits 1 other deposit(s)",
+    "The loaded transactions of the recipient on Polygon do not reach back to the deposit time — load older to look further",
+  ]) expect(box.textContent).toContain(s);
+  btnIn(box, "Load older on Polygon").click();
+  expect(calls).toEqual(["l"]);
+  expect(btnIn(render(low, deps(true)), "Load older on Polygon").disabled).toBe(true);
+  expect(render(bView({ sender: "other" })).textContent).toContain("Release sender: not a known bridge");
+  const at = "2026-11-17T10:00:00.000Z";
+  const c = render(bView({ decision: { decision: "confirmed", at } }));
+  expect(c.textContent).toContain("Confirmed by the investigator on 2026-11-17 10:00:00 UTC — an investigator assertion, not on-chain proof");
+  expect(btnIn(c, "Confirm (investigator)").disabled).toBe(true);
+  expect(btnIn(c, "Clear decision").disabled).toBe(false);
+  const r = render(bView({ decision: { decision: "rejected", at } }));
+  expect(r.textContent).toContain("Rejected by the investigator on 2026-11-17 10:00:00 UTC");
+  expect(btnIn(r, "Reject").disabled).toBe(true);
+  const fr = await uiEnv("fr");
+  expect(render(low, deps(), fr.i18n).textContent).toContain("sortie inférieure de 2,50 %");
+});
+
+test("edge details: Bridge deposit row — recipient basis, candidate lines with Open, Look select; textContent only", async () => {
+  const { ui, i18n } = await uiEnv();
+  const edge = {
+    key: "k", action: "txlist", group: "normal", from: ROOT, to: N2, hash: "0x1",
+    symbol: "ETH", amountText: "5", amountIndeterminate: false, tokenContract: "", tokenId: "",
+    value: "5", timeStamp: "1700000000", blockNumber: "1", hasData: false, methodId: "",
+  };
+  const opened = [], looked = [];
+  const bd = (o = {}) => ({
+    bridgeLabel: EVIL, recipient: N2, basis: "calldata", destChainName: null, depositorCategory: null, candidates: [],
+    lookChains: [{ chainId: "8453", name: "Base" }, { chainId: "137", name: "Polygon" }], busy: false,
+    onOpen: (id) => opened.push(id), onLook: (c) => looked.push(c), ...o,
+  });
+  const render = (b) => {
+    const box = document.createElement("div");
+    ui.renderEdgeDetails(box, edge, { i18n, explorer: "etherscan.io", getAlias: () => null, bridgeDeposit: b });
+    return box;
+  };
+  const box = render(bd());
+  expect(box.querySelector("img")).toBeNull();
+  for (const s of [
+    "Bridge deposit", `Deposit into a known bridge: ${EVIL}`,
+    `Recipient on the other side: ${N2} — decoded from the deposit call`,
+    "No candidate release in the loaded data. Candidates come only from transactions already loaded on other chains.",
+    "Look for the release on",
+  ]) expect(box.textContent).toContain(s);
+  const sel = box.querySelector("select");
+  expect(sel.getAttribute("aria-label")).toBe("Look for the release on");
+  expect([...sel.options].map((o) => o.value)).toEqual(["8453", "137"]);
+  expect(sel.value).toBe("8453");
+  sel.value = "137";
+  btnIn(box, "Look").click();
+  expect(looked).toEqual(["137"]);
+  const withC = render(bd({ candidates: [{ id: "c1", level: "high", chainName: "Polygon", status: "confirmed" }, { id: "c2", level: "low", chainName: "Polygon", status: "rejected" }] }));
+  expect(withC.textContent).toContain("high · Polygon · confirmed by the investigator");
+  expect(withC.textContent).toContain("low · Polygon · rejected by the investigator");
+  expect(withC.textContent).not.toContain("No candidate");
+  [...withC.querySelectorAll("button")].filter((b) => b.textContent === "Open").forEach((b) => b.click());
+  expect(opened).toEqual(["c1", "c2"]);
+  expect(render(bd({ basis: "sender" })).textContent).toContain("— assumed to be the depositor's own address (not decoded)");
+  expect(render(bd({ destChainName: "Arbitrum One" })).textContent).toContain("Destination chain named in the call: Arbitrum One");
+  const unk = render(bd({ recipient: null, basis: null, depositorCategory: "exchange" }));
+  expect(unk.textContent).toContain("Recipient unknown — the depositor is a known exchange that may act for others; none is assumed.");
+  expect(unk.querySelector("select")).toBeNull();
+  expect(btnIn(unk, "Look")).toBeUndefined();
+  expect(btnIn(render(bd({ busy: true })), "Look").disabled).toBe(true);
+  expect(render(null).textContent).not.toContain("Bridge deposit");
+});
+
+// main.js wiring (shared instance): inferred links, details, decisions, Look.
+const RCM = "0xa0c68c638235ee32657e8f720a23cec1bfc77c77"; // Polygon PoS RootChainManager: known bridge on chain 1
+const WETH137 = "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619"; // curated WETH on Polygon
+const ZERO = "0x" + "0".repeat(40);
+const DEPOSITOR = A(5), RECIP = A(6), BT = 1700000000;
+const etherFor = (to) => "0x4faa8a26" + to.slice(2).padStart(64, "0");
+const DONE_H = { oldestBlock: "0", blockPage: 0, pageSize: 0, done: true, count: 1 };
+const ALL_DONE = { txlist: DONE_H, txlistinternal: DONE_H, tokentx: DONE_H };
+const depEdge = (over = {}) => v3Edge({ hash: "0xbd1", from: DEPOSITOR, to: RCM, value: "20000000000000000000", tokenDecimal: "", amountText: "20",
+  hasData: true, methodId: "0x4faa8a26", rawInput: etherFor(RECIP), timeStamp: String(BT), ...over });
+const relEdge = (over = {}) => v3Edge({ chainId: "137", action: "tokentx", group: "token", hash: "0xbr1", from: ZERO, to: RECIP, symbol: "WETH",
+  tokenContract: WETH137, tokenDecimal: "18", value: "20000000000000000000", amountText: "20", timeStamp: String(BT + 1800), ...over });
+const chain1Side = () => [v3Node("1", DEPOSITOR, { depth: 0, isRoot: true }), v3Node("1", RCM)];
+const chain137Side = (history = ALL_DONE) => [v3Node("137", ZERO, { depth: 2 }), v3Node("137", RECIP, { history })];
+const bridgeWs = (extra = [], history) => v3ws([...chain1Side(), ...chain137Side(history)], [depEdge(), relEdge(), ...extra]);
+const DEP_KEY = depEdge().key, REL_KEY = relEdge().key;
+const bridgeItems = () => window.vis.Network.first.edges.get().filter((e) => String(e.id).startsWith("bridge:"));
+const clickEdge = (id) => window.vis.Network.first._on.click[0]({ nodes: [], edges: [id] });
+const panel = () => $("detailsContent").textContent;
+const triples = (urls) => urls.map((u) => new URL(u).searchParams).map((p) => [p.get("chainid"), p.get("address"), p.get("action")]);
+// Every bridge test resets the graph and restores what the Look tests change (canned rows, key, type boxes).
+async function withBridgeEnv(fn) {
+  await knownLoaded();
+  const canned = { txlist: CANNED.txlist, tokentx: CANNED.tokentx };
+  const key = $("apiKey").value;
+  try {
+    await fn();
+  } finally {
+    Object.assign(CANNED, canned);
+    $("apiKey").value = key;
+    for (const id of ["typeNormal", "typeInternal", "typeToken"]) $(id).checked = true;
+    $("resetBtn").click();
+    restoreForm();
+  }
+}
+// Open the deposit edge, wait for its Bridge deposit row, pick the Look chain.
+async function openDepositOn(chainId) {
+  clickEdge(DEP_KEY);
+  await until(() => panel().includes("Look for the release on"));
+  $("detailsContent").querySelector("select").value = chainId;
+}
+
+test("a decoded deposit and a curated-WETH mint draw one high inferred link; details; never a store edge; French label", () => withBridgeEnv(async () => {
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  const [item] = bridgeItems();
+  expect(item).toMatchObject({ id: `bridge:${DEP_KEY}>${REL_KEY}`, from: ID("1", DEPOSITOR), to: ID("137", RECIP), label: "inferred — verify" });
+  expect(item.title).toBe("Inferred bridge link (high) — not proof");
+  expect((await captureCsv()).split("\n").filter((l) => l.startsWith("edge,")).length).toBe(2);
+  clickEdge(item.id);
+  for (const s of ["Inferred bridge link — verify", "Confidence: high — ", "Recipient: decoded from the deposit call",
+    "Release sender: token mint (zero address)", "Amount: equal", "Not reviewed"]) expect(panel()).toContain(s);
+  $("langToggle").click();
+  try {
+    expect(bridgeItems()[0].label).toBe("déduit — à vérifier");
+    expect(bridgeItems()[0].title).toBe("Lien de pont déduit (confiance élevée) — pas une preuve");
+    expect(panel()).toContain("Lien de pont déduit — à vérifier");
+  } finally {
+    $("langToggle").click();
+  }
+  expect(panel()).toContain("Inferred bridge link — verify");
+  // The same graph reloaded (one recompute, identical links) is redrawn: main compares with the view's own list.
+  await loadAsDemo(bridgeWs(), /Demo workspace loaded/, false);
+  await until(() => logCount(/Demo workspace loaded/g) === 2 && bridgeItems().length === 1);
+  expect(bridgeItems().length).toBe(1);
+}));
+
+test("confirm / reject / clear: the label follows; a rejected link is gone but opens from the deposit row; workspace load replaces, demo load and reset clear", () => withBridgeEnv(async () => {
+  const label = () => bridgeItems()[0]?.label;
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(bridgeItems()[0].id);
+  detailBtn("Confirm (investigator)").click();
+  expect(label()).toBe("confirmed by investigator");
+  expect(panel()).toMatch(/Confirmed by the investigator on \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC — an investigator assertion, not on-chain proof/);
+  detailBtn("Reject").click();
+  expect(bridgeItems()).toEqual([]);
+  clickEdge(DEP_KEY);
+  expect(panel()).toContain("high · Polygon · rejected by the investigator");
+  detailBtn("Open").click();
+  expect(panel()).toContain("Rejected by the investigator on");
+  detailBtn("Clear decision").click();
+  expect(label()).toBe("inferred — verify");
+  expect(panel()).toContain("Not reviewed");
+  detailBtn("Confirm (investigator)").click();
+  expect(label()).toBe("confirmed by investigator");
+  await loadAsDemo(bridgeWs(), /Demo workspace loaded/, false); // no reset first: the demo load itself clears
+  await until(() => logCount(/Demo workspace loaded/g) === 2 && label() === "inferred — verify");
+  expect(label()).toBe("inferred — verify");
+  await dropWorkspace(JSON.stringify({ ...bridgeWs(), bridgeDecisions: [{ deposit: DEP_KEY, release: REL_KEY, decision: "confirmed", at: "2026-11-17T10:00:00Z" }] }));
+  await until(() => label() === "confirmed by investigator");
+  expect(label()).toBe("confirmed by investigator");
+  $("resetBtn").click();
+  await loadAsDemo(bridgeWs());
+  await until(() => label() === "inferred — verify");
+  expect(label()).toBe("inferred — verify");
+}));
+
+test("decisions never feed inferBridges: rejecting one of two candidates leaves the other low", () => withBridgeEnv(async () => {
+  await loadAsDemo(bridgeWs([relEdge({ hash: "0xbr2", timeStamp: String(BT + 3600) })]));
+  await until(() => bridgeItems().length === 2);
+  expect(bridgeItems().map((e) => e.title.includes("(low)"))).toEqual([true, true]);
+  clickEdge(bridgeItems()[0].id);
+  detailBtn("Reject").click();
+  expect(bridgeItems().length).toBe(1);
+  expect(bridgeItems()[0].title).toContain("(low)");
+  clickEdge(bridgeItems()[0].id);
+  expect(panel()).toContain("2 candidate releases for this deposit (1 rejected by the investigator)");
+}));
+
+test("pruning the recipient removes the link and its open details; a selected link never breaks prune", () => withBridgeEnv(async () => {
+  const net = window.vis.Network.first;
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(bridgeItems()[0].id);
+  net.setSelection({ nodes: [] });
+  $("deleteNodesBtn").click();
+  expect($("logContent").textContent).toContain(EN["error.selectNodesFirst"]);
+  expect(bridgeItems().length).toBe(1);
+  net.setSelection({ nodes: [ID("137", RECIP)] });
+  $("deleteNodesBtn").click();
+  await until(() => !bridgeItems().length && !panel().includes("Inferred bridge link"));
+  expect(bridgeItems()).toEqual([]);
+  expect(panel()).not.toContain("Inferred bridge link");
+  // The view resyncs from main's list on a locale switch: no stale link may come back.
+  $("langToggle").click();
+  $("langToggle").click();
+  expect(bridgeItems()).toEqual([]);
+}));
+
+test("Look loads txlist+txlistinternal+tokentx for the recipient on the chosen chain through the query log, whatever the form boxes say; the candidate appears", () => withBridgeEnv(async () => {
+  $("typeInternal").checked = false;
+  $("typeToken").checked = false;
+  await loadAsDemo(v3ws(chain1Side(), [depEdge()]));
+  $("apiKey").value = "TESTKEY";
+  CANNED.txlist = [];
+  CANNED.tokentx = [{ from: ZERO, to: RECIP, value: "20000000000000000000", hash: "0xbr1", tokenSymbol: "WETH", tokenDecimal: "18",
+    contractAddress: WETH137, timeStamp: String(BT + 1800), blockNumber: "200" }];
+  await openDepositOn("137");
+  for (const s of ["Bridge deposit", "decoded from the deposit call", "No candidate release in the loaded data"]) expect(panel()).toContain(s);
+  const opts = [...$("detailsContent").querySelector("select").options].map((o) => o.value);
+  expect(opts[0]).toBe("8453");
+  expect(opts).not.toContain("1");
+  const { CHAINS } = await import("../src/config.js");
+  expect(opts.length).toBe(CHAINS.length - 1);
+  const n = apiUrls.length;
+  detailBtn("Look").click();
+  await until(() => bridgeItems().length === 1 && !$("startBtn").disabled);
+  expect(triples(apiUrls.slice(n))).toEqual([["137", RECIP, "txlist"], ["137", RECIP, "txlistinternal"], ["137", RECIP, "tokentx"]]);
+  await until(() => qlogTitle() === "Query log (3)");
+  expect(qlogTitle()).toBe("Query log (3)");
+  expect((await captureCsv()).split("\n").find((l) => l.startsWith(`node,${RECIP},`))).toStartWith(`node,${RECIP},,1,0,`);
+  expect(bridgeItems()[0].title).toContain("(high)");
+  await until(() => panel().includes("high · Polygon · not reviewed"));
+  expect(panel()).toContain("high · Polygon · not reviewed");
+}));
+
+test("Look where the recipient already exists = load older there with the full value set; no node added", () => withBridgeEnv(async () => {
+  await loadAsDemo(v3ws([...chain1Side(), v3Node("137", RECIP, { history: { txlist: DONE_H } })], [depEdge()]));
+  $("apiKey").value = "TESTKEY";
+  CANNED.txlist = []; // the stub ignores `address`: the default rows would add unrelated edges
+  CANNED.tokentx = [];
+  const before = nodeIds();
+  await openDepositOn("137");
+  const n = apiUrls.length;
+  detailBtn("Look").click();
+  await until(() => !$("startBtn").disabled && apiUrls.length > n);
+  expect(triples(apiUrls.slice(n))).toEqual([["137", RECIP, "txlistinternal"], ["137", RECIP, "tokentx"]]);
+  expect(nodeIds()).toEqual(before);
+}));
+
+test("Look is refused without an API key: logged, no request, no node", () => withBridgeEnv(async () => {
+  await loadAsDemo(v3ws(chain1Side(), [depEdge()]));
+  $("apiKey").value = "";
+  await openDepositOn("137");
+  const n = apiUrls.length;
+  detailBtn("Look").click();
+  await until(() => $("logContent").textContent.includes(EN["error.apiKeyRequired"]));
+  expect($("logContent").textContent).toContain(EN["error.apiKeyRequired"]);
+  expect(apiUrls.length).toBe(n);
+  expect(nodeIds().some((id) => id.startsWith("137:"))).toBe(false);
+}));
+
+test("an uncovered candidate's Load older reuses the Look path on the release chain", () => withBridgeEnv(async () => {
+  await loadAsDemo(bridgeWs([], { tokentx: { oldestBlock: "50", blockPage: 0, pageSize: 0, done: false, count: 20 } }));
+  await until(() => bridgeItems().length === 1);
+  expect(bridgeItems()[0].title).toContain("(low)");
+  clickEdge(bridgeItems()[0].id);
+  expect(panel()).toContain("do not reach back");
+  $("apiKey").value = "TESTKEY";
+  CANNED.txlist = [];
+  CANNED.tokentx = [];
+  const n = apiUrls.length;
+  // Every panel state from the click on: busy/idle (the Load older button) and the level shown.
+  const seen = [];
+  const mo = new window.MutationObserver(() => {
+    const level = (panel().match(/Confidence: (\w+)/) || [])[1];
+    const btn = detailBtn("Load older on Polygon");
+    if (level) seen.push(`${btn ? (btn.disabled ? "busy" : "idle") : "-"}/${level}`);
+  });
+  mo.observe($("detailsContent"), { childList: true, subtree: true });
+  try {
+    detailBtn("Load older on Polygon").click();
+    await until(() => !$("startBtn").disabled && bridgeItems()[0]?.title.includes("(high)") && seen.at(-1) === "-/high");
+  } finally {
+    mo.disconnect();
+  }
+  // Once the load is over the panel is never idle on the pre-load level (derived state is flushed first).
+  expect(seen[0]).toBe("busy/low");
+  expect(seen).not.toContain("idle/low");
+  expect(seen.at(-1)).toBe("-/high");
+  const sent = apiUrls.slice(n);
+  expect(triples(sent)).toEqual([["137", RECIP, "txlist"], ["137", RECIP, "txlistinternal"], ["137", RECIP, "tokentx"]]);
+  expect(new URL(sent[2]).searchParams.get("endblock")).toBe("50");
+  expect(bridgeItems()[0].title).toContain("(high)");
+}));
+
+test("an open deposit panel clears when its deposit edge is pruned: no stale level, no dead Look", () => withBridgeEnv(async () => {
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(DEP_KEY);
+  await until(() => panel().includes("high · Polygon · not reviewed"));
+  window.vis.Network.first.setSelection({ nodes: [ID("1", RCM)] }); // the bridge contract: a natural hub to prune
+  $("deleteNodesBtn").click();
+  await until(() => !bridgeItems().length && panel() === EN["details.empty"]);
+  expect(bridgeItems()).toEqual([]);
+  expect(panel()).toBe(EN["details.empty"]);
+}));
+
+const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+
+test("a confirmed decision: CSV status + caveat; the saved workspace carries it; drop-loading it restores it; an invalid entry is logged", () => withBridgeEnv(() => withDownloads(async (dl) => {
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(bridgeItems()[0].id);
+  detailBtn("Confirm (investigator)").click();
+  const csv = await (await nextBlob(dl, "exportCsvBtn")).text();
+  expect(csv.split("\n")[0]).toContain("bridge_inferred lists");
+  const dep = csv.split("\n").find((l) => l.includes(",0xbd1,"));
+  const rel = csv.split("\n").find((l) => l.includes(",0xbr1,"));
+  expect(dep.endsWith(`,release=137:0xbr1;to=${RECIP};confidence=high;status=confirmed-by-investigator`)).toBe(true);
+  expect(rel.endsWith(`,deposit=1:0xbd1;from=${DEPOSITOR};confidence=high;status=confirmed-by-investigator`)).toBe(true);
+  const saved = await (await nextBlob(dl, "saveBtn")).text();
+  const ws = JSON.parse(saved);
+  expect(ws.version).toBe(3);
+  expect(ws.bridgeDecisions).toEqual([{ deposit: DEP_KEY, release: REL_KEY, decision: "confirmed", at: expect.stringMatching(ISO) }]);
+  await loadAsDemo(bridgeWs(), /Demo workspace loaded/, false); // no reset first: the demo load itself clears
+  await until(() => logCount(/Demo workspace loaded/g) === 2 && bridgeItems()[0]?.label === "inferred — verify");
+  expect(bridgeItems()[0].label).toBe("inferred — verify");
+  await dropWorkspace(saved);
+  await until(() => bridgeItems()[0]?.label === "confirmed by investigator");
+  expect(bridgeItems()[0].label).toBe("confirmed by investigator");
+  await dropWorkspace(JSON.stringify({ ...ws, bridgeDecisions: [...ws.bridgeDecisions, { deposit: "x", release: "y", decision: "confirmed", at: "nope" }] }));
+  expect($("logContent").textContent).toContain("1 invalid bridge decision(s) in the file were ignored.");
+})));
+
+test("toggle off hides links and legend; PNG/PDF omit them and their footer line; CSV still lists the candidate; showBridges is saved and restored", () => withBridgeEnv(() => withDownloads((dl) => withFakeExportCanvas(async (fx) => {
+  const box = $("bridgeToggle");
+  try {
+    await loadAsDemo(bridgeWs());
+    await until(() => bridgeItems().length === 1);
+    expect($("bridgeToggleRow").hidden).toBe(false);
+    expect($("legendBridgeInferred").hidden).toBe(false);
+    expect($("legendBridgeConfirmed").hidden).toBe(true);
+    const draw = async (btn, done) => {
+      const n = logCount(done);
+      fx.texts.length = 0;
+      $(btn).click();
+      await until(() => logCount(done) > n);
+      return window.vis.Network.last.edges.get().some((e) => String(e.id).startsWith("bridge:"));
+    };
+    const PNG = /Image \(PNG\) downloaded/g, PDF = /PDF downloaded/g;
+    expect(await draw("exportPngBtn", PNG)).toBe(true);
+    expect(fx.texts.at(-1)).toBe(EN["export.footer.bridges"]);
+    box.checked = false;
+    box.dispatchEvent(new window.Event("change"));
+    expect(bridgeItems()).toEqual([]);
+    expect($("legendBridgeInferred").hidden).toBe(true);
+    expect($("legendBridgeConfirmed").hidden).toBe(true);
+    for (const [btn, done] of [["exportPngBtn", PNG], ["exportPdfBtn", PDF]]) {
+      expect(await draw(btn, done)).toBe(false);
+      expect(fx.texts).not.toContain(EN["export.footer.bridges"]);
+    }
+    const csv = await (await nextBlob(dl, "exportCsvBtn")).text();
+    expect(csv.split("\n")[0]).toContain("bridge_inferred lists");
+    expect(csv).toContain("confidence=high;status=unreviewed");
+    const saved = await (await nextBlob(dl, "saveBtn")).text();
+    expect(JSON.parse(saved).filters.showBridges).toBe(false);
+    box.checked = true;
+    box.dispatchEvent(new window.Event("change"));
+    await until(() => bridgeItems().length === 1);
+    await dropWorkspace(saved);
+    expect(box.checked).toBe(false);
+    expect(bridgeItems()).toEqual([]);
+    const { showBridges, ...filters } = JSON.parse(saved).filters;
+    await dropWorkspace(JSON.stringify({ ...JSON.parse(saved), filters }));
+    expect(box.checked).toBe(true);
+    await until(() => bridgeItems().length === 1);
+  } finally {
+    box.checked = true;
+    box.dispatchEvent(new window.Event("change"));
+  }
+}))));
+
+test("evidence bundle: MANIFEST bridges block + BRIDGE_CAVEAT; workspace.json carries the decision", () => withBridgeEnv(() => withDownloads(async (dl) => {
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(bridgeItems()[0].id);
+  detailBtn("Confirm (investigator)").click();
+  const files = readZip(await bundleBytes(dl));
+  const file = (n) => dec(files.find((f) => f.name === n).bytes);
+  const manifest = JSON.parse(file("MANIFEST.json"));
+  expect(manifest.bridges).toEqual({ note: expect.any(String), candidates: 1, low: 0, medium: 0, high: 1, confirmedByInvestigator: 1, rejectedByInvestigator: 0 });
+  expect(manifest.caveats).toContain(BRIDGE_CAVEAT);
+  expect(JSON.parse(file("workspace.json")).bridgeDecisions.length).toBe(1);
+  const csv = file("graph.csv").split("\n");
+  expect(csv[0]).toContain("bridge_inferred lists inferred bridge candidates");
+  expect(csv.find((l) => l.includes(",0xbd1,"))).toEndWith(`,release=137:0xbr1;to=${RECIP};confidence=high;status=confirmed-by-investigator`);
+})));
+
+test("reset clears investigator decisions: the same pair rebuilt by scan + Look is inferred again, and a save carries none", () => withBridgeEnv(() => withDownloads(async (dl) => {
+  // A real scan of the depositor on chain 1 (no workspace/demo load: those clear decisions themselves), then Look on 137.
+  const rebuild = async () => {
+    $("resetBtn").click();
+    $("apiKey").value = "TESTKEY";
+    CANNED.txlist = [{ from: DEPOSITOR, to: RCM, value: "20000000000000000000", hash: "0xbd1", input: etherFor(RECIP), isError: "0",
+      txreceipt_status: "1", timeStamp: String(BT), blockNumber: "100" }];
+    CANNED.tokentx = [];
+    setChain("1");
+    $("address").value = DEPOSITOR;
+    $("depth").value = "1";
+    $("startBtn").click();
+    await until(() => /Done/.test($("status").textContent || ""));
+    CANNED.txlist = [];
+    CANNED.tokentx = [{ from: ZERO, to: RECIP, value: "20000000000000000000", hash: "0xbr1", tokenSymbol: "WETH", tokenDecimal: "18",
+      contractAddress: WETH137, timeStamp: String(BT + 1800), blockNumber: "200" }];
+    clickEdge(window.vis.Network.first.edges.get().find((e) => String(e.id).includes("|0xbd1|")).id);
+    await until(() => panel().includes("Look for the release on"));
+    $("detailsContent").querySelector("select").value = "137";
+    detailBtn("Look").click();
+    await until(() => bridgeItems().length === 1 && !$("startBtn").disabled);
+  };
+  await rebuild();
+  const id1 = bridgeItems()[0].id;
+  clickEdge(id1);
+  detailBtn("Confirm (investigator)").click();
+  expect(bridgeItems()[0].label).toBe("confirmed by investigator");
+  $("resetBtn").click();
+  expect(bridgeItems()).toEqual([]);
+  await rebuild();
+  expect(bridgeItems()[0].id).toBe(id1);
+  expect(bridgeItems()[0].label).toBe("inferred — verify");
+  expect(JSON.parse(await (await nextBlob(dl, "saveBtn")).text()).bridgeDecisions).toBeUndefined();
+})));
+
+const F5 = "0xf00d000000000000000000000000000000000005";
+test("demo bridge example (pure): one high candidate 0xe1 -> 0xe2; the sanctioned 0xb7 depositor is assumed the recipient, no candidate", async () => {
+  const { parseWorkspace } = await import("../src/workspace.js");
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { inferBridges } = await import("../src/bridgeInfer.js");
+  const { knownEntry, knownCategory } = await import("../src/knownAddresses.js");
+  const { CHAINS } = await import("../src/config.js");
+  const demo = JSON.parse(await Bun.file(new URL("../data/demo-workspace.json", import.meta.url)).text());
+  const store = new GraphStore();
+  const parsed = parseWorkspace(JSON.stringify(demo));
+  store.loadSnapshot(parsed.data.nodes, parsed.data.edges);
+  const { deposits, candidates } = inferBridges(store.listNodes(), store.listEdges(), {
+    known: (a, c) => knownEntry(a, c, KNOWN),
+    trustedToken: (a, c) => knownCategory(a, c, KNOWN) === "token",
+    nativeSymbol: (c) => CHAINS.find((x) => String(x.id) === String(c))?.native || null,
+  });
+  const hashOf = (k) => store.listEdges().find((e) => e.key === k).hash;
+  expect(candidates.map((c) => [hashOf(c.depositKey), hashOf(c.releaseKey), c.level])).toEqual([["0xe1", "0xe2", "high"]]);
+  expect([...deposits.values()].map((d) => d.hash).sort()).toEqual(["0xb7", "0xe1"]);
+  expect([...deposits.values()].find((d) => d.hash === "0xb7")).toMatchObject({ recipient: DEMO_ROOT, basis: "sender" });
+  expect([...deposits.values()].find((d) => d.hash === "0xe1")).toMatchObject({ recipient: F5, basis: "calldata" });
+});
+
+test("demo draws the illustrative high bridge link; the 0xb7 deposit shows an assumed recipient and Look, 0xe1 shows the candidate", async () => {
+  await knownLoaded();
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    const links = () => bridgeItems().filter((e) => e.from === ID("1", DEMO_ROOT) && e.to === ID("137", F5) && e.title.includes("(high)"));
+    await until(() => links().length === 1);
+    expect(links().length).toBe(1);
+    clickEdge(edgeByHash("0xb7").id);
+    await until(() => panel().includes("assumed to be the depositor's own address"));
+    expect(panel()).toContain("Recipient on the other side: " + DEMO_ROOT + " — assumed to be the depositor's own address (not decoded)");
+    expect(panel()).not.toContain("Recipient unknown");
+    expect($("detailsContent").querySelector("select")).not.toBeNull();
+    clickEdge(edgeByHash("0xe1").id);
+    await until(() => panel().includes("high · Polygon · not reviewed"));
+    expect(panel()).toContain("high · Polygon · not reviewed");
+    expect($("detailsContent").querySelector("select")).not.toBeNull();
+  } finally {
+    $("resetBtn").click();
   }
 });

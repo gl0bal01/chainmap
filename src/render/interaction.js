@@ -240,7 +240,7 @@ export function rotateGraph(network, angleDeg) {
  */
 export function selectHighDegree(network, threshold) {
   const { ids } = allPositions(network);
-  const selected = ids.filter((id) => network.getConnectedEdges(id).filter((e) => !String(e).startsWith("twin:")).length >= threshold);
+  const selected = ids.filter((id) => network.getConnectedEdges(id).filter((e) => !/^(twin|bridge):/.test(String(e))).length >= threshold);
   network.setSelection({ nodes: selected, edges: [] });
   return selected;
 }

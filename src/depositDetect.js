@@ -24,11 +24,11 @@ const MIN_SHARE = 90; // % — count share AND per-asset value share (conservati
 const VALUE_ACTIONS = new Set(["txlist", "txlistinternal", "tokentx"]);
 
 /** Raw base-unit integer string -> BigInt; anything else -> null (skipped). */
-const units = (v) => (typeof v === "string" && /^\d+$/.test(v) ? BigInt(v) : null);
+export const units = (v) => (typeof v === "string" && /^\d+$/.test(v) ? BigInt(v) : null);
 /** Asset key: the token contract for ERC-20, "" for native (normal + internal). */
 const assetOf = (e) => (e.action === "tokentx" ? String(e.tokenContract || "").toLowerCase() : "");
 /** UNIX seconds from a decimal-digit timestamp; null otherwise (no Infinity / 1e9 / NaN from workspaces). */
-const secs = (e) => {
+export const secs = (e) => {
   const t = /^\d+$/.test(String(e.timeStamp)) ? Number(e.timeStamp) : 0;
   return Number.isSafeInteger(t) && t > 0 ? t : null;
 };

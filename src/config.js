@@ -170,6 +170,7 @@ export const LIMITS = {
   rps:             { min: 1, max: 30 },
   degreeThreshold: { min: 1, max: 1000 },
   queryLog:        5000,
+  bridgeDecisions: 5000, // investigator bridge decisions kept in a workspace
 };
 
 /** Etherscan fetch tuning (etherscanClient). */

@@ -46,6 +46,8 @@ import { addressEvidence, sameAddressLinks } from "../chainTwins.js";
  * @property {(id:string)=>boolean} hasRenderedNode is this node (by node id) currently visible?
  * @property {(id:string)=>void} focusNode select + center a visible node by node id (no-op if hidden)
  * @property {(key:string)=>(string|null)} selectEdge resolve a raw edge key to the rendered id (bundle-aware) and select it; never throws
+ * @property {(links:Array<{id:string,a:string,b:string,level:string,decision:string|null}>)=>void} setBridgeLinks draw exactly these inferred links (overlay, never stored)
+ * @property {()=>Array<object>} getBridgeLinks copies of the drawn links
  * @property {()=>void} destroy
  */
 
@@ -127,6 +129,7 @@ export function createGraphView(container, store, deps) {
   let bundled = false;
   let twinsOn = false;
   let twinLinks = []; // drawn same-key links (derived, never stored)
+  let bridgeLinks = []; // drawn inferred bridge links (plain data from main.js, never stored)
   let hubHidden = { faucet: false, sink: false }; // reversible faucet/sink hide (display projection only)
   // Investigator overlays
   let roundTripOn = false;
@@ -144,7 +147,7 @@ export function createGraphView(container, store, deps) {
   const ANNOTATION_MAX_WIDTH = 300; // px; notes wrap to this width
   let annCounter = 0;
 
-  const edgesView = new vis.DataView(edgesDS, { filter: (e) => e.twin === true || passesFilters(e.data, display) });
+  const edgesView = new vis.DataView(edgesDS, { filter: (e) => e.overlay === true || passesFilters(e.data, display) });
   const nodesView = new vis.DataView(nodesDS, {
     filter: (n) => {
       if (n.group === "annotation") return true;
@@ -256,7 +259,7 @@ export function createGraphView(container, store, deps) {
     maxAmount = 0;
     let aMin = Infinity;
     let aMax = -Infinity;
-    const items = edgesDS.get().filter((it) => !it.twin);
+    const items = edgesDS.get().filter((it) => !it.overlay);
     items.forEach((it) => {
       const a = edgeAmountNumber(it.data);
       if (a > maxAmount) maxAmount = a;
@@ -277,7 +280,7 @@ export function createGraphView(container, store, deps) {
     }
     const ids = new Set();
     edgesView.get().forEach((e) => {
-      if (e.twin) return;
+      if (e.overlay) return;
       ids.add(e.from);
       ids.add(e.to);
     });
@@ -291,7 +294,7 @@ export function createGraphView(container, store, deps) {
   // (fromId,toId,contract,symbol). Store per-tx rows are untouched; memberKeys let the
   // detail panel drill back. Rebuilt from the FILTERED edge view.
   function rebuildBundles() {
-    const records = edgesView.get().filter((e) => !e.twin).map((e) => e.data);
+    const records = edgesView.get().filter((e) => !e.overlay).map((e) => e.data);
     const bundles = bundleEdges(records);
     let maxTotal = 0;
     bundles.forEach((b) => { if (b.total > maxTotal) maxTotal = b.total; });
@@ -318,7 +321,7 @@ export function createGraphView(container, store, deps) {
         };
       })
     );
-    bundledDS.add(edgesDS.get().filter((e) => e.twin));
+    bundledDS.add(edgesDS.get().filter((e) => e.overlay));
   }
 
   // Same-key overlay: derived from the store each time, only basis 'key' is drawn.
@@ -342,7 +345,7 @@ export function createGraphView(container, store, deps) {
     for (const [id, l] of next) {
       const cur = edgesDS.get(id);
       if (!cur) fresh.push({
-        id, from: l.a, to: l.b, twin: true, data: { twin: true, ...l }, label, title,
+        id, from: l.a, to: l.b, twin: true, overlay: true, data: { twin: true, ...l }, label, title,
         dashes: [2, 6], width: 1, color: { color: "#8b93a3" }, font: { color: "#8b93a3" },
         arrows: { to: { enabled: false } }, physics: false,
       });
@@ -350,6 +353,36 @@ export function createGraphView(container, store, deps) {
     }
     if (retitle.length) edgesDS.update(retitle);
     if (fresh.length) edgesDS.add(fresh);
+  }
+
+  // Inferred bridge overlay: same diff-sync as twins (add/remove only for new/vanished ids,
+  // in-place update for label/title/colour so a locale switch keeps hand-placed positions).
+  function syncBridges() {
+    const next = new Map(bridgeLinks.map((l) => [`bridge:${l.id}`, l]));
+    const gone = edgesDS.getIds().filter((id) => String(id).startsWith("bridge:") && !next.has(id));
+    if (gone.length) edgesDS.remove(gone);
+    const fresh = [];
+    const changed = [];
+    for (const [id, l] of next) {
+      const confirmed = l.decision === "confirmed";
+      const vis = labels.bridgeLinkVisual(confirmed);
+      const params = { level: i18n.t(`bridge.level.${l.level}`) };
+      const label = i18n.t(confirmed ? "bridge.linkConfirmed" : "bridge.link");
+      const title = i18n.t(confirmed ? "bridge.tooltipConfirmed" : "bridge.tooltip", params);
+      const cur = edgesDS.get(id);
+      if (!cur) fresh.push({ id, from: l.a, to: l.b, overlay: true, bridge: true, data: { bridge: true, ...l }, label, title, ...vis });
+      else if (cur.label !== label || cur.title !== title || cur.color?.color !== vis.color.color) {
+        changed.push({ id, data: { bridge: true, ...l }, label, title, color: vis.color, font: vis.font });
+      }
+    }
+    if (changed.length) edgesDS.update(changed);
+    if (fresh.length) edgesDS.add(fresh);
+  }
+
+  function setBridgeLinks(links) {
+    bridgeLinks = (links || []).map((l) => ({ ...l }));
+    syncBridges();
+    if (bundled) rebuildBundles();
   }
 
   function setTwins(on) {
@@ -360,6 +393,7 @@ export function createGraphView(container, store, deps) {
 
   function refreshProjection() {
     syncTwins();
+    syncBridges();
     edgesView.refresh();
     restyleEdges();
     if (roundTripOn) roundTripSet = findCycleNodes(store.listNodes(), store.listEdges());
@@ -575,6 +609,7 @@ export function createGraphView(container, store, deps) {
         maxAmount = 0;
         visibleNodes = null;
         twinLinks = [];
+        bridgeLinks = [];
         break;
       default:
         break;
@@ -592,6 +627,8 @@ export function createGraphView(container, store, deps) {
     setBundling,
     setTwins,
     getTwinLinks: () => twinLinks.map((l) => ({ ...l })),
+    setBridgeLinks,
+    getBridgeLinks: () => bridgeLinks.map((l) => ({ ...l })),
     getEdgeData,
     setLayout,
     setRoundTrip,

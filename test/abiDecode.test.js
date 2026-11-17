@@ -138,3 +138,16 @@ test("decodeInputText returns empty for no/short/invalid calldata", () => {
 test("decodeInputText below the alphanumeric gate (too little text) -> empty", () => {
   expect(decodeInputText(hexOf("hi"))).toBe(""); // only 2 alnum, under the 4-char gate
 });
+
+test("bridge calls decode destRecipient / destChainId and stop at the first dynamic arg", () => {
+  const to = "0x" + "ab".repeat(20);
+  const w = (v) => pad(String(v).startsWith("0x") ? String(v).slice(2) : BigInt(v).toString(16));
+  expect(decodeCall("0x9a2ac6d5" + w(to) + w(200000) + w(96) + w(0)).args).toEqual([
+    { type: "address", value: to, name: "destRecipient" },
+    { type: "uint32", value: "200000", name: "minGasLimit" },
+  ]);
+  const v3 = decodeCall("0x7b939232" + [to, to, to, to, 5, 4, 42161, "0x" + "0".repeat(40), 1, 2, 3, 384].map(w).join(""));
+  expect(v3.args.length).toBe(11);
+  expect(v3.args.find((a) => a.name === "destChainId").value).toBe("42161");
+  expect(v3.args.find((a) => a.name === "destRecipient").value).toBe(to);
+});

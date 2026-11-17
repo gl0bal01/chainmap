@@ -7,6 +7,8 @@ import { APP_VERSION, PRICE_API } from "./config.js";
 import { sha256Hex, windowOf } from "./queryLog.js";
 import { createZip } from "./zip.js";
 
+export const BRIDGE_CAVEAT = "Inferred bridge links are candidates computed from amount, timing and recipient in the loaded data — leads to verify on both explorers, never proof; \"confirmed by investigator\" records the investigator's assertion, not an on-chain fact.";
+
 export const CAVEATS = [
   "Sampled data: the latest transactions per address per type (plus pages loaded with \"Load older\"), not the full on-chain history.",
   "Known labels, risk flags, imitation-token marks, likely-deposit marks and same-key links are signals, not facts.",
@@ -66,6 +68,8 @@ export async function buildManifest(input) {
   const p = input.prices;
   const caveats = input.retrieval && input.retrieval.fullyLogged ? [...CAVEATS] : [...CAVEATS, PARTIAL_CAVEAT];
   if (p?.shown) caveats.push(USD_CAVEAT);
+  const b = input.bridges && input.bridges.candidates > 0 ? input.bridges : null;
+  if (b) caveats.push(BRIDGE_CAVEAT);
   return {
     format: "chainmap-evidence/1",
     app: { name: "chainmap", version: APP_VERSION },
@@ -81,6 +85,12 @@ export async function buildManifest(input) {
         source: "DefiLlama (" + PRICE_API + ")", estimate: true, shown: p.shown,
         note: "USD values are estimates: DefiLlama price within 1 hour of each transaction, multiplied by the exact token amount; blank when unknown.",
         queries: p.queries, priced: p.priced, priceable: p.priceable,
+      }
+      : null,
+    bridges: b
+      ? {
+        note: "Candidate releases inferred from amount, timing and recipient in the loaded data; low/medium/high is a computed confidence, not proof. confirmedByInvestigator / rejectedByInvestigator count the investigator's own decisions (assertions, not on-chain facts).",
+        ...b,
       }
       : null,
     caveats,
@@ -113,7 +123,7 @@ export async function buildEvidenceZip(input) {
 const utc = (iso) => iso.slice(0, 19).replace("T", " ");
 
 /** Provenance footer text (PNG/PDF) as translated lines. */
-export function footerLines({ t, appVersion, exportedAt, retrieval }) {
+export function footerLines({ t, appVersion, exportedAt, retrieval, bridges }) {
   return [
     t("export.footer.app", { version: appVersion, at: utc(exportedAt) }),
     retrieval
@@ -122,5 +132,6 @@ export function footerLines({ t, appVersion, exportedAt, retrieval }) {
     ...(retrieval && !retrieval.fullyLogged ? [t("export.footer.partial")] : []),
     t("export.footer.sampling"),
     t("export.footer.signals"),
+    ...(bridges ? [t("export.footer.bridges")] : []),
   ];
 }

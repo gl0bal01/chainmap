@@ -126,3 +126,14 @@ describe("Locale parity (en.js ↔ fr.js)", () => {
     expect(enResult).not.toBe(frResult);
   });
 });
+
+describe("Bridge wording", () => {
+  it("computed bridge wording never reads as proof (en + fr)", () => {
+    const keys = Object.keys(en).filter((k) => /^(bridge\.|details\.bridge|legend\.bridge|filters\.bridges)/.test(k) && !/onfirm/.test(k));
+    expect(keys.length).toBeGreaterThan(20);
+    for (const k of keys) {
+      expect([k, /confirm|exact|match|verified|traced|followed/i.test(en[k])]).toEqual([k, false]);
+      expect([k, /confirm|exact|correspond|vérifié|tracé|suivi/i.test(fr[k])]).toEqual([k, false]);
+    }
+  });
+});

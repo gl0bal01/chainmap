@@ -155,3 +155,10 @@ test("selectHighDegree never counts same-key overlay edges", () => {
   expect(selectHighDegree(net, 3)).toEqual([]);
   expect(selectHighDegree(net, 2).sort()).toEqual(["1:x", "8453:x"]);
 });
+
+test("selectHighDegree never counts inferred bridge links", () => {
+  const net = makeFakeNetwork({ positions: { "1:x": { x: 0, y: 0 } } });
+  net.getConnectedEdges = () => ["e0", "e1", "bridge:1|d>137|r"];
+  expect(selectHighDegree(net, 3)).toEqual([]);
+  expect(selectHighDegree(net, 2)).toEqual(["1:x"]);
+});

@@ -11,7 +11,7 @@
 
 import { RESOLUTION_PRESETS, EXPORT_PIXELS } from "../config.js";
 import { csvEscape, formatTimestamp, formatUnits } from "../format.js";
-import { nodeLabel, nodeVisual, edgeLabel } from "./labels.js";
+import { nodeLabel, nodeVisual, edgeLabel, bridgeLinkVisual } from "./labels.js";
 import { methodName } from "../selectors.js";
 import { resolvedRecipient, flagsForEdge } from "../riskFlags.js";
 import { buildEvidenceZip, fileStamp } from "../evidence.js";
@@ -69,6 +69,7 @@ export function computeExportSize(preset, nodeCount) {
  *           annotations?:Array<{text:string,x:number,y:number}>,
  *           chainTag?:(chainId:string)=>(string|null),
  *           twinLinks?:Array<{a:string,b:string}>, twinLabel?:string,
+ *           bridgeLinks?:Array<{a:string,b:string,label:string,confirmed:boolean}>,
  *           footer?:string[], badge?:(node:object)=>(string|null) }} opts
  *   `footer` lines are drawn (canvas fillText, never DOM) in a band carved INSIDE
  *   `size` — the graph area shrinks by the band, so the pixel guard still holds.
@@ -144,6 +145,11 @@ export function renderExportCanvas(view, store, opts) {
           dashes: [2, 6], width: 1, color: { color: "#8b93a3", inherit: false },
           font: { color: "#8b93a3" }, arrows: { to: { enabled: false } }, physics: false,
         });
+      });
+
+      // Inferred bridge links (derived, display-only; same style as the live view).
+      (opts.bridgeLinks || []).forEach((l, i) => {
+        exportEdges.add({ id: "bridge:" + i, from: l.a, to: l.b, label: l.label, ...bridgeLinkVisual(l.confirmed) });
       });
 
       // Sticky-note annotations bake into the exported image too.
@@ -232,7 +238,7 @@ export function renderExportCanvas(view, store, opts) {
  * @returns {Promise<void>}
  */
 export async function exportPng(view, store, deps) {
-  const { preset, addressFormat, onLog, annotations, chainTag, twinLinks, twinLabel, footer, badge } = deps;
+  const { preset, addressFormat, onLog, annotations, chainTag, twinLinks, twinLabel, bridgeLinks, footer, badge } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -245,7 +251,7 @@ export async function exportPng(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, bridgeLinks, footer, badge });
   triggerDownload(canvas.toDataURL("image/png"), `graph-${Date.now()}.png`);
   onLog({ level: "info", key: "log.exportPng", params: { w: canvas.width, h: canvas.height } });
 }
@@ -260,7 +266,7 @@ export async function exportPng(view, store, deps) {
  * @returns {Promise<void>}
  */
 export async function exportPdf(view, store, deps) {
-  const { preset, addressFormat, jsPDF, onLog, annotations, chainTag, twinLinks, twinLabel, footer, badge } = deps;
+  const { preset, addressFormat, jsPDF, onLog, annotations, chainTag, twinLinks, twinLabel, bridgeLinks, footer, badge } = deps;
   const nodeCount = store.listNodes().length;
   if (!nodeCount) {
     onLog({ level: "error", key: "log.exportEmpty" });
@@ -273,7 +279,7 @@ export async function exportPdf(view, store, deps) {
     return;
   }
 
-  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge });
+  const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, bridgeLinks, footer, badge });
   const imgData = canvas.toDataURL("image/png");
   const doc = new jsPDF({
     orientation: canvas.width >= canvas.height ? "l" : "p",
@@ -288,15 +294,18 @@ export async function exportPdf(view, store, deps) {
 /** Header row for the CSV export (node rows leave tx_type/from/... blank, and
  *  vice versa — one wide sparse table keeps a single header for both kinds).
  *  The decoded-calldata columns (edge rows only) are followed by chain_id and
- *  the two deposit columns (node rows only). */
+ *  the two deposit columns (node rows only); usd_value and bridge_inferred (edge rows only) come last. */
 const CSV_HEADER = [
   "row_type", "address", "alias", "depth", "is_root",
   "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
   "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id",
-  "likely_deposit_of", "deposit_evidence", "usd_value",
+  "likely_deposit_of", "deposit_evidence", "usd_value", "bridge_inferred",
 ];
 
 const DEPOSIT_CAVEAT = "; likely_deposit_of is a heuristic (nearly all of the address's sampled outflow went to one known exchange wallet) - not an attribution";
+
+const BRIDGE_CSV_CAVEAT = "; bridge_inferred lists inferred bridge candidates (amount/time/recipient) - not facts - and confirmed-by-investigator is the investigator's assertion - not on-chain proof";
+const BRIDGE_STATUS = { confirmed: "confirmed-by-investigator", rejected: "rejected-by-investigator" };
 
 const depositEvidenceText = (d) =>
   `wallet=${d.wallet};swept=${d.swept}/${d.outgoing};share=${d.assets.map((a) => `${a.symbol}:${a.sharePct}%`).join(",")};max_delay_s=${d.maxDelaySec ?? "none"}`;
@@ -318,6 +327,7 @@ function provenanceText({ exportedAt, retrieval }) {
  *           formatTimestamp?:(t:string)=>string,
  *           deposits?:Map<string, import('../depositDetect.js').DepositEvidence>,
  *           usd?:(edge:object)=>({state:string, text?:string}),
+ *           bridges?:{ candidates:object[], decisions:Map<string,{deposit:string,release:string,decision:string}> },
  *           provenance?:{ exportedAt:string, retrieval:object|null } }} ctx
  *   `usd` (absent when the box is off) fills usd_value and adds the line-1 estimate caveat with counts.
  *   `provenance` (when given) extends line 1 — still one comma-free `#` comment.
@@ -332,13 +342,28 @@ export function buildCsvRows(store, ctx) {
   const multiChain = new Set(nodes.map((n) => n.chainId)).size >= 2;
   const prov = ctx && ctx.provenance;
   const usd = ctx && ctx.usd;
+  // Bridge parts per edge key (candidate order); candidates whose edges are gone are skipped.
+  const byKey = new Map(store.listEdges().map((e) => [e.key, e]));
+  const bridgeParts = new Map();
+  const addPart = (key, part) => bridgeParts.set(key, [...(bridgeParts.get(key) || []), part]);
+  for (const c of (ctx && ctx.bridges && ctx.bridges.candidates) || []) {
+    const d = byKey.get(c.depositKey), r = byKey.get(c.releaseKey);
+    if (!d || !r) continue;
+    // Same rule as the details panel and MANIFEST: a decision applies only to the exact pair it was made on.
+    const dec = ctx.bridges.decisions?.get(c.id);
+    const status = dec && dec.deposit === c.depositKey && dec.release === c.releaseKey ? BRIDGE_STATUS[dec.decision] : null;
+    const tail = `confidence=${c.level};status=${status || "unreviewed"}`;
+    addPart(d.key, `release=${r.chainId}:${r.hash};to=${r.to};${tail}`);
+    addPart(r.key, `deposit=${d.chainId}:${d.hash};from=${d.from};${tail}`);
+  }
   const rows = [
     // Sampling caveat: this graph reflects only the transactions retrieved
     // during the scan (latest-first, capped per address/type) — not full
     // on-chain history. Kept as the first CSV line so it survives copy/paste.
     ["# sampling caveat: partial/sampled data (latest transactions per address per type) - not full on-chain history; not forensic-complete" +
       (multiChain ? "; multi-chain: each row belongs to its chain_id — the same address on two chains is two rows; a shared address implies no transfer" : "") +
-      (nodes.some((n) => deposits.has(n.id)) ? DEPOSIT_CAVEAT : "")],
+      (nodes.some((n) => deposits.has(n.id)) ? DEPOSIT_CAVEAT : "") +
+      (bridgeParts.size ? BRIDGE_CSV_CAVEAT : "")],
     CSV_HEADER,
   ];
 
@@ -348,7 +373,7 @@ export function buildCsvRows(store, ctx) {
       "node", n.address, n.alias || "", n.depth ?? "", n.isRoot ? "1" : "0",
       "", "", "", "", "", "", "", "",
       "", "", "", "", "", n.chainId,
-      d ? d.label : "", d ? depositEvidenceText(d) : "", "",
+      d ? d.label : "", d ? depositEvidenceText(d) : "", "", "",
     ]);
   }
   let priced = 0, priceable = 0;
@@ -377,7 +402,7 @@ export function buildCsvRows(store, ctx) {
       "edge", "", "", "", "",
       e.group || "", e.from || "", e.to || "", e.amountText || "", e.symbol || "",
       e.hash || "", e.blockNumber || "", fmtTs(e.timeStamp),
-      method, sig, realRecipient, decodedAmount, flags, e.chainId, "", "", usdCell,
+      method, sig, realRecipient, decodedAmount, flags, e.chainId, "", "", usdCell, (bridgeParts.get(e.key) || []).join(" | "),
     ]);
   }
   // Line 1 is finished here: the usd caveat needs the counts from the edge pass.
@@ -413,7 +438,7 @@ export function exportCsv(store, deps) {
     return;
   }
 
-  const text = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, usd: deps.usd, provenance: deps.provenance });
+  const text = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, usd: deps.usd, bridges: deps.bridges, provenance: deps.provenance });
   const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   triggerDownload(url, `graph-${Date.now()}.csv`);
@@ -453,7 +478,7 @@ export async function exportEvidenceBundle(view, store, deps) {
   let url = null, sha256, names;
   try {
     const enc = (s) => new TextEncoder().encode(s);
-    const csv = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, usd: deps.usd, provenance: { exportedAt, retrieval } });
+    const csv = csvText(store, { category: deps.category, isFakeToken: deps.isFakeToken, deposits: deps.deposits, usd: deps.usd, bridges: deps.bridges, provenance: { exportedAt, retrieval } });
     const files = [{ name: "graph.csv", bytes: enc(csv) }, { name: "workspace.json", bytes: enc(deps.workspaceText) }];
     const omitted = [];
     const size = computeExportSize(deps.preset, nodeCount);
@@ -461,8 +486,8 @@ export async function exportEvidenceBundle(view, store, deps) {
       omitted.push({ name: "graph.png", reason: "too-large" });
       onLog({ level: "error", key: "log.bundlePngOmitted", params: { pixels: size.pixels } });
     } else {
-      const { addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge } = deps;
-      const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, footer, badge });
+      const { addressFormat, annotations, chainTag, twinLinks, twinLabel, bridgeLinks, footer, badge } = deps;
+      const canvas = await renderExportCanvas(view, store, { size, addressFormat, annotations, chainTag, twinLinks, twinLabel, bridgeLinks, footer, badge });
       const png = await new Promise((r) => canvas.toBlob(r, "image/png"));
       if (!png) throw new Error("canvas.toBlob returned null");
       files.push({ name: "graph.png", bytes: new Uint8Array(await png.arrayBuffer()) });
