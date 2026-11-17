@@ -3550,10 +3550,38 @@ test("an uncovered candidate's Load older reuses the Look path on the release ch
   CANNED.txlist = [];
   CANNED.tokentx = [];
   const n = apiUrls.length;
-  detailBtn("Load older on Polygon").click();
-  await until(() => !$("startBtn").disabled && bridgeItems()[0]?.title.includes("(high)"));
+  // Every panel state from the click on: busy/idle (the Load older button) and the level shown.
+  const seen = [];
+  const mo = new window.MutationObserver(() => {
+    const level = (panel().match(/Confidence: (\w+)/) || [])[1];
+    const btn = detailBtn("Load older on Polygon");
+    if (level) seen.push(`${btn ? (btn.disabled ? "busy" : "idle") : "-"}/${level}`);
+  });
+  mo.observe($("detailsContent"), { childList: true, subtree: true });
+  try {
+    detailBtn("Load older on Polygon").click();
+    await until(() => !$("startBtn").disabled && bridgeItems()[0]?.title.includes("(high)") && seen.at(-1) === "-/high");
+  } finally {
+    mo.disconnect();
+  }
+  // Once the load is over the panel is never idle on the pre-load level (derived state is flushed first).
+  expect(seen[0]).toBe("busy/low");
+  expect(seen).not.toContain("idle/low");
+  expect(seen.at(-1)).toBe("-/high");
   const sent = apiUrls.slice(n);
   expect(triples(sent)).toEqual([["137", RECIP, "txlist"], ["137", RECIP, "txlistinternal"], ["137", RECIP, "tokentx"]]);
   expect(new URL(sent[2]).searchParams.get("endblock")).toBe("50");
   expect(bridgeItems()[0].title).toContain("(high)");
+}));
+
+test("an open deposit panel clears when its deposit edge is pruned: no stale level, no dead Look", () => withBridgeEnv(async () => {
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(DEP_KEY);
+  await until(() => panel().includes("high · Polygon · not reviewed"));
+  window.vis.Network.first.setSelection({ nodes: [ID("1", RCM)] }); // the bridge contract: a natural hub to prune
+  $("deleteNodesBtn").click();
+  await until(() => !bridgeItems().length && panel() === EN["details.empty"]);
+  expect(bridgeItems()).toEqual([]);
+  expect(panel()).toBe(EN["details.empty"]);
 }));

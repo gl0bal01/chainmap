@@ -149,6 +149,16 @@ function recomputeDeposits() {
   if (currentDetail?.kind === "node" && changed.includes(currentDetail.id)) rerenderDetails();
 }
 
+// Deposit marks and bridge inference follow store changes, coalesced to one macrotask. A details
+// re-render flushes a pending recompute first, so a panel never shows a pre-change level.
+let derivedQueued = false;
+function flushDerived() {
+  if (!derivedQueued) return;
+  derivedQueued = false;
+  recomputeDeposits();
+  recomputeBridges();
+}
+
 // Inferred bridge links: derived like depositMap (never stored, never fed back into the store).
 // Investigator decisions are session state; they never reach inferBridges (ruling 2).
 let bridgeState = { deposits: new Map(), candidates: [] };
@@ -716,8 +726,10 @@ function showNodeDetails(id) {
 }
 
 function showEdgeDetails(edgeKey) {
-  const data = view.getEdgeData(edgeKey); // EdgeRecord, or a BundledEdge when bundling is on
-  if (!data) return;
+  // EdgeRecord, or a BundledEdge when bundling is on; a raw key opened before bundling is read
+  // from the store. Gone (pruned, reset): clear, never leave a stale panel with dead buttons.
+  const data = view.getEdgeData(edgeKey) ?? store.listEdges().find((e) => e.key === edgeKey);
+  if (!data) return clearDetails();
   if (data.bridge) return showBridgeDetails(data.id);
   currentDetail = { kind: "edge", id: edgeKey };
   if (data.twin) {
@@ -741,6 +753,7 @@ function showEdgeDetails(edgeKey) {
 }
 
 function rerenderDetails() {
+  flushDerived(); // never re-render from derived state that predates the last store change
   if (!currentDetail) return;
   if (currentDetail.kind === "node") showNodeDetails(currentDetail.id);
   else if (currentDetail.kind === "bridge") showBridgeDetails(currentDetail.id);
@@ -1607,11 +1620,10 @@ function init() {
       syncChainUi();
     });
   });
-  let depositQueued = false;
   store.subscribe((e) => {
-    if (e.type === "alias:set" || depositQueued) return;
-    depositQueued = true;
-    setTimeout(() => { depositQueued = false; recomputeDeposits(); recomputeBridges(); }, 0);
+    if (e.type === "alias:set" || derivedQueued) return;
+    derivedQueued = true;
+    setTimeout(flushDerived, 0);
   });
   // While USD is on, want the keys a graph change made priceable: new edges, or a root removed /
   // nodes updated (isRoot), which can turn a "root" skip into a key. Coalesced to one macrotask.
