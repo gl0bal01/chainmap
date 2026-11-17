@@ -252,3 +252,29 @@ derives off-tag ids another way; the exact wording of new build-report lines.
 21. **Chain-specific EVM curated rows on an OFAC address keep today's behaviour** (merged as
     `sanctioned` with the OFAC source suffix); the conflict rejection of ruling 9 fires only
     in a bucket that holds OFAC rows (`"*"` and Tron). *Cost if wrong:* none (unchanged).
+
+## Execution and final-review rulings (lead)
+
+22. **The ⛔ badge is pinned in the graph node's hover title**, where the app puts it on every
+    chain (`CAT_ICON` goes into `title`, not `label`). *Cost if wrong:* none (parity pin).
+23. **The CSV has no known-label column on any chain**; the sanctioned Tron node is pinned by
+    its `T…` row and chain id, the edges by `risk_flags`. A label column is a separate owner
+    decision. *Cost if wrong:* none.
+24. **Final review (fable, "with fixes", 0 Critical, 0 Important) fix wave:** the twin-sensitive
+    test pick (a real same-key pair exists: GAZA NOW is on the SDN list as both
+    `0xe950dc31…` and its `41…` twin), the unpinned `startsWith("T")` guard, the EVM-empty
+    guard pinned by message, the report heading matched to its filter, a stale test comment,
+    and **a `41…` hex id under any tag is a skipped id** (ruling 2 said "listed under its tag";
+    before the fix one under a non-TRX non-EVM tag was dropped silently). *Cost if wrong:* none
+    (zero such ids in the real file).
+25. **Left as is:** a `T…` entry citing a URL that embeds the `41…` form is not `unsourced`
+    (implausible); the integration deposit negatives cannot fail (ruling 13's pin is the
+    pipeline token-only test); cosmetic items (a curated row between two Avalanche rows —
+    output is sorted; line wraps; the `skippedIds` comment omitting the `41…` case; a valid
+    `0x` under TRX listed under "malformed 0x-shaped ids"). *Cost if wrong:* none functional.
+26. **PNG/PDF and node details, parity with EVM (found by the browser smoke):** export labels
+    are alias or address only on every chain (`render/export.js` calls `nodeLabel` without a
+    known label), and node details show a known entry through its Source row and the risk
+    reasons, not a label row. Tron matches EVM; drawing known labels in PNG/PDF is a separate
+    follow-up. *Cost if wrong:* an exported image of a Tron graph names the sanctioned node by
+    `T…` only, exactly as an EVM export does.
