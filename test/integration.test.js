@@ -4247,3 +4247,93 @@ test("the TronGrid notice shows while the graph holds a Tron node, whatever the 
     restoreForm();
   }
 });
+
+test("an EVM chain with a valid T… address: Start and Estimate refuse with zero requests to any host (ruling 39a)", async () => {
+  const bad = () => logCount(/Invalid Ethereum address/g);
+  try {
+    $("resetBtn").click();
+    $("apiKey").value = "TESTKEY";
+    setChain("1");
+    $("address").value = TRON_T;
+    const n = apiUrls.length, t = tronCalls.length, p = priceCalls.length, c = bad();
+    $("startBtn").click();
+    await until(() => bad() > c);
+    $("estimateBtn").click();
+    await until(() => bad() > c + 1);
+    expect(bad()).toBe(c + 2);
+    await sleep(0);
+    expect([apiUrls.length, tronCalls.length, priceCalls.length]).toEqual([n, t, p]);
+  } finally {
+    $("apiKey").value = "";
+    $("address").value = "";
+    restoreForm();
+  }
+});
+
+test("a workspace Tron node with an EVM chain selected and no Etherscan key: Load older hits only TronGrid (ruling 39b)", async () => {
+  try {
+    $("apiKey").value = "";
+    setChain("1");
+    await dropWorkspace(JSON.stringify(v3ws([v3Node(TRON_ID, TRON_A, { depth: 0, isRoot: true }), v3Node(TRON_ID, TRON_B)], [tronEdge()])));
+    expect($("chainSelect").value).toBe("1");
+    const n = apiUrls.length, t = tronCalls.length;
+    clickNode(TRON_ROOT_ID);
+    loadBtn().click();
+    await waitLoaded();
+    expect($("status").textContent).toContain("Loaded");
+    expect(apiUrls.length).toBe(n);
+    expect(tronCalls.length).toBeGreaterThan(t);
+    for (const c of tronCalls.slice(t)) expect(c.url.startsWith(`https://api.trongrid.io/v1/accounts/${TRON_A}/`)).toBe(true);
+  } finally {
+    window.vis.Network.first.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("an Etherscan key in the form reaches no host on a Tron Start, Estimate or Load older (ruling 44)", async () => {
+  const SENTINEL = "ETHERSCAN-SENTINEL-KEY";
+  try {
+    $("resetBtn").click();
+    $("apiKey").value = SENTINEL;
+    $("tronKey").value = "";
+    setChain(TRON_ID);
+    $("address").value = TRON_T;
+    $("depth").value = "1";
+    $("maxTxPerAddress").value = "2"; // the canned pages are longer: the root keeps older history
+    const n = apiUrls.length, t = tronCalls.length;
+    $("startBtn").click();
+    await until(() => /Done/.test($("status").textContent || ""));
+    const est = logCount(/Estimated/g);
+    $("estimateBtn").click();
+    await until(() => logCount(/Estimated/g) > est);
+    expect(logCount(/Estimated/g)).toBe(est + 1);
+    clickNode(TRON_ROOT_ID);
+    loadBtn().click();
+    await waitLoaded();
+    expect($("status").textContent).toContain("Loaded");
+    expect(apiUrls.length).toBe(n);
+    const calls = tronCalls.slice(t);
+    expect(calls.length).toBeGreaterThanOrEqual(9); // scan 3 + estimate 3 + load older 3
+    for (const c of calls) {
+      expect(c.url.includes(SENTINEL)).toBe(false);
+      expect(Object.values(c.init.headers).some((v) => String(v).includes(SENTINEL))).toBe(false);
+    }
+  } finally {
+    $("apiKey").value = "";
+    window.vis.Network.first.setSelection({ nodes: [] });
+    restoreForm();
+  }
+});
+
+test("the Look chain list and the Load-on-chain picker never offer Tron for an EVM node (ruling 45)", () => withBridgeEnv(async () => {
+  await loadAsDemo(v3ws([...chain1Side(), v3Node(TRON_ID, TRON_A, { depth: 0, isRoot: true })], [depEdge()]));
+  clickEdge(DEP_KEY);
+  await until(() => panel().includes("Look for the release on"));
+  const look = [...$("detailsContent").querySelector("select").options].map((o) => o.value);
+  expect(look.length).toBeGreaterThan(0);
+  expect(look).not.toContain(TRON_ID);
+  clickNode(ID("1", DEPOSITOR));
+  const pick = [...$("detailsContent").querySelectorAll("select option")].map((o) => o.value);
+  expect(pick).toContain("42161");
+  expect(pick).not.toContain(TRON_ID);
+}));

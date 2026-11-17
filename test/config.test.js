@@ -182,6 +182,11 @@ describe("Tron chain record", () => {
     expect(PROBE_CHAIN_IDS).not.toContain(728126428);
     expect(LLAMA_CHAINS["728126428"]).toBeUndefined();
   });
+  // Ruling 45: Tron is never an Etherscan chain, by number or by string.
+  test("CHAINS and PROBE_CHAIN_IDS never hold Tron", () => {
+    expect(CHAINS.map((c) => String(c.id))).not.toContain("728126428");
+    expect(PROBE_CHAIN_IDS.map(String)).not.toContain("728126428");
+  });
   test("chainInfo looks up CHAINS, Tron, else null", () => {
     expect(chainInfo("728126428")).toBe(TRON_CHAIN);
     expect(chainInfo(1).name).toBe("Ethereum");
