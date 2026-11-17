@@ -388,3 +388,74 @@ fine); fixture trimming; whether `displayAddress` caches base58 results (fine if
 29. **Bridge-detail links unchanged** (Tron edges never reach them). Cost if wrong: none.
 30. **Persistence test**: the integration harness seeds a stored Tron chain before main.js
     boots and asserts the fallback; select-then-reload is checked in the browser smoke.
+
+## Execution and final-review rulings (lead)
+
+Execution: an opus sub-lead ran the 12 plan tasks with subagent-driven development (one
+implementer and one reviewer per task, explicit models); only the docs task needed a fix
+round. Final whole-branch review on **fable**: "ready with fixes", 0 Critical, 2 Important,
+9 Minor. One fix wave (rulings 31-45, which include a controller security addendum), then a
+scoped fable re-review.
+
+31. **Legacy v1/v2 workspaces never fall back to Tron.** They predate Tron, so the fallback
+    chain is the selector if it holds an EVM chain, else the stored EVM chain, else `"1"`. Before
+    the fix, loading such a file while Tron was selected replaced the graph with an empty one.
+    Cost if wrong: an old file is tagged with the last EVM chain used (unchanged pre-P8 behaviour).
+32. **A short page that still carries `meta.fingerprint` is filled.** Up to 10 extra hops,
+    paced, logged and abortable, so the cursor never sees a short page while TronGrid says
+    more exists. Live check 2026-11-17 (keyless, 3 addresses × 3 endpoints, `limit=200`): 9 of
+    9 short pages carried no fingerprint, so this is a defence that real data has not needed.
+    Superseded at the cap by ruling 46.
+33. **The workspace `root` is never a lowercased base58-looking string**: a parsed Tron address
+    becomes canonical hex, a valid EVM address is lowercased, and anything else is kept as
+    typed. Cost if wrong: none (the field is informational).
+34. **Only a digit-string TRC-20 `value` is determinate.** Anything else is indeterminate (never
+    `BigInt("")` = 0 and never a rounded JSON number). A TRC-10 row without `asset_name` reads
+    `TRC10:?`. Cost if wrong: none.
+35. **A logged TronGrid `limit` must be canonical** (`/^[1-9]\d{0,2}$/`, at most 200). Cost if
+    wrong: none.
+36-37. **French wording fix**, and the Token checkbox names TRC-20. Cost if wrong: none.
+38. **The TronGrid notice and key field also show while the graph holds a Tron node**, because
+    Load older on that node can contact TronGrid while an EVM chain is selected. Cost if wrong:
+    none.
+39. **Added zero-request tests**:
+    - An EVM chain selected with a `T…` address typed: Start and Estimate refuse and send no request.
+    - A Tron node loaded from a workspace, with an EVM chain selected and the Etherscan key
+      empty: Load older contacts TronGrid only.
+40. **`checkOtherChains` and `loadOnChain` refuse a Tron node** (belt and braces). To test them,
+    main.js exports both functions. Cost if wrong: none.
+41. **One provider host table** (`evidence.PROVIDERS`) and one rule for the TRC-20 edge label.
+    Cost if wrong: none.
+42. **Pins and doc fixes.**
+    - Tests now pin the codec's version-byte and 35+ character rejections.
+    - The over-25-byte check in `tron.js` cannot trigger (a 34-character `T…` is below 2^199);
+      it stays as dead code.
+    - `rpsFor` and `minIntervalMs` read the DOM and stay untested.
+43. **Controller security finding: "wrong host for a chain".**
+    - Between plan tasks 9 and 10, the Tron selector existed but every operation still built
+      an Etherscan client. A transient branch state could therefore have sent a Tron address
+      and the Etherscan key to `api.etherscan.io` with `chainid=728126428`.
+    - Task 10 routed every operation through `clientFor`.
+    - As defence in depth, `createEtherscanClient` and `setChainId` now throw for `728126428`
+      (string or number) before any fetch. A unit test checks that `fetchImpl` is never called.
+    - Cost if wrong: none (fail closed).
+44. **Routing test.** With the Etherscan key filled with a sentinel and Tron selected, Start,
+    Estimate and Load older make zero `api.etherscan.io` requests, and the sentinel appears in
+    no TronGrid URL or header. It pairs with "no TronGrid request without choosing Tron".
+45. **Pins on chain lists.** `PROBE_CHAIN_IDS` and `CHAINS` never contain `728126428`. Look and
+    the Load-on-chain picker never offer Tron for an EVM node.
+
+46. **Scoped re-review (controller ruling): an exhausted fill-hop cap fails visibly.** If a page
+    is still short after the 10 fill hops and a fingerprint is still present, the client throws
+    an `api` error ("still short after N hops"): that action's cursor is unchanged, the scan/load
+    logs a normal fetch-error line, and the history never reads "complete". Cost if wrong: an
+    address whose pages TronGrid keeps returning short needs a retry, never a false "complete".
+47. **Scoped re-review (controller ruling): last-line host check in the Etherscan client.**
+    `etherscanClient.fetchAction` throws an `api` error before any fetch when the address is a
+    canonical Tron address (`41…`), on any chain id, completing rulings 43-45 for the
+    "wrong host for a chain" class. Cost if wrong: none (fail closed).
+
+Deviations accepted:
+- The docs-task RED step was recorded after the fact.
+- Task 10's RED failed on the Etherscan-key check before the chain refusal.
+- A `samplingN` fix keeps the capped N in the banner after a language switch (ruling 6).
