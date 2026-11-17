@@ -374,3 +374,31 @@ Builder check (sonnet), answered by the lead:
    unknown contract → `sender` basis (at most `low` unless the release sender is a bridge/mint, then
    `medium`). No hash walk back to the EOA: a router may pay out anywhere. *Cost if wrong:* deposits
    through routers rarely get candidates — leads missed, never invented. Stated as a limitation.
+
+## Plan-contact rulings (lead)
+
+Raised by the planner on contact with the code; these amend the design above.
+
+6. **Who may be assumed to receive (`sender` basis).** `recipient = null` only when the depositor is a
+   known entity that acts for others on that chain: category `exchange`, `router`, `bridge`, `mixer`
+   or `token`. Any other depositor, including a known `sanctioned` actor, gets the `sender` basis. So the
+   demo's existing 30 ETH deposit (Ronin exploiter → `0x40ec…`) gets a recipient and the Look row.
+   Copy for null: "Recipient unknown — the depositor is a known {category} that may act for others;
+   none is assumed." *Cost if wrong:* a sanctioned contract's deposit is searched at its own address
+   (`low` at most, unless a bridge/mint sender supports it).
+7. **`covered` uses the recipient's own sample only.** Per required action: the node's `history` entry
+   exists and is `done`, or an incident edge of that action with `timeStamp <= D.timeStamp` lies inside
+   the node's own fetched window (`blockNumber >= entry.oldestBlock`, compared as integers). An edge
+   that only came from a counterparty's page never proves coverage. *Cost if wrong:* none — stricter.
+8. **ETH ↔ WETH.** "The other is a native symbol" means the native symbol of the other edge's own
+   chain. *Cost if wrong:* a wrapped native of another chain is never paired (lead missed).
+9. **MANIFEST / caveat trigger.** `bridges` + `BRIDGE_CAVEAT` whenever a current candidate exists or a
+   decision applies to one, whatever the toggle (the CSV lists candidates regardless). Rejected
+   candidates count in `candidates`, in their level and in `rejectedByInvestigator`. *Cost if wrong:*
+   none.
+10. **Decision ids follow ruling 3's representative edge.** If a smaller-keyed edge of the same release
+    transaction loads later, the id changes; the old decision is kept and saved but no longer shown.
+    Stated as a limitation. *Cost if wrong:* a decision stops displaying in a rare reload case; never a
+    false one.
+11. **`decoded_amount`** fills for bridge calls whose param is named `amount` (raw base units, the
+    column's existing rule). No column moves. *Cost if wrong:* none.
