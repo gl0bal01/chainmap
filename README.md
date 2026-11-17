@@ -13,8 +13,9 @@ layers investigator tooling on top: filters, edge bundling, contract-call decodi
 detection, sink/faucet hubs, and per-node risk scoring.
 
 - **Fully client-side** — no backend, no build step, no telemetry.
-- **Your API key and data stay in your browser.** The only site contacted is
-  `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) only while you tick the opt-in
+- **Your API key and data stay in your browser.** On EVM chains the only
+  site contacted is `api.etherscan.io` — plus `api.trongrid.io` (TronGrid) only after you
+  explicitly choose Tron, and `coins.llama.fi` (DefiLlama) only while you tick the opt-in
   **Show USD values** box — enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
 - **966 unit/integration tests** on the DOM-free core.

@@ -14,8 +14,9 @@ choix. Puis il superpose des outils d'enquête : filtres, regroupement d'arêtes
 appels de contrat, détection de cycles, hubs puits/source et score de risque par nœud.
 
 - **Entièrement côté client** — aucun backend, aucune étape de build, aucune télémétrie.
-- **Votre clé API et vos données restent dans votre navigateur.** Le seul site contacté est
-  `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
+- **Votre clé API et vos données restent dans votre navigateur.** Sur les chaînes EVM, le seul
+  site contacté est `api.etherscan.io` — plus `api.trongrid.io` (TronGrid) uniquement après un
+  choix explicite de Tron, et `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
   case facultative **Afficher les valeurs en USD** — imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
 - **966 tests** unitaires / d'intégration sur le cœur sans DOM.
