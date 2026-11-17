@@ -98,7 +98,7 @@ async function main() {
   console.log(`OFAC skippedIds (${ofac.skippedIds.length}): ${JSON.stringify(tags)}`);
   // non-address ids under an EVM tag (e.g. Omni-format USDT) are expected; real 0x addresses under a new tag throw in parseOfacXml
   list("OFAC skipped malformed 0x-shaped ids", ofac.skippedIds.filter((s) => /^0x/i.test(s.idNumber)).map((s) => `${s.tag}: ${s.idNumber}`));
-  list("OFAC skipped malformed Tron-shaped ids", ofac.skippedIds.filter((s) => s.idNumber.startsWith("T")).map((s) => `${s.tag}: ${s.idNumber}`));
+  list("OFAC skipped T-prefixed or 41-hex ids", ofac.skippedIds.filter((s) => /^(T|41[0-9a-fA-F]{40}$)/.test(s.idNumber)).map((s) => `${s.tag}: ${s.idNumber}`));
   // a checksum-valid T… is imported whatever its tag; off-tag ones are listed for review
   list("OFAC Tron ids under other tags", ofac.tronEntries.filter((e) => !/ - (TRX|USDT)$/.test(e.tag)).map((e) => `${e.tag}: ${toTronBase58(e.address)}`));
   console.log(`superchain-registry: ${REGISTRY}@${registry.ref.sha} (${registry.ref.date}), ${registry.rows.length} rows`);

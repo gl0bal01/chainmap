@@ -85,8 +85,9 @@ test("curated seed never asserts 'sanctioned' (sanctions come only from the OFAC
 });
 
 // Every "sanctioned" entry must trace to ONE OFAC import: "*" entries carry the
-// generator's exact source (single publish date); chain entries need a "*" twin
-// and end their source with the same snapshot date.
+// generator's exact source (single publish date), as do Tron sanctioned rows
+// (no "*" twin needed); other chain entries need a "*" twin and end their
+// source with the same snapshot date.
 const OFAC_SOURCE = /^OFAC SDN list, published (\d{4}-\d{2}-\d{2})$/;
 const OFAC_SUFFIX = /; OFAC SDN list, published (\d{4}-\d{2}-\d{2})$/;
 function ofacProvenanceProblems(data) {

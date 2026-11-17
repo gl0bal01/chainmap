@@ -66,6 +66,18 @@ describe("parseOfacXml", () => {
     expect(parseOfacXml(withIds(id("TRX", "0x" + "f".repeat(40)))).skippedIds)
       .toContainEqual({ tag: "Digital Currency Address - TRX", idNumber: "0x" + "f".repeat(40) });
   });
+  test("a 41-hex id under TRX is skipped, never a Tron row", () => {
+    const h = "41" + "ab".repeat(20);
+    const r = parseOfacXml(withIds(id("TRX", h)));
+    expect(r.skippedIds).toContainEqual({ tag: "Digital Currency Address - TRX", idNumber: h });
+    expect(r.tronEntries.length).toBe(4);
+  });
+  test("a 41-hex id under a non-Tron tag is a skipped id listed under its tag", () => {
+    const h = "41" + "ab".repeat(20);
+    const r = parseOfacXml(withIds(id("XBT", h)));
+    expect(r.skippedIds).toContainEqual({ tag: "Digital Currency Address - XBT", idNumber: h });
+    expect(r.tronEntries.length).toBe(4);
+  });
   test("zero Tron addresses throws", () => {
     const evmOnly = `<sdnList><publshInformation><Publish_Date>11/13/2026</Publish_Date></publshInformation>
       <sdnEntry><lastName>X</lastName><sdnType>Entity</sdnType><idList>${id("ETH", AA)}${id("TRX", "TXyz")}</idList></sdnEntry></sdnList>`;
@@ -73,7 +85,9 @@ describe("parseOfacXml", () => {
   });
   test("throws without Publish_Date (error page) or without any EVM address (format drift)", () => {
     expect(() => parseOfacXml("<html>Service Unavailable</html>")).toThrow();
-    expect(() => parseOfacXml("<sdnList><publshInformation><Publish_Date>11/13/2026</Publish_Date></publshInformation></sdnList>")).toThrow();
+    const noEvm = `<sdnList><publshInformation><Publish_Date>11/13/2026</Publish_Date></publshInformation>
+      <sdnEntry><lastName>X</lastName><sdnType>Entity</sdnType><idList>${id("TRX", T_AA)}</idList></sdnEntry></sdnList>`;
+    expect(() => parseOfacXml(noEvm)).toThrow(/no EVM addresses found/);
   });
 });
 

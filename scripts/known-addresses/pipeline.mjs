@@ -40,7 +40,7 @@ export function parseOfacXml(xml) {
         if (!seenTron.has(tron)) { seenTron.add(tron); tronEntries.push({ address: tron, name, tag: idType }); }
         continue;
       }
-      if (TRON_SHAPE.test(addr) || idType === "Digital Currency Address - TRX") { skippedIds.push({ tag: idType, idNumber: addr }); continue; }
+      if (TRON_SHAPE.test(addr) || /^41[0-9a-fA-F]{40}$/.test(addr) || idType === "Digital Currency Address - TRX") { skippedIds.push({ tag: idType, idNumber: addr }); continue; }
       const allowed = /^Digital Currency Address - (ETH|USDT|USDC|ARB|BSC|ETC)$/.test(idType);
       const valid = /^0x[0-9a-fA-F]{40}$/.test(addr);
       if (!allowed && valid) driftTags.add(idType);

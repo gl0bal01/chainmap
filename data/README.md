@@ -48,9 +48,9 @@ GITHUB_TOKEN=$(gh auth token) bun run data:build --verify-sources # after editin
 - Tron ids: the id's format decides, not the tag. Any checksum-valid base58check `T…` id
   (TRX, USDT, or another tag) is a Tron row. `TRX` is a Tron-only tag: anything under it that
   is not a valid `T…` (even a `0x`) is a skipped id, not drift. A `T`-shaped id failing the
-  checksum is skipped under any tag. Zero Tron ids aborts the build ("no Tron addresses
+  checksum, or a `41…` hex id, is skipped under any tag. Zero Tron ids aborts the build ("no Tron addresses
   found (format drift?)"). The report prints the Tron count, "OFAC Tron ids under other
-  tags" and malformed Tron-shaped ids.
+  tags" and skipped `T…`/`41…` ids.
 - `--verify-sources` is **mandatory after editing `data/sources/curated.json`**:
   it fetches each cited `source` URL and drops (and lists) every row whose page
   does not contain the address. If a cited page cannot be fetched at all, the

@@ -141,7 +141,8 @@ test("real data: a Tron OFAC row answers on Tron only; a '*' OFAC address never 
   expect(knownEntry(TRON_SANCT, TRON_CHAIN_ID, KNOWN).category).toBe("sanctioned");
   expect(knownEntry(TRON_SANCT, "1", KNOWN)).toBeNull();
   expect(isAllChainEntry(TRON_SANCT, TRON_CHAIN_ID, KNOWN)).toBe(false);
-  const E = Object.keys(KNOWN["*"]).find((a) => KNOWN["*"][a].category === "sanctioned");
+  // pick a "*" address with no 41-twin on Tron (GAZA NOW legitimately has one in both tables)
+  const E = Object.keys(KNOWN["*"]).find((a) => KNOWN["*"][a].category === "sanctioned" && !KNOWN[TRON_CHAIN_ID]["41" + a.slice(2)]);
   expect(knownEntry(E, "1", KNOWN).category).toBe("sanctioned"); // sanity: E is listed for EVM
   expect(knownEntry(E, TRON_CHAIN_ID, KNOWN)).toBeNull();
   expect(knownEntry("41" + E.slice(2), TRON_CHAIN_ID, KNOWN)).toBeNull();

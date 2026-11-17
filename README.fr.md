@@ -19,7 +19,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
   choix explicite de Tron, et `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
   case facultative **Afficher les valeurs en USD** — imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **1009 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **1011 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -275,7 +275,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 1009 tests unitaires + d'intégration
+bun test        # 1011 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :
