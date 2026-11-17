@@ -3931,3 +3931,202 @@ test("TronGrid key storage follows Remember", () => {
     localStorage.removeItem("etherscanApiKey"); sessionStorage.removeItem("etherscanApiKey");
   }
 });
+
+// ---------------------------------------------------------------------------
+// Tron (Task 10): scan, estimate and Load older through TronGrid
+// ---------------------------------------------------------------------------
+const TRON_ROOT_ID = ID(TRON_ID, TRON_A);
+async function tronScan({ maxTx = "20", key = "", address = TRON_T } = {}) {
+  $("resetBtn").click();
+  $("apiKey").value = "";
+  $("tronKey").value = key;
+  setChain(TRON_ID);
+  $("address").value = address;
+  $("depth").value = "1";
+  $("maxTxPerAddress").value = maxTx;
+  $("startBtn").click();
+  await until(() => /Done/.test($("status").textContent || ""));
+}
+// Start with Tron selected on an input that must be refused before any request.
+function tronStartRefused(address) {
+  $("resetBtn").click();
+  $("apiKey").value = "";
+  setChain(TRON_ID);
+  $("address").value = address;
+  $("startBtn").click();
+}
+
+test("a Tron scan hits only TronGrid, with no Etherscan key", async () => {
+  try {
+    const n = apiUrls.length, t = tronCalls.length;
+    await tronScan({ key: "K-TRON" });
+    expect(apiUrls.length).toBe(n);
+    const calls = tronCalls.slice(t);
+    expect(calls.map((c) => new URL(c.url).pathname)).toEqual([
+      `/v1/accounts/${TRON_A}/transactions`,
+      `/v1/accounts/${TRON_A}/internal-transactions`,
+      `/v1/accounts/${TRON_A}/transactions/trc20`,
+    ]);
+    for (const c of calls) {
+      expect(c.init.headers["TRON-PRO-API-KEY"]).toBe("K-TRON");
+      expect(c.init.credentials).toBe("omit");
+      expect(c.init.referrerPolicy).toBe("no-referrer");
+    }
+    await until(() => qlogTitle() === "Query log (3)");
+    expect(qlogTitle()).toBe("Query log (3)");
+    const entries = await withDownloads(async (dl) => JSON.parse(await (await nextBlob(dl, "exportQueryLogBtn")).text()).entries);
+    expect(entries.map((e) => e.source)).toEqual(["trongrid", "trongrid", "trongrid"]);
+    for (const e of entries) expect(e.url.startsWith(`https://api.trongrid.io/v1/accounts/${TRON_A}`)).toBe(true);
+    const node = window.vis.Network.first.nodes.get(TRON_ROOT_ID);
+    expect(node).toBeTruthy();
+    expect(node.label).toContain("TV6Mu");
+  } finally {
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("keyless Tron scan sends no key header", async () => {
+  try {
+    const t = tronCalls.length;
+    await tronScan();
+    expect(tronCalls.length).toBe(t + 3);
+    for (const c of tronCalls.slice(t)) expect(c.init.headers).toEqual({});
+  } finally {
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("Tron root input: trimmed T…, checksum-checked, any-case 41 hex (Review Focus 1)", async () => {
+  try {
+    await tronScan({ address: `  ${TRON_T}  ` });
+    expect(window.vis.Network.first.nodes.get(TRON_ROOT_ID)).toBeTruthy();
+
+    for (const bad of [TRON_T.toLowerCase(), ROOT]) {
+      const n = apiUrls.length, t = tronCalls.length;
+      tronStartRefused(bad);
+      await until(() => /Invalid Tron address/.test($("logContent").textContent || ""));
+      expect($("logContent").textContent).toContain("Invalid Tron address");
+      await sleep(0);
+      expect(tronCalls.length).toBe(t);
+      expect(apiUrls.length).toBe(n);
+    }
+
+    await tronScan({ address: TRON_A.toUpperCase() }); // "41D1C4…"
+    expect(window.vis.Network.first.nodes.get(TRON_ROOT_ID)?.id).toBe(TRON_ROOT_ID);
+  } finally {
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("Tron node details: T…, Tronscan link, TRC-20 history, no other-chains actions", async () => {
+  try {
+    await tronScan();
+    clickNode(TRON_ROOT_ID);
+    const panel = $("detailsContent");
+    expect(panel.textContent).toContain(TRON_T);
+    expect(panel.textContent).toContain("TRC-20:");
+    expect(panel.textContent).not.toContain("ERC-721");
+    expect(panel.textContent).not.toContain("41d1c4");
+    expect([...panel.querySelectorAll("a")].some((a) => a.href === `https://tronscan.org/#/address/${TRON_T}`)).toBe(true);
+    const buttons = [...panel.querySelectorAll("button")].map((b) => b.textContent);
+    expect(buttons.some((s) => s.includes("Check other chains") || s.includes("Load on"))).toBe(false);
+    expect(panel.querySelector("select")).toBeNull();
+  } finally {
+    window.vis.Network.first.setSelection({ nodes: [] });
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("Load older on Tron caps at 200 and keeps the cursor open (ruling 14)", async () => {
+  const C1 = TRON_TRC20.data[0];
+  const boxes = ["typeNormal", "typeInternal", "typeToken"].map((id) => [id, $(id).checked]);
+  const saved = TRON_CANNED["transactions/trc20"];
+  const page = {
+    success: true,
+    meta: { page_size: 200 },
+    data: Array.from({ length: 200 }, (_, i) => ({ ...C1, transaction_id: String(i + 1).padStart(64, "0"), block_timestamp: C1.block_timestamp - i * 3000 })),
+  };
+  const minTs = Math.min(...page.data.map((r) => r.block_timestamp));
+  try {
+    $("typeNormal").checked = false;
+    $("typeInternal").checked = false;
+    $("typeToken").checked = true;
+    TRON_CANNED["transactions/trc20"] = page;
+    const t = tronCalls.length;
+    await tronScan({ maxTx: "500" });
+    expect($("logContent").textContent).toContain("at most 200");
+    expect($("samplingBanner").textContent).toContain("latest 200 ");
+    $("langToggle").click();
+    $("langToggle").click(); // a locale round-trip keeps the effective N, not the form's 500
+    expect($("samplingBanner").textContent).toContain("latest 200 ");
+    const scanCalls = tronCalls.slice(t).map((c) => new URL(c.url));
+    expect(scanCalls.map((u) => u.pathname)).toEqual([`/v1/accounts/${TRON_A}/transactions/trc20`]);
+    expect(scanCalls[0].searchParams.get("limit")).toBe("200");
+    clickNode(TRON_ROOT_ID);
+    loadBtn().click();
+    await waitLoaded();
+    const last = new URL(tronCalls.at(-1).url);
+    expect(last.pathname).toBe(`/v1/accounts/${TRON_A}/transactions/trc20`);
+    expect(last.searchParams.get("limit")).toBe("200");
+    expect(last.searchParams.get("max_timestamp")).toBe(String(minTs));
+    expect($("detailsContent").textContent).toContain("TRC-20: 400 rows fetched · older available");
+  } finally {
+    TRON_CANNED["transactions/trc20"] = saved;
+    for (const [id, on] of boxes) $(id).checked = on;
+    window.vis.Network.first.setSelection({ nodes: [] });
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("search finds a Tron node by its T… form", async () => {
+  const close = () => $("paletteInput").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  try {
+    await tronScan();
+    $("searchBtn").click();
+    $("paletteInput").value = "TV6Mu";
+    $("paletteInput").dispatchEvent(new window.Event("input"));
+    const first = document.querySelector("#paletteResults .palette-item");
+    expect(first.querySelector(".palette-item-title").textContent).toBe("TV6Mu…iuSi");
+    expect(first.querySelector(".palette-item-subtitle").textContent).toContain(TRON_T);
+  } finally {
+    close();
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("workspace root keeps the canonical hex", async () => {
+  try {
+    await tronScan();
+    expect($("address").value).toBe(TRON_T);
+    const text = await withDownloads(async (dl) => (await nextBlob(dl, "saveBtn")).text());
+    expect(JSON.parse(text).root).toBe("41d1c4bb7b2f39aba5707711719b2236b5b605af2e");
+  } finally {
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("Estimate on Tron hits only TronGrid", async () => {
+  try {
+    $("resetBtn").click();
+    $("apiKey").value = "";
+    setChain(TRON_ID);
+    $("address").value = TRON_T;
+    $("depth").value = "1";
+    const n = apiUrls.length, t = tronCalls.length;
+    $("estimateBtn").click();
+    await until(() => /Estimated/.test($("logContent").textContent || ""));
+    expect($("logContent").textContent).toContain("Estimated");
+    expect(tronCalls.length).toBe(t + 3);
+    expect(apiUrls.length).toBe(n);
+  } finally {
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});

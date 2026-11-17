@@ -293,6 +293,7 @@ export default {
   // --- errors ---------------------------------------------------------------
   "error.apiKeyRequired": "Please enter your Etherscan API key.",
   "error.invalidAddress": "Invalid Ethereum address (expected 0x + 40 hex chars).",
+  "error.invalidTronAddress": "Invalid Tron address (expected T… base58check or 41 + 40 hex chars).",
   "error.noTypeSelected": "Select at least one transaction type.",
   "error.selectNodesFirst": "Select at least one node (click, or ctrl/shift+click for several) before deleting.",
   "error.network": "Network error ({action}): {msg}",
@@ -310,6 +311,7 @@ export default {
   "status.loadOlderErrors": "Loaded {edges} new transfers for {addr} — {errors} request(s) failed (see log)",
   "error.busy": "Busy — wait for the current scan or load to finish (or press Stop).",
   "log.loadOlderDone": "Load older {addr}: {edges} new transfers, {nodes} new addresses, {calls} API calls",
+  "log.tronLimitCapped": "TronGrid returns at most 200 rows per request: sampling {n} per address per type (form asks {asked}).",
   "detect.planRequired": "Skipped (paid Etherscan plan needed): {chains}",
   "error.fetch": "Fetch failed for {address} ({action}): {message}",
 
