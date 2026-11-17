@@ -111,7 +111,7 @@ export function parseRetryAfter(headers) {
  * @param {AbortSignal} [signal]
  * @returns {Promise<void>}
  */
-function sleep(ms, signal) {
+export function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     if (signal && signal.aborted) {
       reject(new EtherscanError("aborted during backoff", "aborted", {}));
