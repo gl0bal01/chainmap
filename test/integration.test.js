@@ -3739,12 +3739,15 @@ test("demo draws the illustrative high bridge link; the 0xb7 deposit shows an as
     $("demoBtn").click();
     const links = () => bridgeItems().filter((e) => e.from === ID("1", DEMO_ROOT) && e.to === ID("137", F5) && e.title.includes("(high)"));
     await until(() => links().length === 1);
+    expect(links().length).toBe(1);
     clickEdge(edgeByHash("0xb7").id);
     await until(() => panel().includes("assumed to be the depositor's own address"));
+    expect(panel()).toContain("Recipient on the other side: " + DEMO_ROOT + " — assumed to be the depositor's own address (not decoded)");
     expect(panel()).not.toContain("Recipient unknown");
     expect($("detailsContent").querySelector("select")).not.toBeNull();
     clickEdge(edgeByHash("0xe1").id);
     await until(() => panel().includes("high · Polygon · not reviewed"));
+    expect(panel()).toContain("high · Polygon · not reviewed");
     expect($("detailsContent").querySelector("select")).not.toBeNull();
   } finally {
     $("resetBtn").click();
