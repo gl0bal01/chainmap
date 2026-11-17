@@ -468,3 +468,41 @@ describe("workspace query log + provenance (v3, optional fields)", () => {
     expect(r.data.edges).toEqual(plain.data.edges);
   });
 });
+
+describe("workspace bridgeDecisions (v3, optional)", () => {
+  const e1 = v3edge("1", a, b, { hash: "0xd" }), e2 = v3edge("137", b, a, { hash: "0xr" });
+  const D = { deposit: e1.key, release: e2.key, decision: "confirmed", at: "2026-11-17T10:00:00.000Z" };
+  const graph = { nodes: [v3node("1", a), v3node("1", b), v3node("137", a), v3node("137", b)], edges: [e1, e2] };
+
+  test("serialize writes bridgeDecisions after annotations only when non-empty, items rebuilt", () => {
+    const ws = serializeWorkspace({ ...graph, bridgeDecisions: [{ ...D, extra: 1 }] });
+    expect(Object.keys(ws)).toEqual(["version", "root", "graph", "filters", "layout", "annotations", "bridgeDecisions"]);
+    expect(ws.bridgeDecisions).toEqual([D]);
+    expect(Object.keys(serializeWorkspace({ ...graph, bridgeDecisions: [] }))).toEqual(["version", "root", "graph", "filters", "layout", "annotations"]);
+  });
+
+  test("round trip: decisions come back as a Map keyed by deposit>release; version stays 3", () => {
+    const r = parseWorkspace(JSON.stringify(serializeWorkspace({ ...graph, bridgeDecisions: [D] })));
+    expect(r.data.version).toBe(3);
+    expect([...r.data.bridgeDecisions]).toEqual([[`${e1.key}>${e2.key}`, D]]);
+    expect(r.data.bridgeDecisionsInvalid).toBe(0);
+  });
+
+  test("a decision whose edge is not in the file is dropped and counted", () => {
+    const r = parseWorkspace({ version: 3, graph, bridgeDecisions: [D, { ...D, release: "137|gone" }] });
+    expect(r.data.bridgeDecisions.size).toBe(1);
+    expect(r.data.bridgeDecisionsInvalid).toBe(1);
+  });
+
+  test("a file without the field loads with none", () => {
+    const r = parseWorkspace({ version: 3, graph });
+    expect(r.data.bridgeDecisions).toEqual(new Map());
+    expect(r.data.bridgeDecisionsInvalid).toBe(0);
+  });
+});
+
+test("filters.showBridges is kept only as a boolean", () => {
+  const f = (showBridges) => parseWorkspace({ chainId: "1", nodes: [], edges: [], filters: { showBridges } }).data.filters;
+  expect(f(false).showBridges).toBe(false);
+  expect("showBridges" in f("no")).toBe(false);
+});

@@ -8,7 +8,8 @@
 // build the input for serializeWorkspace().
 //
 // v3 (written): { version:3, root, graph:{ nodes, edges }, filters, layout,
-// annotations } plus optional `queryLog` and provenance (`savedAt`, `appVersion`,
+// annotations } plus optional `bridgeDecisions` ([{deposit, release, decision, at}]),
+// `queryLog` and provenance (`savedAt`, `appVersion`,
 // `caveats`), still v3 — older readers ignore them. Every record carries its own
 // `chainId`; no top-level chain.
 // v2 and older (read only): strict migration — every record takes the file's
@@ -18,6 +19,7 @@
 
 import { lc, isValidAddress, parseChainId, nodeId } from "./format.js";
 import { sanitizeQueryLog } from "./queryLog.js";
+import { sanitizeBridgeDecisions } from "./bridgeInfer.js";
 
 /** Bump when the on-disk workspace shape changes in a way older readers can't handle. */
 export const WORKSPACE_VERSION = 3;
@@ -54,6 +56,7 @@ function stripDangerousKeys(raw) {
  * @property {WorkspaceFilters} filters
  * @property {*} layout
  * @property {object[]} annotations
+ * @property {{deposit:string,release:string,decision:string,at:string}[]} [bridgeDecisions]  written only when non-empty
  * @property {QueryLogState} [queryLog]   optional; written only when given
  * @property {{savedAt:string, appVersion:string, caveats:string[]}} [provenance]  optional; spread as top-level fields
  */
@@ -69,6 +72,8 @@ function stripDangerousKeys(raw) {
  * @property {object[]} annotations
  * @property {string|null} assumedChainId  v2 file had no chainId and the fallback was used
  * @property {{entries:object[], dropped:number, unloggedData:boolean}|null} queryLog  null when the file has none
+ * @property {Map<string,{deposit:string,release:string,decision:string,at:string}>} bridgeDecisions  empty when absent
+ * @property {number} bridgeDecisionsInvalid  decisions rejected by sanitizeBridgeDecisions
  * @property {number} queryLogInvalid  query-log entries rejected by sanitizeQueryLog
  */
 
@@ -109,6 +114,7 @@ export function serializeWorkspace(input) {
     layout: src.layout ?? null,
     annotations,
   };
+  if (Array.isArray(src.bridgeDecisions) && src.bridgeDecisions.length) out.bridgeDecisions = src.bridgeDecisions.map(({ deposit, release, decision, at }) => ({ deposit, release, decision, at }));
   if (src.queryLog) {
     const q = src.queryLog;
     out.queryLog = { entries: (q.entries || []).map((e) => ({ ...e })), dropped: q.dropped, unloggedData: q.unloggedData };
@@ -217,7 +223,10 @@ export function parseWorkspace(json, opts) {
     filters.hiddenChains = filters.hiddenChains.map((c) => parseChainId(c)).filter((c) => c != null);
   } else delete filters.hiddenChains;
   if (typeof filters.showTwins !== "boolean") delete filters.showTwins;
+  if (typeof filters.showBridges !== "boolean") delete filters.showBridges;
   const annotations = Array.isArray(obj.annotations) ? [...obj.annotations] : [];
+  const edgeKeys = new Set(edges.map((e) => e.key));
+  const bd = sanitizeBridgeDecisions(obj.bridgeDecisions, (k) => edgeKeys.has(k));
   // Query log is a trust boundary: sanitizeQueryLog rebuilds every entry.
   // savedAt/appVersion/caveats are provenance only and are never copied into data.
   let queryLog = null;
@@ -238,6 +247,8 @@ export function parseWorkspace(json, opts) {
       filters,
       layout: obj.layout ?? null,
       annotations,
+      bridgeDecisions: bd.decisions,
+      bridgeDecisionsInvalid: bd.invalid,
       assumedChainId: !v3 && obj.chainId == null ? fileChain : null,
       queryLog,
       queryLogInvalid,

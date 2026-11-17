@@ -111,7 +111,7 @@ export function sanitizeQueryLog(raw, limit = LIMITS.queryLog) {
 
 // A real UTC instant, normalised to Date#toISOString's millisecond form (one precision,
 // so ISO strings sort lexically in windowOf). Rejects month 99, Feb 30, 24:00 (no rollover).
-function normAt(at) {
+export function normAt(at) {
   if (typeof at !== "string" || !AT_RE.test(at)) return null;
   const d = new Date(at);
   if (Number.isNaN(d.getTime())) return null;

@@ -10,7 +10,8 @@
 import { decodeCall } from "./abiDecode.js";
 import { decimalsFor } from "./usdPrice.js";
 import { isValidAddress, parseChainId } from "./format.js";
-import { CHAINS } from "./config.js";
+import { CHAINS, LIMITS } from "./config.js";
+import { normAt } from "./queryLog.js";
 import { units, secs } from "./depositDetect.js";
 
 /**
@@ -197,4 +198,31 @@ export function inferBridges(nodes, edges, ctx) {
   }
   candidates.sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
   return { deposits, candidates };
+}
+
+const isEdgeKey = (k, has) => typeof k === "string" && k.length <= 300 && /^\d+\|/.test(k) && has(k);
+
+/**
+ * Trust boundary for investigator decisions read from a workspace file. Reads at
+ * most LIMITS.bridgeDecisions items; every survivor is rebuilt from exactly four
+ * fields (the input is never spread). Invalid, over-cap and duplicate items are
+ * dropped and counted; the first occurrence of an id wins. Never throws.
+ * @param {unknown} raw
+ * @param {(k:string)=>boolean} hasEdgeKey
+ * @returns {{ decisions: Map<string,{deposit:string,release:string,decision:string,at:string}>, invalid:number }}
+ */
+export function sanitizeBridgeDecisions(raw, hasEdgeKey) {
+  const decisions = new Map();
+  if (!Array.isArray(raw)) return { decisions, invalid: 0 };
+  let invalid = Math.max(0, raw.length - LIMITS.bridgeDecisions);
+  for (const it of raw.slice(0, LIMITS.bridgeDecisions)) {
+    const ok = it && typeof it === "object" && !Array.isArray(it);
+    const at = ok ? normAt(it.at) : null;
+    if (!ok || (it.decision !== "confirmed" && it.decision !== "rejected") || at === null
+      || !isEdgeKey(it.deposit, hasEdgeKey) || !isEdgeKey(it.release, hasEdgeKey)) { invalid++; continue; }
+    const id = `${it.deposit}>${it.release}`;
+    if (decisions.has(id)) { invalid++; continue; }
+    decisions.set(id, { deposit: it.deposit, release: it.release, decision: it.decision, at });
+  }
+  return { decisions, invalid };
 }

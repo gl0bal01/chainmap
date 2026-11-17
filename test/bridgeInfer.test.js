@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { inferBridges } from "../src/bridgeInfer.js";
+import { inferBridges, sanitizeBridgeDecisions } from "../src/bridgeInfer.js";
+import { LIMITS } from "../src/config.js";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40);
 const ZERO = A(0), USER = A(1), BRIDGE = A(2), L2BRIDGE = A(3), RECIP = A(4), OTHER = A(5), WETH = A(6), USDC1 = A(7), USDC137 = A(8), EXCH = A(9), BRIDGE2 = A(23), SANC = A(24);
@@ -281,5 +282,56 @@ describe("factors and levels", () => {
       expect(r.deposits.size).toBe(0);
       expect(r.candidates).toEqual([]);
     }
+  });
+});
+
+describe("sanitizeBridgeDecisions", () => {
+  const K1 = "1|txlist|0xd|a|b||", K2 = "137|tokentx|0xr|c|d|e|", K3 = "137|tokentx|0xs|c|d|e|";
+  const has = (k) => [K1, K2, K3].includes(k);
+  const item = (over = {}) => ({ deposit: K1, release: K2, decision: "confirmed", at: "2026-11-17T10:00:00Z", ...over });
+
+  test("a valid item is rebuilt from its four fields; at normalised; id = deposit>release", () => {
+    const { decisions, invalid } = sanitizeBridgeDecisions([item({ extra: 1, level: "high" })], has);
+    expect(invalid).toBe(0);
+    expect([...decisions]).toEqual([[`${K1}>${K2}`, { deposit: K1, release: K2, decision: "confirmed", at: "2026-11-17T10:00:00.000Z" }]]);
+  });
+
+  test("bad decision, at, key or unknown edge: dropped and counted", () => {
+    const bad = [
+      ...["verified", "Confirmed", "", undefined].map((decision) => item({ decision })),
+      ...["2026-02-30T00:00:00Z", "yesterday", 123, "2026-11-17T10:00:00+01:00"].map((at) => item({ at })),
+      item({ deposit: "txlist|0xd" }), item({ deposit: "1|" + "x".repeat(299) }), item({ release: 7 }), item({ release: "137|unknown" }),
+      null, "x", [],
+    ];
+    const r = sanitizeBridgeDecisions([...bad, item({ decision: "rejected" })], has);
+    expect(r.invalid).toBe(bad.length);
+    expect([...r.decisions.values()].map((d) => d.decision)).toEqual(["rejected"]);
+  });
+
+  test("__proto__ / constructor never survive; Object.prototype untouched", () => {
+    const raw = JSON.parse(`[{"__proto__":{"polluted":1},"constructor":{"x":1},"deposit":"${K1}","release":"${K2}","decision":"confirmed","at":"2026-11-17T10:00:00Z"}]`);
+    expect(Object.hasOwn(raw[0], "__proto__")).toBe(true); // the forged own key is really there
+    const v = [...sanitizeBridgeDecisions(raw, has).decisions.values()][0];
+    expect(Object.keys(v)).toEqual(["deposit", "release", "decision", "at"]);
+    expect(Object.hasOwn(v, "__proto__")).toBe(false);
+    expect("polluted" in v).toBe(false);
+    expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
+  });
+
+  test("cap: only LIMITS.bridgeDecisions items are read, the rest are counted invalid", () => {
+    const many = Array.from({ length: LIMITS.bridgeDecisions + 3 }, () => item());
+    const r = sanitizeBridgeDecisions(many, has);
+    expect(r.decisions.size).toBe(1);
+    expect(r.invalid).toBe(LIMITS.bridgeDecisions - 1 + 3);
+  });
+
+  test("duplicates: the first occurrence wins", () => {
+    const r = sanitizeBridgeDecisions([item(), item({ decision: "rejected" }), item({ release: K3 })], has);
+    expect([...r.decisions.values()].map((d) => [d.release, d.decision])).toEqual([[K2, "confirmed"], [K3, "confirmed"]]);
+    expect(r.invalid).toBe(1);
+  });
+
+  test("non-array → empty, nothing counted", () => {
+    for (const raw of [undefined, null, {}, "[]", 3]) expect(sanitizeBridgeDecisions(raw, has)).toEqual({ decisions: new Map(), invalid: 0 });
   });
 });
