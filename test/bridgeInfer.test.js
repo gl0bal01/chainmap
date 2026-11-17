@@ -1,6 +1,9 @@
 import { describe, test, expect } from "bun:test";
 import { inferBridges, sanitizeBridgeDecisions } from "../src/bridgeInfer.js";
 import { LIMITS } from "../src/config.js";
+import { GraphStore } from "../src/graphStore.js";
+import { tronRows, TRON_CHAIN_ID } from "../src/tron.js";
+import { readFileSync } from "node:fs";
 
 const A = (n) => "0x" + String(n).repeat(40).slice(0, 40);
 const ZERO = A(0), USER = A(1), BRIDGE = A(2), L2BRIDGE = A(3), RECIP = A(4), OTHER = A(5), WETH = A(6), USDC1 = A(7), USDC137 = A(8), EXCH = A(9), BRIDGE2 = A(23), SANC = A(24);
@@ -381,5 +384,24 @@ describe("sanitizeBridgeDecisions", () => {
 
   test("non-array → empty, nothing counted", () => {
     for (const raw of [undefined, null, {}, "[]", 3]) expect(sanitizeBridgeDecisions(raw, has)).toEqual({ decisions: new Map(), invalid: 0 });
+  });
+});
+
+describe("Tron is never a bridge source or release", () => {
+  const TO = A(4);
+  const tronEdge = (chainId, to = TO) => {
+    const store = new GraphStore();
+    return store.addEdge({ chainId, action: "tokentx", group: "token", color: "#000", from: row.from, to, tx: row });
+  };
+  const row = tronRows("tokentx", JSON.parse(readFileSync("test/fixtures/tron/trc20.json", "utf8")))[0];
+  const c = { ...ctx, known: (a) => (a === TO ? { category: "bridge" } : null) };
+  test("a Tron token transfer into a bridge-labelled recipient is no deposit; the same edge on chain 1 is", () => {
+    expect(inferBridges([], [tronEdge(TRON_CHAIN_ID)], c).deposits.size).toBe(0);
+    expect(inferBridges([], [tronEdge("1")], c).deposits.size).toBe(1);
+  });
+  test("a same-amount Tron edge to the recipient is never a release candidate", () => {
+    const d = deposit();
+    const r = run([d, tronEdge(TRON_CHAIN_ID, RECIP)], [recip()]);
+    expect(r.candidates.some((x) => String(x.releaseKey).startsWith(TRON_CHAIN_ID + "|"))).toBe(false);
   });
 });

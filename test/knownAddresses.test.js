@@ -120,3 +120,15 @@ test("isAllChainEntry is true only when the '*' bucket answers", () => {
   expect(isAllChainEntry(S, "137", STAR)).toBe(true);
   expect(isAllChainEntry("0x" + "9".repeat(40), "137", STAR)).toBe(false);
 });
+
+test("Tron never takes the \"*\" bucket; EVM chains still do; a Tron-specific row applies", async () => {
+  const { TRON_CHAIN_ID } = await import("../src/tron.js");
+  const E = { label: "Everywhere", category: "exchange" };
+  const hex = "d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+  const data = { "*": { ["0x" + hex]: E, ["41" + hex]: E } };
+  expect(knownEntry("41" + hex, TRON_CHAIN_ID, data)).toBeNull();
+  expect(isAllChainEntry("41" + hex, TRON_CHAIN_ID, data)).toBe(false);
+  expect(knownEntry("41" + hex, "1", data)).toBe(E);
+  const own = { label: "Tron own", category: "exchange" };
+  expect(knownEntry("41" + hex, TRON_CHAIN_ID, { ...data, [TRON_CHAIN_ID]: { ["41" + hex]: own } })).toBe(own);
+});

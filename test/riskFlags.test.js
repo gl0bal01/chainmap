@@ -104,3 +104,14 @@ test("a bridge call into a known bridge still flags bridge, never hiddenRecipien
   expect(flags).not.toContain("flag.hiddenRecipient");
   expect(resolvedRecipient(edge)).toBe(BR);
 });
+
+test("a Tron TRC-20 transfer has no calldata, so no hiddenRecipient flag", async () => {
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { tronRows, TRON_CHAIN_ID } = await import("../src/tron.js");
+  const { readFileSync } = await import("node:fs");
+  const row = tronRows("tokentx", JSON.parse(readFileSync("test/fixtures/tron/trc20.json", "utf8")))[0];
+  const edge = new GraphStore().addEdge({ chainId: TRON_CHAIN_ID, action: "tokentx", group: "token", color: "#000", from: row.from, to: row.to, tx: row });
+  expect(edge.hasData).toBe(false);
+  expect(edge.methodArgs).toEqual([]);
+  expect(flagsForEdge(edge, noCat)).not.toContain("flag.hiddenRecipient");
+});

@@ -622,3 +622,9 @@ describe("createPriceService", () => {
     }
   });
 });
+
+test("priceKeyFor skips every Tron edge by chain", () => {
+  const t = { chainId: "728126428", action: "txlist", value: "1000000", timeStamp: "1794907755", tokenDecimal: "6", amountIndeterminate: false };
+  expect(priceKeyFor(t, ctx0)).toEqual({ skip: "chain" });
+  expect(priceKeyFor({ ...t, action: "tokentx", tokenContract: "41a614f803b6fd780986a42c78ec9c7f77e6ded13c" }, ctx0)).toEqual({ skip: "chain" });
+});
