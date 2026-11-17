@@ -12,7 +12,7 @@
   },
   "annotations": [
     {
-      "text": "Ronin Bridge hack (Mar 2022) — illustrative teaching reconstruction, extended to showcase every investigator overlay. LABELED node addresses are REAL (Ronin Exploiter/Bridge, Tornado pools, Uniswap, Binance, USDC — click to open on Etherscan). The drainer / peel-hop / hidden-recipient addresses (0xbad…, 0xf00d…) are ILLUSTRATIVE PLACEHOLDERS, as are all amounts and tx hashes. Teaching aid, not forensic data. The Arbitrum One hop (0xf00d…0003 → 0xf00d…0004) is ILLUSTRATIVE too: the same address on two chains, linked as “same key” because it signed a transaction on Arbitrum. The 0xdec0…0001 address is an ILLUSTRATIVE exchange deposit address: funded by the root, swept to Binance 14 ten minutes later — marked \"likely deposit\" by the heuristic.",
+      "text": "Ronin Bridge hack (Mar 2022) — illustrative teaching reconstruction, extended to showcase every investigator overlay. LABELED node addresses are REAL (Ronin Exploiter/Bridge, Tornado pools, Uniswap, Binance, USDC — click to open on Etherscan). The drainer / peel-hop / hidden-recipient addresses (0xbad…, 0xf00d…) are ILLUSTRATIVE PLACEHOLDERS, as are all amounts and tx hashes. Teaching aid, not forensic data. The Arbitrum One hop (0xf00d…0003 → 0xf00d…0004) is ILLUSTRATIVE too: the same address on two chains, linked as “same key” because it signed a transaction on Arbitrum. The 0xdec0…0001 address is an ILLUSTRATIVE exchange deposit address: funded by the root, swept to Binance 14 ten minutes later — marked \"likely deposit\" by the heuristic. The Polygon bridge example is ILLUSTRATIVE too: the root deposits 20 ETH into the Polygon PoS RootChainManager with depositEtherFor(0xf00d…0005), and 0xf00d…0005 receives 20 WETH minted on Polygon 30 minutes later — drawn as an inferred bridge link (high) to verify, never as a fact. The 30 ETH sent to the Polygon ERC20 Bridge has no candidate in the loaded data (Look row shown).",
       "x": 0,
       "y": -600
     }
@@ -139,6 +139,50 @@
             "count": 0
           }
         }
+      },
+      {
+        "chainId": "1",
+        "address": "0xa0c68c638235ee32657e8f720a23cec1bfc77c77",
+        "depth": 1,
+        "isRoot": false,
+        "alias": null
+      },
+      {
+        "chainId": "137",
+        "address": "0xf00d000000000000000000000000000000000005",
+        "depth": 1,
+        "isRoot": false,
+        "alias": null,
+        "history": {
+          "txlist": {
+            "oldestBlock": "26520000",
+            "blockPage": 0,
+            "pageSize": 0,
+            "done": true,
+            "count": 0
+          },
+          "txlistinternal": {
+            "oldestBlock": "26520000",
+            "blockPage": 0,
+            "pageSize": 0,
+            "done": true,
+            "count": 0
+          },
+          "tokentx": {
+            "oldestBlock": "26520000",
+            "blockPage": 0,
+            "pageSize": 0,
+            "done": true,
+            "count": 1
+          }
+        }
+      },
+      {
+        "chainId": "137",
+        "address": "0x0000000000000000000000000000000000000000",
+        "depth": 2,
+        "isRoot": false,
+        "alias": null
       }
     ],
     "edges": [
@@ -547,6 +591,56 @@
         "methodArgs": [],
         "timeStamp": "1648720900",
         "blockNumber": "14466067"
+      },
+      {
+        "chainId": "1",
+        "key": "1|txlist|0xe1|0x098b716b8aaf21512996dc57eb0615e2383e2f96|0xa0c68c638235ee32657e8f720a23cec1bfc77c77||",
+        "action": "txlist",
+        "group": "normal",
+        "color": "#4f8ef7",
+        "from": "0x098b716b8aaf21512996dc57eb0615e2383e2f96",
+        "to": "0xa0c68c638235ee32657e8f720a23cec1bfc77c77",
+        "hash": "0xe1",
+        "symbol": "ETH",
+        "tokenContract": "",
+        "tokenId": "",
+        "amountIndeterminate": false,
+        "value": "20000000000000000000",
+        "amountText": "20",
+        "hasData": true,
+        "methodId": "0x4faa8a26",
+        "methodArgs": [
+          {
+            "type": "address",
+            "value": "0xf00d000000000000000000000000000000000005",
+            "name": "destRecipient"
+          }
+        ],
+        "rawInput": "0x4faa8a26000000000000000000000000f00d000000000000000000000000000000000005",
+        "timeStamp": "1648730000",
+        "blockNumber": "14466700"
+      },
+      {
+        "chainId": "137",
+        "key": "137|tokentx|0xe2|0x0000000000000000000000000000000000000000|0xf00d000000000000000000000000000000000005|0x7ceb23fd6bc0add59e62ac25578270cff1b9f619|",
+        "action": "tokentx",
+        "group": "token",
+        "color": "#4fd67a",
+        "from": "0x0000000000000000000000000000000000000000",
+        "to": "0xf00d000000000000000000000000000000000005",
+        "hash": "0xe2",
+        "symbol": "WETH",
+        "tokenContract": "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619",
+        "tokenDecimal": "18",
+        "tokenId": "",
+        "amountIndeterminate": false,
+        "value": "20000000000000000000",
+        "amountText": "20",
+        "hasData": false,
+        "methodId": "",
+        "methodArgs": [],
+        "timeStamp": "1648731800",
+        "blockNumber": "26520000"
       }
     ]
   }

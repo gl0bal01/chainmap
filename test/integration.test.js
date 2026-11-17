@@ -654,7 +654,7 @@ test("demo workspace showcases every investigator overlay (6 categories, all 5 r
   expect(store.checkInvariants().ok).toBe(true);
   expect(store.listEdges().length).toBe(dEdges.length); // no edge silently dropped
   expect(demo.version).toBe(3);
-  expect(store.chains()).toEqual(["1", "42161"]);
+  expect(store.chains()).toEqual(["1", "137", "42161"]);
   const { addressEvidence, sameAddressLinks } = await import("../src/chainTwins.js");
   const { CHAINS } = await import("../src/config.js");
   const keyLinks = sameAddressLinks(store.listNodes(), addressEvidence(store.listEdges(), CHAINS)).filter((l) => l.basis === "key");
@@ -2745,10 +2745,10 @@ test("PNG and PDF exports carry the provenance footer and the live view's deposi
           $(btn).click();
           await until(() => done.test($("logContent").textContent));
           expect(window.vis.Network.last.nodes.get(id).label.endsWith("\n" + live)).toBe(true);
-          expect(fx.texts.length).toBe(4);
+          expect(fx.texts.length).toBe(5);
           const ver = APP_VERSION.replace(/\./g, "\\.");
           expect(fx.texts[0]).toMatch(new RegExp(`^chainmap ${ver} — exported \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d UTC$`));
-          expect(fx.texts.slice(1)).toEqual([EN["export.footer.retrievalUnknown"], EN["export.footer.sampling"], EN["export.footer.signals"]]);
+          expect(fx.texts.slice(1)).toEqual([EN["export.footer.retrievalUnknown"], EN["export.footer.sampling"], EN["export.footer.signals"], EN["export.footer.bridges"]]);
         }
       });
       expect(pdfs.length).toBe(1);
@@ -3708,3 +3708,45 @@ test("reset clears investigator decisions: the same pair rebuilt by scan + Look 
   expect(bridgeItems()[0].label).toBe("inferred — verify");
   expect(JSON.parse(await (await nextBlob(dl, "saveBtn")).text()).bridgeDecisions).toBeUndefined();
 })));
+
+const F5 = "0xf00d000000000000000000000000000000000005";
+test("demo bridge example (pure): one high candidate 0xe1 -> 0xe2; the sanctioned 0xb7 depositor is assumed the recipient, no candidate", async () => {
+  const { parseWorkspace } = await import("../src/workspace.js");
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { inferBridges } = await import("../src/bridgeInfer.js");
+  const { knownEntry, knownCategory } = await import("../src/knownAddresses.js");
+  const { CHAINS } = await import("../src/config.js");
+  const demo = JSON.parse(await Bun.file(new URL("../data/demo-workspace.json", import.meta.url)).text());
+  const store = new GraphStore();
+  const parsed = parseWorkspace(JSON.stringify(demo));
+  store.loadSnapshot(parsed.data.nodes, parsed.data.edges);
+  const { deposits, candidates } = inferBridges(store.listNodes(), store.listEdges(), {
+    known: (a, c) => knownEntry(a, c, KNOWN),
+    trustedToken: (a, c) => knownCategory(a, c, KNOWN) === "token",
+    nativeSymbol: (c) => CHAINS.find((x) => String(x.id) === String(c))?.native || null,
+  });
+  const hashOf = (k) => store.listEdges().find((e) => e.key === k).hash;
+  expect(candidates.map((c) => [hashOf(c.depositKey), hashOf(c.releaseKey), c.level])).toEqual([["0xe1", "0xe2", "high"]]);
+  expect([...deposits.values()].map((d) => d.hash).sort()).toEqual(["0xb7", "0xe1"]);
+  expect([...deposits.values()].find((d) => d.hash === "0xb7")).toMatchObject({ recipient: DEMO_ROOT, basis: "sender" });
+  expect([...deposits.values()].find((d) => d.hash === "0xe1")).toMatchObject({ recipient: F5, basis: "calldata" });
+});
+
+test("demo draws the illustrative high bridge link; the 0xb7 deposit shows an assumed recipient and Look, 0xe1 shows the candidate", async () => {
+  await knownLoaded();
+  try {
+    $("resetBtn").click();
+    $("demoBtn").click();
+    const links = () => bridgeItems().filter((e) => e.from === ID("1", DEMO_ROOT) && e.to === ID("137", F5) && e.title.includes("(high)"));
+    await until(() => links().length === 1);
+    clickEdge(edgeByHash("0xb7").id);
+    await until(() => panel().includes("assumed to be the depositor's own address"));
+    expect(panel()).not.toContain("Recipient unknown");
+    expect($("detailsContent").querySelector("select")).not.toBeNull();
+    clickEdge(edgeByHash("0xe1").id);
+    await until(() => panel().includes("high · Polygon · not reviewed"));
+    expect($("detailsContent").querySelector("select")).not.toBeNull();
+  } finally {
+    $("resetBtn").click();
+  }
+});
