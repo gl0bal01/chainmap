@@ -1436,8 +1436,16 @@ function logWorkspaceRefusal(res) {
   logger.log(res.errorKey ? { level: "error", key: res.errorKey } : { level: "error", key: "log.workspaceError", params: { error: res.error } });
 }
 
+// Ruling 31: v1/v2 files predate Tron, so their chain fallback is never Tron: the selector when it
+// is an EVM chain, else the stored EVM chain, else Ethereum.
+const legacyChain = () => {
+  const isEvm = (v) => CHAINS.some((c) => String(c.id) === v);
+  const stored = localStorage.getItem(STORAGE_KEYS.chainId);
+  return isEvm($("chainSelect").value) ? $("chainSelect").value : isEvm(stored) ? stored : "1";
+};
+
 function loadWorkspaceFromText(text) {
-  const res = parseWorkspace(text, { fallbackChainId: $("chainSelect").value });
+  const res = parseWorkspace(text, { fallbackChainId: legacyChain() });
   if (!res.ok) return logWorkspaceRefusal(res);
   const ws = res.data;
   if (!applyWorkspace(ws)) return;
@@ -1460,7 +1468,7 @@ async function loadDemo() {
   try {
     const resp = await fetch(DATA_PATHS.demo);
     if (!resp.ok) throw new Error(String(resp.status));
-    const res = parseWorkspace(await resp.json(), { fallbackChainId: $("chainSelect").value });
+    const res = parseWorkspace(await resp.json(), { fallbackChainId: legacyChain() });
     if (!res.ok) return logWorkspaceRefusal(res);
     if (!applyWorkspace(res.data)) return;
     bridgeDecisions = new Map();

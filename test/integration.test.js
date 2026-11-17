@@ -4201,3 +4201,24 @@ test("the TronGrid key is in no artifact, after a scan and after a rejected key"
     restoreForm();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Tron fix wave (rulings 31-45)
+// ---------------------------------------------------------------------------
+test("a legacy v2 file never falls back to Tron: it loads on the stored EVM chain (ruling 31)", async () => {
+  const v2 = { version: 2, root: ROOT, nodes: [{ address: ROOT, depth: 0, isRoot: true }, { address: N2, depth: 1 }], edges: [] };
+  try {
+    setChain("42161");
+    setChain(TRON_ID);
+    expect(localStorage.getItem("etherscanChainId")).toBe("42161");
+    const t = tronCalls.length;
+    await dropWorkspace(JSON.stringify(v2));
+    expect(nodeIds()).toEqual([ID("42161", N2), ID("42161", ROOT)].sort());
+    expect($("logContent").textContent).toContain("Workspace loaded — 2 addresses");
+    expect($("chainSelect").value).toBe("42161");
+    expect($("tronBox").hidden).toBe(true);
+    expect(tronCalls.length).toBe(t);
+  } finally {
+    restoreForm();
+  }
+});
