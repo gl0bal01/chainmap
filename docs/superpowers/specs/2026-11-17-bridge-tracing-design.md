@@ -342,3 +342,35 @@ recompute call sites (must not go stale — tested); the shared helper extracted
   investigator confirms/rejects (program contract, binding).
 - No new hosts (Etherscan v2 through `makeClient` only); no new deps; workspace v3.
 - Merge to local main only; no push/tag/release; no version bump.
+
+## Builder-check rulings
+
+Builder check (sonnet), answered by the lead:
+
+1. **Look loads the full value set.** `lookForRelease` loads `txlist`, `txlistinternal` and `tokentx`
+   for the recipient on the chosen chain whatever the form checkboxes say (the shared load helper takes
+   an explicit `types`; `loadOnChain` keeps passing `formTypes()`). Without all three, `covered`, the
+   `mint` factor and `high` are unreachable. *Cost if wrong:* up to three requests per click (the same
+   as a default load, where all three boxes are ticked).
+2. **Decisions never change a computed level.** `inferBridges` takes no decisions: a rejected candidate
+   still counts in `forDeposit` / `forRelease`, and confirming one candidate leaves the others as they
+   are. The computed level is a function of fetched data only; the investigator's assertion is a
+   separate layer. The details say "{n} candidates ({r} rejected by the investigator)". *Cost if
+   wrong:* a candidate stays `low` after its decoy is rejected; the investigator can still confirm it.
+   Never a false strength.
+3. **One candidate per release transaction.** When several edges of the same release transaction
+   (`chainId` + `hash` + recipient) qualify for a deposit (e.g. listed in two actions, or two equal
+   mints), they form one candidate: the edge with the smallest edge key. `forDeposit` and `forRelease`
+   count distinct transactions (`chainId` + `hash`) on the other side. *Cost if wrong:* two distinct
+   transfers in one transaction show as one candidate — a lead lost, never a false one.
+4. **Look on a chain where the recipient is already loaded = load older there.** The chain select lists
+   every `CHAINS` entry except the deposit's chain (probe order, `destChainId` first when decoded). If the
+   recipient node exists on the chosen chain, Look runs `loadOlderFor` on it with the full value set
+   (first page if it was never fetched, else the next older page); otherwise it adds the node and loads
+   one page. The "load older" button on an uncovered candidate calls the same function. *Cost if
+   wrong:* none — one function, two callers.
+5. **Internal-tx deposits keep `E.from` as depositor.** A deposit made by a contract (router,
+   aggregator, smart wallet) uses that contract as depositor: a known entity → no recipient; an
+   unknown contract → `sender` basis (at most `low` unless the release sender is a bridge/mint, then
+   `medium`). No hash walk back to the EOA: a router may pay out anywhere. *Cost if wrong:* deposits
+   through routers rarely get candidates — leads missed, never invented. Stated as a limitation.
