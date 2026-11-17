@@ -74,6 +74,7 @@ test("txlist rows", () => {
   skipped(rows[6], "1794600000000");
   expect(rows[7].tokenDecimal).toBe("");
   expect(rows[7].value).toBe("9007199254740992");
+  expect(rows[8]).toMatchObject({ tokenSymbol: "TRC10:?", tokenDecimal: "", value: "1000" }); // ruling 34: no asset_name
 });
 
 test("internal rows", () => {
@@ -93,6 +94,17 @@ test("trc20 rows", () => {
   expect(rows[4].tokenDecimal).toBe("");
   skipped(rows[5], "1794907752000");
   expect(rows[6].tokenSymbol).toBe("TRC-20");
+  expect(rows[7]).toMatchObject({ tokenSymbol: "USDT", tokenDecimal: "" }); // ruling 34: JSON-number value (rounded by JSON.parse)
+});
+
+// Ruling 34: only a digit string is a determinate TRC-20 value; anything else is indeterminate.
+test("trc20 value: digit string only", () => {
+  const row = (value) => tronRows("tokentx", { data: [{ ...T20.data[0], value }] })[0];
+  expect(row("5870000").tokenDecimal).toBe("6");
+  for (const bad of ["", "0x2a", "1.5", " 5", "-1", "1e3", 5870000, 1.5, null, undefined, true, {}]) {
+    expect([bad, row(bad).tokenDecimal]).toEqual([bad, ""]);
+  }
+  expect(row(undefined).value).toBe("");
 });
 
 test("page length invariant", () => {

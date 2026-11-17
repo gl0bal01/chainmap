@@ -137,7 +137,7 @@ function txlistRow(t) {
   return {
     hash: t.txID, blockNumber, timeStamp, cursor, from, to, value: amt.value,
     isError: t.ret?.[0]?.contractRet === "SUCCESS" ? "0" : "1",
-    tokenSymbol: trc10 ? "TRC10:" + v.asset_name : "",
+    tokenSymbol: trc10 ? "TRC10:" + (v.asset_name || "?") : "",
     tokenDecimal: !trc10 && amt.ok ? "6" : "",
   };
 }
@@ -162,12 +162,14 @@ function trc20Row(t) {
   if (t.type !== "Transfer" || !from || !to || !contractAddress) return skippedRow(t.transaction_id, "", t.block_timestamp);
   const [timeStamp, cursor] = msParts(t.block_timestamp);
   const d = t.token_info.decimals;
-  const value = String(t.value);
+  // Ruling 34: only a digit string is determinate (a JSON number may be rounded, "" is BigInt 0).
+  const ok = typeof t.value === "string" && /^\d+$/.test(t.value);
+  const value = t.value == null ? "" : String(t.value);
   return {
     hash: t.transaction_id, blockNumber: "", timeStamp, cursor, from, to, value, contractAddress,
     tokenSymbol: t.token_info.symbol || "TRC-20", // never fall back to TRX
     tokenName: t.token_info.name || "",
-    tokenDecimal: Number.isInteger(d) && d >= 0 && d <= 77 ? String(d) : "",
+    tokenDecimal: ok && Number.isInteger(d) && d >= 0 && d <= 77 ? String(d) : "",
     logIndex: "v" + value,
   };
 }
