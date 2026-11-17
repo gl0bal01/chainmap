@@ -17,7 +17,7 @@ detection, sink/faucet hubs, and per-node risk scoring.
   `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) only while you tick the opt-in
   **Show USD values** box — enforced by a strict Content-Security-Policy.
 - **English + French**, fully localized.
-- **863 unit/integration tests** on the DOM-free core.
+- **867 unit/integration tests** on the DOM-free core.
 
 ![chainmap graph view](docs/img/graph.png)
 
@@ -118,14 +118,15 @@ pick a chain, paste an address, **Start**. One key works across all supported ch
 - **Evidence bundle** — one `.zip` (store-only) with `graph.csv`, `graph.png`, `workspace.json`,
   `query-log.json`, a `MANIFEST.json` and a `SHA256SUMS` you check with `sha256sum -c`. The
   zip's own SHA-256 is written in the app log for your case notes. Tamper evidence only.
-- **Inferred bridge links** — deposits into known bridges are detected and the expected
-  recipient on the other side is decoded from the call, or else assumed to be the depositor's
-  own address (a weaker basis, said so). **Look for the release on {chain}** loads one logged
-  page of that recipient there; candidate releases are drawn **dashed, "inferred — verify"**,
-  with a `low` / `medium` / `high` confidence and their evidence (amount, delay, recipient basis,
-  release sender). You confirm or reject each one; that decision is recorded as *your assertion*
-  (not on-chain proof) in the details panel, the CSV `bridge_inferred` column, PNG/PDF, the
-  evidence MANIFEST and the workspace. Never proof, and only from the data already loaded.
+- **Inferred bridge links** — deposits into known bridges are detected and the expected recipient
+  on the other side is decoded from the call, or else assumed to be the depositor's own address (a
+  weaker basis, said so). **Look for the release on {chain}** sends up to three requests for that
+  recipient there (one page each of normal, internal and token transactions, each logged in the
+  query log); candidate releases are drawn **dashed, "inferred — verify"**, with a `low` /
+  `medium` / `high` confidence and their evidence (amount, delay, recipient basis, release
+  sender). You confirm or reject each one; that decision is recorded as *your assertion* (not
+  on-chain proof) in the details panel, the CSV `bridge_inferred` column, PNG/PDF, the evidence
+  MANIFEST and the workspace. Never proof, and only from the data already loaded.
 - **Search & keyboard navigation** — a **🔍 search button** in the top bar (or **Ctrl/Cmd+K**)
   opens a command palette that searches nodes by address / alias / known-label / category and
   transactions by hash / method (hybrid substring + fuzzy ranking); picking a result focuses +
@@ -206,7 +207,7 @@ Tests are **dev-only** (they never run in production and aren't needed to use th
 
 ```bash
 bun install     # dev deps only (happy-dom, playwright-core)
-bun test        # 863 unit + integration tests
+bun test        # 867 unit + integration tests
 ```
 
 `bun run ci` mirrors every CI job locally (`scripts/ci-local.sh`). Enable the tracked pre-push hook once with:

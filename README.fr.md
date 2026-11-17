@@ -18,7 +18,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
   `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
   case facultative **Afficher les valeurs en USD** — imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **863 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **867 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -137,13 +137,14 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
 - **Liens de pont déduits — à vérifier** — les dépôts vers des ponts connus sont détectés et le
   destinataire attendu de l'autre côté est décodé depuis l'appel, ou à défaut supposé être
   l'adresse du déposant (base plus faible, indiquée comme telle). **Chercher la sortie sur
-  {chaîne}** charge une page journalisée de ce destinataire ; les libérations candidates sont
-  tracées **en pointillés, « déduit — à vérifier »**, avec une confiance `low` / `medium` /
-  `high` et leurs indices (montant, délai, base du destinataire, émetteur de la libération). Vous
-  confirmez ou rejetez chacune ; la décision est consignée comme *votre affirmation* (« confirmé
-  par l'enquêteur », pas une preuve on-chain) dans le panneau de détails, la colonne CSV
-  `bridge_inferred`, les PNG/PDF, le MANIFEST de preuves et l'espace de travail. Jamais une
-  preuve, et uniquement à partir des données déjà chargées.
+  {chaîne}** envoie jusqu'à trois requêtes pour ce destinataire (une page chacune de transactions
+  normales, internes et de jetons, chacune journalisée dans le journal des requêtes) ; les
+  libérations candidates sont tracées **en pointillés, « déduit — à vérifier »**, avec une
+  confiance `low` / `medium` / `high` et leurs indices (montant, délai, base du destinataire,
+  émetteur de la libération). Vous confirmez ou rejetez chacune ; la décision est consignée comme
+  *votre affirmation* (« confirmé par l'enquêteur », pas une preuve on-chain) dans le panneau de
+  détails, la colonne CSV `bridge_inferred`, les PNG/PDF, le MANIFEST de preuves et l'espace de
+  travail. Jamais une preuve, et uniquement à partir des données déjà chargées.
 - **Recherche & navigation au clavier** — un **bouton 🔍 Rechercher** dans la barre du haut
   (ou **Ctrl/Cmd+K**) ouvre une palette de commandes qui cherche des nœuds par adresse / alias /
   libellé connu / catégorie et des transactions par hash / méthode (classement hybride substring
@@ -234,7 +235,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 863 tests unitaires + d'intégration
+bun test        # 867 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :

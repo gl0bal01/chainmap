@@ -259,9 +259,12 @@ What it needs, and how it reads it:
 
   Even `high` is shown with "inferred — verify". No computed result is called confirmed.
 - **Coverage.** *Unique* needs the **recipient's own** loaded transactions to reach back to the
-  deposit time, so a better match cannot be hiding in history you did not load. When it does not,
-  the details say so and offer **Load older**. (An edge that only appeared on a counterparty's page
-  never proves coverage.)
+  deposit time, so a better match cannot be hiding in history you did not load. This holds for
+  every way a release of the deposit's asset could arrive on that chain: token transfers always,
+  and native plus internal transactions too when the deposit's asset is (or wraps) that chain's
+  native coin, whatever kind the candidate found is. When it does not, the details say so and
+  offer **Load older**. (An edge that only appeared on a counterparty's page never proves
+  coverage.)
 - **One candidate per release transaction.** Several edges of one release transaction (for
   example listed twice, as an internal and a token transfer) form a single candidate.
 - **Look for the release on {chain}.** One click loads the native, internal and token transactions
@@ -277,6 +280,10 @@ Limits, read them before relying on a link:
 
 - **Candidates come only from loaded data**, which is sampled (see section 7). A release you have
   not loaded cannot be proposed, and the absence of a candidate proves nothing.
+- **"Unique" is judged over the loaded data only**, across the chains you have loaded. When the
+  deposit call does not name a destination chain, a release on a chain you have not loaded cannot
+  be ruled out, even at `medium` or `high`. Load the recipient on other plausible chains to look
+  further.
 - **Routers and aggregators.** When a contract makes the deposit (including an internal transaction),
   that contract is the depositor, not the person behind it. A known router gets no recipient;
   an unknown contract is assumed to receive at its own address (`low`, at most `medium`).
@@ -291,9 +298,6 @@ Limits, read them before relying on a link:
   saved in the workspace but is no longer shown.
 - **French wording of the unknown-recipient line:** the `{category}` word is the raw category
   word (for example "exchange"), not translated.
-- **Coverage boundary:** the recipient's own window counts as reaching back when an edge dated at
-  or before the deposit lies at or after the history's oldest block. A release in exactly that
-  boundary block, in the same second as the deposit, could be missed.
 
 Worked example: the demo has an illustrative exploiter deposit of 20 ETH into Polygon's
 `RootChainManager` (a known bridge) whose `depositEtherFor` call names the recipient. On chain

@@ -293,8 +293,12 @@ Ce qu'il lui faut, et comment il le lit :
   Même `high` s'affiche avec « déduit — à vérifier ». Aucun résultat calculé n'est dit confirmé.
 - **La couverture.** *Unique* exige que les transactions chargées **du destinataire lui-même**
   remontent jusqu'à l'heure du dépôt, pour qu'une meilleure correspondance ne se cache pas dans un
-  historique non chargé. Sinon, les détails le disent et proposent **Charger plus ancien**. (Une
-  arête apparue seulement sur la page d'une contrepartie ne prouve jamais la couverture.)
+  historique non chargé. Cela vaut pour chaque voie par laquelle une libération de l'actif déposé
+  pourrait arriver sur cette chaîne : toujours les transferts de jetons, et aussi les transactions
+  natives et internes quand l'actif déposé est la monnaie native de cette chaîne (ou sa version
+  enveloppée), quel que soit le type du candidat trouvé. Sinon, les détails le disent et proposent
+  **Charger plus ancien**. (Une arête apparue seulement sur la page d'une contrepartie ne prouve
+  jamais la couverture.)
 - **Un candidat par transaction de libération.** Plusieurs arêtes d'une même transaction de
   libération (par exemple listée deux fois, en transfert interne et en transfert de jeton) ne
   forment qu'un candidat.
@@ -313,6 +317,10 @@ Limites, à lire avant de s'appuyer sur un lien :
 - **Les candidats viennent uniquement des données chargées**, qui sont échantillonnées (voir la
   section 7). Une libération non chargée ne peut pas être proposée, et l'absence de candidat ne
   prouve rien.
+- **« Unique » ne se juge que sur les données chargées**, sur les chaînes que vous avez chargées.
+  Quand l'appel de dépôt ne nomme pas de chaîne de destination, une libération sur une chaîne non
+  chargée ne peut pas être exclue, même en `medium` ou `high`. Chargez le destinataire sur d'autres
+  chaînes plausibles pour chercher plus loin.
 - **Routeurs et agrégateurs.** Quand un contrat fait le dépôt (y compris par transaction interne),
   c'est lui le déposant, pas la personne derrière. Un routeur connu n'a pas de destinataire ; un
   contrat inconnu est supposé recevoir à sa propre adresse (`low`, au plus `medium`). Il n'y a pas
@@ -329,10 +337,6 @@ Limites, à lire avant de s'appuyer sur un lien :
   travail, mais n'est plus affichée.
 - **Libellé français de la ligne « destinataire inconnu » :** le mot `{category}` est le mot brut
   de la catégorie (par exemple « exchange »), non traduit.
-- **Limite de couverture :** la fenêtre propre du destinataire est jugée remonter assez loin quand
-  une arête datée au plus tard du dépôt se situe à partir du bloc le plus ancien de l'historique.
-  Une libération dans exactement ce bloc limite, à la même seconde que le dépôt, pourrait être
-  manquée.
 
 Exemple : la démo contient un dépôt illustratif de 20 ETH d'un exploiteur vers le
 `RootChainManager` de Polygon (pont connu), dont l'appel `depositEtherFor` nomme le destinataire.
