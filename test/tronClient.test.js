@@ -242,13 +242,21 @@ test("a short page with a fingerprint is filled from the next pages", async () =
   expect(records.map((r) => r.outcome)).toEqual(["ok", "ok"]);
 });
 
-test("fill hops stop at 10", async () => {
+test("fill hops stop at 10 and the still-short page fails visibly", async () => {
   const f = fakeFetch(OK([{}], { fingerprint: "F" }));
   const { client, records } = mk(f, { minIntervalMs: 1 });
-  const out = await client.fetchAction(A, "txlist", { offset: 50 });
+  const err = await rejection(client.fetchAction(A, "txlist", { offset: 50 }));
+  expect(err.kind).toBe("api");
+  expect(err.message).toContain("still short after 10 hops");
   expect(f.calls.length).toBe(11);
   expect(records.length).toBe(11);
-  expect(out.length).toBe(11);
+});
+
+test("a short page without a fingerprint returns its rows", async () => {
+  const f = fakeFetch(OK([{}, {}]));
+  const { client } = mk(f, { minIntervalMs: 1 });
+  expect((await client.fetchAction(A, "txlist", { offset: 50 })).length).toBe(2);
+  expect(f.calls.length).toBe(1);
 });
 
 test("abort during a fill wait", async () => {

@@ -151,6 +151,10 @@ export function createTronClient(options = {}) {
       json = await request(action, { ...params, fingerprint }, signal, onRetry);
       rows = rows.concat(tronRows(action, json));
     }
+    // Ruling 46: cap exhausted while still short with a fingerprint = not complete; never read as done.
+    if (rows.length < offset && typeof json.meta?.fingerprint === "string" && json.meta.fingerprint) {
+      throw new EtherscanError(`TronGrid page still short after ${FILL_HOPS} hops (${action})`, "api", { action });
+    }
     return rows;
   }
 

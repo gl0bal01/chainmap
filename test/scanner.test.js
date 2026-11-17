@@ -432,6 +432,19 @@ describe("loadOlder", () => {
     expect(logs.map((l) => l.key)).toEqual(["error.fetch"]);
   });
 
+  test("an api-kind fetch error (short Tron page) logs error.fetch, cursor unchanged, not complete", async () => {
+    const entry = { oldestBlock: "9", blockPage: 0, pageSize: 0, done: false, count: 2 };
+    const client = makeClient();
+    client.fetchAction = async () => { throw Object.assign(new Error("short"), { kind: "api" }); };
+    const store = seeded({ txlist: entry });
+    const logs = [];
+    const r = await lo({ client, store, onLog: (e) => logs.push(e) });
+    expect(r.errors).toBe(1);
+    expect(r.allDone).toBe(false);
+    expect(store.getNode(ID(R)).history.txlist).toEqual(entry);
+    expect(logs.map((l) => l.key)).toEqual(["error.fetch"]);
+  });
+
   test("plan_required stops the load", async () => {
     const client = makeClient();
     client.fetchAction = async () => {
