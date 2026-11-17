@@ -249,6 +249,99 @@ Limites, à lire avant de se fier à une marque :
 Exemple : dans la démo, `0xdec0…0001` est alimentée par la racine puis balayée vers Binance 14
 dix minutes plus tard ; elle est donc marquée (données illustratives).
 
+### Ponts : liens déduits, pas des preuves
+
+Un **pont** fait passer de la valeur d'une chaîne à l'autre. Deux conceptions comptent ici. Un
+pont **lock-mint** verrouille l'actif dans un contrat sur la chaîne A et crée (mint) une copie
+enveloppée sur la chaîne B. Un pont à **liquidité** prend votre dépôt sur A et un relayeur vous
+paie sur B avec son propre stock, moins des frais. Sur la chaîne de destination, la « libération »
+peut ressembler à un **mint depuis `0x0…0`** (un transfert de jeton dont l'expéditeur est l'adresse
+zéro), à une **transaction interne du contrat de pont L2** ou à un **remplissage par un relayeur**
+(un transfert ordinaire). Aucun ne porte l'identifiant du dépôt dans les données que lit chainmap :
+le lien entre les deux chaînes ne peut qu'être **déduit**.
+
+chainmap étiquette 271 contrats de pont. Un transfert de valeur vers l'un d'eux est un **dépôt de
+pont**. Il propose ensuite des **libérations candidates** à partir des transactions déjà chargées
+et trace chacune en **lien pointillé, « déduit — à vérifier »**. C'est une piste à vérifier sur les
+deux explorateurs, jamais une preuve.
+
+Ce qu'il lui faut, et comment il le lit :
+
+- **La base du destinataire.** Le destinataire attendu de l'autre côté est soit **décodé depuis
+  l'appel de dépôt** (une fonction de pont connue comme `depositEtherFor(address)` le nomme), soit,
+  faute de décodage, **supposé être l'adresse du déposant**. Ce repli est une base plus faible et
+  **n'augmente jamais la confiance à lui seul**. Il n'est supposé que si le déposant n'est pas un
+  exchange, routeur, pont, mixeur ou jeton connu sur cette chaîne, car ceux-là agissent pour
+  d'autres. Tout autre déposant, y compris un acteur sanctionné connu, est supposé recevoir à sa
+  propre adresse. Pour les autres, les détails disent « Destinataire inconnu » et aucun candidat
+  n'est cherché.
+- **Les facteurs observés.** Une libération doit être sur une autre chaîne, vers ce destinataire,
+  après le dépôt et dans les **14 jours**, pour le même actif (ETH et WETH comptent comme
+  identiques), et de montant égal ou **inférieur d'au plus 3 %** (lu comme « compatible avec des
+  frais de pont, ou un transfert sans rapport »). Les échanges (dépôt d'USDC, réception d'ETH) ne
+  sont pas proposés. Les montants sont comparés exactement (BigInt). L'**expéditeur** de la
+  libération est aussi noté : un pont connu, un mint de jeton, ou ni l'un ni l'autre. L'actif est
+  *de confiance* s'il est natif ou un jeton connu sur sa chaîne.
+- **Les niveaux** (le premier qui s'applique) :
+
+  | Niveau | Exige |
+  |---|---|
+  | `high` | unique, actif de confiance, montant **égal**, destinataire **décodé**, expéditeur = pont connu ou mint |
+  | `medium` | unique, actif de confiance, et (destinataire décodé **ou** expéditeur = pont connu ou mint) ; un montant réduit par des frais est plafonné ici |
+  | `low` | tout le reste : destinataire de repli seul, un second candidat d'un côté ou de l'autre, échantillon non couvrant, actif non fiable |
+
+  Même `high` s'affiche avec « déduit — à vérifier ». Aucun résultat calculé n'est dit confirmé.
+- **La couverture.** *Unique* exige que les transactions chargées **du destinataire lui-même**
+  remontent jusqu'à l'heure du dépôt, pour qu'une meilleure correspondance ne se cache pas dans un
+  historique non chargé. Sinon, les détails le disent et proposent **Charger plus ancien**. (Une
+  arête apparue seulement sur la page d'une contrepartie ne prouve jamais la couverture.)
+- **Un candidat par transaction de libération.** Plusieurs arêtes d'une même transaction de
+  libération (par exemple listée deux fois, en transfert interne et en transfert de jeton) ne
+  forment qu'un candidat.
+- **Chercher la sortie sur {chaîne}.** Un clic charge les transactions natives, internes et de
+  jetons du destinataire là-bas (une page chacune, journalisées dans le journal des requêtes ;
+  chainmap n'explore jamais seul une chaîne de destination). Si le destinataire est déjà chargé sur
+  cette chaîne, il charge plutôt une page plus ancienne.
+- **Votre décision est une affirmation.** Confirmez, rejetez ou effacez chaque candidat. Elle est
+  consignée comme *confirmé par l'enquêteur*, avec son heure, partout où elle apparaît (détails,
+  CSV `bridge_inferred`, PNG/PDF, MANIFEST, espace de travail). Ce n'est **jamais une preuve
+  on-chain** et elle **ne change jamais un niveau calculé** : rejeter un candidat ne fait pas
+  passer un autre en `high`.
+
+Limites, à lire avant de s'appuyer sur un lien :
+
+- **Les candidats viennent uniquement des données chargées**, qui sont échantillonnées (voir la
+  section 7). Une libération non chargée ne peut pas être proposée, et l'absence de candidat ne
+  prouve rien.
+- **Routeurs et agrégateurs.** Quand un contrat fait le dépôt (y compris par transaction interne),
+  c'est lui le déposant, pas la personne derrière. Un routeur connu n'a pas de destinataire ; un
+  contrat inconnu est supposé recevoir à sa propre adresse (`low`, au plus `medium`). Il n'y a pas
+  de remontée jusqu'au portefeuille d'origine, car un routeur peut payer n'importe où.
+- Les **échanges à travers un pont**, les chaînes de ponts **multi-sauts** et les destinations non
+  EVM ne sont pas suivis.
+- **Alias Arbitrum :** l'adresse d'un contrat déposant peut apparaître sous un alias sur L2 ; le
+  destinataire supposé est alors faux et aucun candidat n'apparaît.
+- **Chaînes `plan_required` :** une clé gratuite peut être refusée sur certaines chaînes ; la
+  requête Chercher échoue alors et aucun candidat n'apparaît.
+- **L'identifiant d'une décision suit l'arête de plus petite clé de la transaction de
+  libération.** Si une arête de plus petite clé de la même transaction se charge plus tard,
+  l'identifiant change : l'ancienne décision est conservée et sauvegardée dans l'espace de
+  travail, mais n'est plus affichée.
+- **Libellé français de la ligne « destinataire inconnu » :** le mot `{category}` est le mot brut
+  de la catégorie (par exemple « exchange »), non traduit.
+- **Limite de couverture :** la fenêtre propre du destinataire est jugée remonter assez loin quand
+  une arête datée au plus tard du dépôt se situe à partir du bloc le plus ancien de l'historique.
+  Une libération dans exactement ce bloc limite, à la même seconde que le dépôt, pourrait être
+  manquée.
+
+Exemple : la démo contient un dépôt illustratif de 20 ETH d'un exploiteur vers le
+`RootChainManager` de Polygon (pont connu), dont l'appel `depositEtherFor` nomme le destinataire.
+Sur la chaîne 137, ce destinataire a reçu 20 WETH créés depuis `0x0…0` trente minutes plus tard.
+Destinataire décodé, montant égal, expéditeur = mint, actif de confiance, historique du
+destinataire complet : le candidat est `high`, toujours « déduit — à vérifier ». L'autre dépôt de
+la démo n'a pas de candidat et affiche donc la ligne **Chercher la sortie** (données
+illustratives).
+
 ---
 
 ## 11. Preuves et provenance
@@ -392,8 +485,8 @@ action `batchHistorical`, paramètres `coins` et `searchWidth`, statut, lignes, 
 corps), consignée **avant** que sa valeur puisse apparaître à l'écran. Dans le panneau, la
 colonne d'adresse indique le nombre de monnaies de la requête. Les entrées restent après
 décochage de la case, et sont effacées avec le reste du journal lors d'une réinitialisation, du
-chargement d'un espace de travail ou de la démo. Dans le CSV, `usd_value` est la
-**dernière** colonne, et la ligne 1 indique que les valeurs sont des estimations et combien de
+chargement d'un espace de travail ou de la démo. Dans le CSV, `usd_value` est après les
+colonnes de dépôt (`bridge_inferred` le suit), et la ligne 1 indique que les valeurs sont des estimations et combien de
 transferts valorisables ont reçu un prix. Dans le dossier de preuves, `MANIFEST.json` reçoit un
 bloc `prices` (source, `estimate: true`, USD affiché ou non, nombre de requêtes, transferts
 valorisés et valorisables), et la mise en garde USD s'ajoute à ses mises en garde. Les

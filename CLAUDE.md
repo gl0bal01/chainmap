@@ -21,7 +21,7 @@ python3 -m http.server 8000   # open http://localhost:8000/
 Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 
 ```bash
-bun test        # 797 tests
+bun test        # 863 tests
 ```
 
 `vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
@@ -47,6 +47,7 @@ DOM-free, Node-testable modules (pure logic; the heart of the app):
 - `depositDetect.js` — `findDeposits` exchange-deposit heuristic, `delayParts`.
 - `roundTrips.js` — Tarjan SCC cycle detection. `sinkFaucet.js` — hub classification.
 - `selectors.js` + `abiDecode.js` — 4-byte method selectors + ABI head decoder.
+- `bridgeInfer.js` — `inferBridges` (inferred bridge-deposit candidates, with confidence and evidence) + `sanitizeBridgeDecisions` (investigator decisions, workspace trust boundary).
 - `usdPrice.js` — opt-in USD estimates: `priceKeyFor` (the only gate on what reaches DefiLlama), exact BigInt valuation, `usdForEdge`, price service.
 - `riskScore.js` — explainable per-node risk. `blockchainDetect.js` — chain-by-format detection.
 - `knownAddresses.js` (`knownEntry`: chain-specific then `"*"`), `fakeToken.js` (imitation-token detection), `workspace.js` (save/load), `dryRun.js` (scan estimate).
@@ -75,13 +76,14 @@ Frozen module contracts live in `INTERFACES.md`.
   (`config.js` / `selectors.js`); a known-address = one row in `data/sources/curated.json`, then rebuild (below). A new selector gets an entry in
   `SELECTORS` (signature) and, if its leading static args are worth naming, a matching
   entry in `SELECTOR_PARAMS` (param names, in `selectors.js`) — `abiDecode.summarizeCall`
-  and the CSV `decoded_amount`/`real_recipient` columns depend on those names being present.
+  and the CSV `decoded_amount`/`real_recipient` columns depend on those names being present. A bridge selector names the other-side recipient `destRecipient` (and the destination chain `destChainId`), **never `recipient`**: `recipient` drives `flag.hiddenRecipient`, `resolvedRecipient`/`flag.bridge` and the CSV `real_recipient`, which must keep describing the same-chain call.
 - **Evidence**: the query log stores request params without the key + SHA-256 of raw bodies; every export carries provenance; the bundle hashes exactly the bytes written; the API key is in no artifact.
 - **Risk flags** (`riskFlags.js`), **peel-chain** detection (`peelChain.js`), the
   **exchange-deposit mark** (`depositDetect.findDeposits`), and **hide
   faucets/sinks** (`sinkFaucet.shouldHideNode`) are display projections over the store
   mirror, same as filters/bundling — they never mutate `graphStore`, so CSV/detail always
   reflect the full graph regardless of what's hidden or highlighted on screen.
+- **Inferred bridge links** (`bridgeInfer.inferBridges`) are the same kind of display projection: they never mutate `graphStore`, are never drawn or exported as fact (dashed overlay, "inferred — verify", `low`/`medium`/`high` from observed factors, only from loaded/sampled data), and the investigator's confirm/reject is an assertion kept in the workspace `bridgeDecisions` that never feeds the inference or changes a computed level.
 - **`data/known-addresses.json` is generated — never hand-edit it.** Edit
   `data/sources/curated.json`, then run `bun run data:build --verify-sources` (dev-only
   pipeline in `scripts/known-addresses/`; see `data/README.md`). Sanctions come only from the

@@ -18,7 +18,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
   `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
   case facultative **Afficher les valeurs en USD** — imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **797 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **863 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -134,6 +134,16 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
   `workspace.json`, `query-log.json`, un `MANIFEST.json` et un `SHA256SUMS` à vérifier avec
   `sha256sum -c`. Le SHA-256 du zip est écrit dans le journal de l'appli pour vos notes de dossier.
   Détection d'altération seulement.
+- **Liens de pont déduits — à vérifier** — les dépôts vers des ponts connus sont détectés et le
+  destinataire attendu de l'autre côté est décodé depuis l'appel, ou à défaut supposé être
+  l'adresse du déposant (base plus faible, indiquée comme telle). **Chercher la sortie sur
+  {chaîne}** charge une page journalisée de ce destinataire ; les libérations candidates sont
+  tracées **en pointillés, « déduit — à vérifier »**, avec une confiance `low` / `medium` /
+  `high` et leurs indices (montant, délai, base du destinataire, émetteur de la libération). Vous
+  confirmez ou rejetez chacune ; la décision est consignée comme *votre affirmation* (« confirmé
+  par l'enquêteur », pas une preuve on-chain) dans le panneau de détails, la colonne CSV
+  `bridge_inferred`, les PNG/PDF, le MANIFEST de preuves et l'espace de travail. Jamais une
+  preuve, et uniquement à partir des données déjà chargées.
 - **Recherche & navigation au clavier** — un **bouton 🔍 Rechercher** dans la barre du haut
   (ou **Ctrl/Cmd+K**) ouvre une palette de commandes qui cherche des nœuds par adresse / alias /
   libellé connu / catégorie et des transactions par hash / méthode (classement hybride substring
@@ -144,7 +154,7 @@ multichaîne unifié ; certaines chaînes exigent un forfait payant — voir
 - **Valeurs historiques en USD (facultatif)** — cochez **Afficher les valeurs en USD**
   (décochée à chaque chargement de page, jamais enregistrée) pour obtenir une *estimation* de
   la valeur en USD de chaque transfert dans le panneau de détails de l'arête et dans la
-  dernière colonne du CSV, `usd_value` : le prix DefiLlama à moins d'1 h de la transaction ×
+  colonne CSV `usd_value` : le prix DefiLlama à moins d'1 h de la transaction ×
   le montant exact en jetons (BigInt). Inconnu, en attente ou non valorisé reste vide, jamais
   `0`. Les NFT, transferts de valeur nulle, faux jetons, jetons de la liste de spam, contrats
   examinés, transferts aux données inconnues, testnets et chaînes non prises en charge ne sont
@@ -224,7 +234,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 797 tests unitaires + d'intégration
+bun test        # 863 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :
