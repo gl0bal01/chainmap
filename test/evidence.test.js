@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
-  CAVEATS, PARTIAL_CAVEAT, knownDataSnapshot, retrievalSummary, observedSampling,
+  CAVEATS, BRIDGE_CAVEAT, PARTIAL_CAVEAT, knownDataSnapshot, retrievalSummary, observedSampling,
   buildManifest, USD_CAVEAT, sha256Sums, queryLogDocument, fileStamp, buildEvidenceZip,
 } from "../src/evidence.js";
 import { sha256Hex } from "../src/queryLog.js";
@@ -32,7 +32,7 @@ describe("evidence", () => {
       expect(m.files[i].sha256).toBe(await sha256Hex(inp.files[i].bytes));
       expect(m.files[i].bytes).toBe(inp.files[i].bytes.length);
     }
-    expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "data", "prices", "caveats", "files", "omitted"]);
+    expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "data", "prices", "bridges", "caveats", "files", "omitted"]);
     expect(m.format).toBe("chainmap-evidence/1");
     expect(m.app.version).toBe(APP_VERSION);
   });
@@ -120,6 +120,15 @@ describe("footerLines", () => {
     expect(footerLines({ ...base, t: i18n.t, retrieval: { ...ret, fullyLogged: false } }).length).toBe(5);
   });
 
+  test("footerLines appends the bridge line last when bridges is drawn (en + fr)", async () => {
+    const { footerLines } = await import("../src/evidence.js");
+    const en = footerLines({ ...base, t: (await mk("en")).t, retrieval: ret, bridges: true });
+    expect(en.length).toBe(5);
+    expect(en[4]).toBe("Dashed bridge links are inferred candidates — verify; 'confirmed by investigator' is the investigator's assertion.");
+    expect(footerLines({ ...base, t: (await mk("fr")).t, retrieval: ret, bridges: true })[4]).toBe("Les liens de pont en tirets sont des candidats déduits — à vérifier ; « confirmé par l'enquêteur » est une affirmation de l'enquêteur.");
+    expect(footerLines({ ...base, t: (await mk("en")).t, retrieval: ret, bridges: false }).length).toBe(4);
+  });
+
   test("footerLines: retrieved line has no plural to get wrong (n = 1), en + fr", async () => {
     const { footerLines } = await import("../src/evidence.js");
     const one = { ...ret, queries: 1 };
@@ -177,4 +186,17 @@ describe("price entries in evidence", () => {
     expect((await buildManifest(mkInput())).prices).toBeNull();
     expect((await buildManifest(mkInput({ prices: { shown: false, queries: 0, priced: null, priceable: null } }))).prices).toBeNull();
   });
+});
+
+test("manifest bridges block + BRIDGE_CAVEAT only when a candidate exists", async () => {
+  const counts = { candidates: 2, low: 1, medium: 0, high: 1, confirmedByInvestigator: 1, rejectedByInvestigator: 0 };
+  const m = await buildManifest(mkInput({ bridges: counts }));
+  expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "data", "prices", "bridges", "caveats", "files", "omitted"]);
+  expect(m.bridges).toEqual({ note: expect.stringContaining("not proof"), ...counts });
+  expect(m.caveats).toEqual([...CAVEATS, BRIDGE_CAVEAT]);
+  for (const bridges of [undefined, null, { ...counts, candidates: 0 }]) {
+    const x = await buildManifest(mkInput({ bridges }));
+    expect(x.bridges).toBeNull();
+    expect(x.caveats).not.toContain(BRIDGE_CAVEAT);
+  }
 });

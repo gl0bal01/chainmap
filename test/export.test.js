@@ -198,7 +198,7 @@ describe("exportCsv", () => {
     const expectedHeader = [
       "row_type", "address", "alias", "depth", "is_root",
       "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id", "likely_deposit_of", "deposit_evidence", "usd_value",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id", "likely_deposit_of", "deposit_evidence", "usd_value", "bridge_inferred",
     ].join(",");
     expect(lines[1]).toBe(expectedHeader);
 
@@ -206,12 +206,12 @@ describe("exportCsv", () => {
     const nodeARow = [
       "node", NODE_A.address, csvEscape(NODE_A.alias), String(NODE_A.depth), "1",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "", "1", "", "", "",
+      "", "", "", "", "", "1", "", "", "", "",
     ].join(",");
     const nodeBRow = [
       "node", NODE_B.address, "", String(NODE_B.depth), "0",
       "", "", "", "", "", "", "", "",
-      "", "", "", "", "", "1", "", "", "",
+      "", "", "", "", "", "1", "", "", "", "",
     ].join(",");
     expect(lines[2]).toBe(nodeARow);
     expect(lines[3]).toBe(nodeBRow);
@@ -223,13 +223,13 @@ describe("exportCsv", () => {
       "edge", "", "", "", "",
       EDGE_1.group, EDGE_1.from, EDGE_1.to, EDGE_1.amountText, EDGE_1.symbol,
       EDGE_1.hash, EDGE_1.blockNumber, csvEscape(formatTimestamp(EDGE_1.timeStamp)),
-      "", "", "", "", "", "1", "", "", "",
+      "", "", "", "", "", "1", "", "", "", "",
     ].join(",");
     const edge2Row = [
       "edge", "", "", "", "",
       EDGE_2.group, EDGE_2.from, EDGE_2.to, EDGE_2.amountText, csvEscape(EDGE_2.symbol),
       EDGE_2.hash, EDGE_2.blockNumber, csvEscape(formatTimestamp(EDGE_2.timeStamp)),
-      "", "", "", "", "", "1", "", "", "",
+      "", "", "", "", "", "1", "", "", "", "",
     ].join(",");
     expect(lines[4]).toBe(edge1Row);
     expect(lines[5]).toBe(edge2Row);
@@ -263,7 +263,7 @@ describe("buildCsvRows", () => {
     expect(header).toEqual([
       "row_type", "address", "alias", "depth", "is_root",
       "tx_type", "from", "to", "amount", "symbol", "hash", "block", "date",
-      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id", "likely_deposit_of", "deposit_evidence", "usd_value",
+      "method", "method_sig", "real_recipient", "decoded_amount", "risk_flags", "chain_id", "likely_deposit_of", "deposit_evidence", "usd_value", "bridge_inferred",
     ]);
   });
 
@@ -312,15 +312,15 @@ test("deposit columns: label + evidence on node rows only, caveat on line 1, aft
   const a = withId(NODE_A), b = withId(NODE_B);
   const rows = buildCsvRows(makeFakeStore([a, b], [EDGE_1]), { category: () => null, deposits: new Map([[a.id, DEP]]) });
   expect(rows[0][0]).toBe(SINGLE_CAVEAT + DEPOSIT_CAVEAT);
-  expect(rows[1].slice(-4)).toEqual(["chain_id", "likely_deposit_of", "deposit_evidence", "usd_value"]);
-  expect(rows[2].slice(-4)).toEqual(["1", "Binance 14 (hot wallet)", "wallet=0xex;swept=9/10;share=ETH:100%,USDT:93%;max_delay_s=600", ""]);
-  expect(rows[3].slice(-4)).toEqual(["1", "", "", ""]);
-  expect(rows[4].slice(-4)).toEqual(["1", "", "", ""]); // edge row
+  expect(rows[1].slice(-5, -1)).toEqual(["chain_id", "likely_deposit_of", "deposit_evidence", "usd_value"]);
+  expect(rows[2].slice(-5, -1)).toEqual(["1", "Binance 14 (hot wallet)", "wallet=0xex;swept=9/10;share=ETH:100%,USDT:93%;max_delay_s=600", ""]);
+  expect(rows[3].slice(-5, -1)).toEqual(["1", "", "", ""]);
+  expect(rows[4].slice(-5, -1)).toEqual(["1", "", "", ""]); // edge row
   const none = buildCsvRows(makeFakeStore([a], []), {
     category: () => null,
     deposits: new Map([[a.id, { ...DEP, assets: [DEP.assets[0]], maxDelaySec: null, timedSweeps: 0 }]]),
   });
-  expect(none[2].at(-2)).toBe("wallet=0xex;swept=9/10;share=ETH:100%;max_delay_s=none");
+  expect(none[2].at(-3)).toBe("wallet=0xex;swept=9/10;share=ETH:100%;max_delay_s=none");
 });
 
 test("no deposit -> no deposit caveat; twins get independent cells; multi-chain caveat first", () => {
@@ -329,7 +329,7 @@ test("no deposit -> no deposit caveat; twins get independent cells; multi-chain 
   const rows = buildCsvRows(makeFakeStore([one, arb], []), { category: () => null, deposits: new Map([[arb.id, DEP]]) });
   expect(rows[0][0]).toBe(SINGLE_CAVEAT + MULTI + DEPOSIT_CAVEAT);
   expect(rows[2].slice(-3)).toEqual(["", "", ""]);
-  expect(rows[3].at(-3)).toBe("Binance 14 (hot wallet)");
+  expect(rows[3].at(-4)).toBe("Binance 14 (hot wallet)");
 });
 
 test("exportCsv forwards deps.deposits", () => {
@@ -348,7 +348,7 @@ test("exportCsv forwards deps.deposits", () => {
 const EXPORTED_AT = "2026-11-16T10:15:30.123Z";
 const RETR = { queries: 3, dropped: 0, first: "2026-11-16T10:00:00.000Z", last: "2026-11-16T10:05:00.000Z", fullyLogged: true };
 const SIGNALS = "; labels/risk flags/imitation-token/likely-deposit/same-key marks are signals - not facts";
-const CSV_HEADER_LINE = "row_type,address,alias,depth,is_root,tx_type,from,to,amount,symbol,hash,block,date,method,method_sig,real_recipient,decoded_amount,risk_flags,chain_id,likely_deposit_of,deposit_evidence,usd_value";
+const CSV_HEADER_LINE = "row_type,address,alias,depth,is_root,tx_type,from,to,amount,symbol,hash,block,date,method,method_sig,real_recipient,decoded_amount,risk_flags,chain_id,likely_deposit_of,deposit_evidence,usd_value,bridge_inferred";
 const enc = (s) => new TextEncoder().encode(s);
 
 test("CSV line 1 provenance: exported + retrieved + signals, comma-free, header on line 2", () => {
@@ -628,30 +628,30 @@ test("bundle: null toBlob or a render failure -> log.bundleFailed, nothing downl
 // ---------------------------------------------------------------------------
 
 describe("usd_value", () => {
-  const OLD_HEADER = CSV_HEADER_LINE.replace(",usd_value", "").split(",");
+  const OLD_HEADER = CSV_HEADER_LINE.replace(",usd_value,bridge_inferred", "").split(",");
   const okR = (text) => ({ state: "ok", cents: 1n, text, price: 1, at: 0, confidence: 1 });
   const results = [okR("2000.00"), { state: "pending" }, { state: "none" }, { state: "error" }, { state: "skip", reason: "nft" }, okR("<0.01")];
   const sixEdges = results.map((_, i) => ({ ...EDGE_1, key: "u" + i }));
   const usd = (e) => results[Number(e.key.slice(1))];
   const storeSix = () => makeFakeStore([withId(NODE_A)], sixEdges);
 
-  test("usd_value is the last header column; existing positions unchanged", () => {
+  test("usd_value is the column before bridge_inferred; existing positions unchanged", () => {
     const rows = buildCsvRows(storeSix(), { category: () => null });
-    expect(rows[1].at(-1)).toBe("usd_value");
-    expect(rows[1].slice(0, -1)).toEqual(OLD_HEADER);
+    expect(rows[1].at(-2)).toBe("usd_value");
+    expect(rows[1].slice(0, -2)).toEqual(OLD_HEADER);
   });
 
   test("blank when off", () => {
     const rows = buildCsvRows(makeFakeStore([withId(NODE_A)], [EDGE_1]), { category: () => null });
-    expect(rows.slice(2).every((r) => r.at(-1) === "")).toBe(true);
+    expect(rows.slice(2).every((r) => r.at(-2) === "")).toBe(true);
     expect(rows[0][0]).not.toContain("usd_value");
   });
 
   test("filled only when ok", () => {
     const rows = buildCsvRows(storeSix(), { category: () => null, usd });
     const body = rows.slice(2);
-    expect(body[0].at(-1)).toBe(""); // node row
-    const cells = body.slice(1).map((r) => r.at(-1));
+    expect(body[0].at(-2)).toBe(""); // node row
+    const cells = body.slice(1).map((r) => r.at(-2));
     expect(cells).toEqual(["2000.00", "", "", "", "", "<0.01"]);
     expect(cells.some((c) => c === "0" || c === "0.00")).toBe(false);
   });
@@ -689,4 +689,63 @@ test("CSV real_recipient of a bridge call is the bridge (tx to), not the decoded
   const row = buildCsvRows(makeFakeStore([], [edge]), { category: () => null }).find((r) => r[0] === "edge");
   expect(row[14]).toBe("depositEtherFor(address)");
   expect(row[15]).toBe(EDGE_1.to);
+});
+
+describe("bridge_inferred", () => {
+  const BRIDGE_CSV = "; bridge_inferred lists inferred bridge candidates (amount/time/recipient) - not facts - and confirmed-by-investigator is the investigator's assertion - not on-chain proof";
+  const DEP = { ...EDGE_1, key: "1|d", hash: "0xd1" };
+  const REL = { ...EDGE_2, key: "137|r", chainId: "137", hash: "0xr1" };
+  const REL2 = { ...EDGE_2, key: "137|r2", chainId: "137", hash: "0xr2" };
+  const c = (releaseKey, level) => ({ id: `1|d>${releaseKey}`, depositKey: "1|d", releaseKey, level });
+  const ctx = (decisions = new Map()) => ({ category: () => null, bridges: { candidates: [c("137|r", "high"), c("137|r2", "low")], decisions } });
+  const cell = (rows, hash) => rows.find((r) => r[0] === "edge" && r[10] === hash).at(-1);
+
+  test("last column; deposit and release cells joined in candidate order; statuses; line-1 caveat, comma-free", () => {
+    const rows = buildCsvRows(makeFakeStore([withId(NODE_A)], [DEP, REL, REL2]), ctx(new Map([["1|d>137|r", { decision: "confirmed" }], ["1|d>137|r2", { decision: "rejected" }]])));
+    expect(rows[1].slice(-2)).toEqual(["usd_value", "bridge_inferred"]);
+    expect(rows[0][0]).toBe(SINGLE_CAVEAT + BRIDGE_CSV);
+    expect(rows[0][0].includes(",")).toBe(false);
+    expect(rows[2].at(-1)).toBe("");
+    expect(cell(rows, "0xd1")).toBe(`release=137:0xr1;to=${NODE_A.address};confidence=high;status=confirmed-by-investigator | release=137:0xr2;to=${NODE_A.address};confidence=low;status=rejected-by-investigator`);
+    expect(cell(rows, "0xr1")).toBe(`deposit=1:0xd1;from=${NODE_A.address};confidence=high;status=confirmed-by-investigator`);
+    expect(cell(buildCsvRows(makeFakeStore([], [DEP, REL]), ctx()), "0xr1")).toBe(`deposit=1:0xd1;from=${NODE_A.address};confidence=high;status=unreviewed`);
+  });
+
+  test("no candidate (or one whose edges are gone) → blank column, no caveat", () => {
+    for (const x of [{ category: () => null }, ctx()]) {
+      const rows = buildCsvRows(makeFakeStore([withId(NODE_A)], [EDGE_1]), x);
+      expect(rows[0][0]).toBe(SINGLE_CAVEAT);
+      expect(rows.slice(2).every((r) => r.at(-1) === "")).toBe(true);
+    }
+  });
+
+  test("exportCsv and the bundle CSV forward bridges", async () => {
+    exportCsv(makeFakeStore([withId(NODE_A)], [DEP, REL]), { onLog: () => {}, ...ctx() });
+    expect(capturedCsvText().split("\n")[0]).toContain("bridge_inferred lists");
+    const store = { ...makeFakeStore([withId(NODE_A), withId(NODE_B)], [DEP, REL]), stats: () => ({ nodes: 2, edges: 2 }) };
+    await fakeCanvasEnv(async (env) => {
+      await exportEvidenceBundle(env.view, store, bundleDeps({ onLog: () => {}, bridges: ctx().bridges }));
+      const csv = new TextDecoder().decode(readZip(await blobBytes(env.blobs[0]))[0].bytes);
+      expect(csv).toContain("status=unreviewed");
+    });
+  });
+
+  test("canvas: bridge links drawn with the live style; exportPng, exportPdf and the bundle forward them", async () => {
+    const { bridgeLinkVisual } = await import("../src/render/labels.js");
+    const a = "1:" + NODE_A.address, b = "1:" + NODE_B.address;
+    const links = [{ a, b, label: "inferred — verify", confirmed: false }, { a: b, b: a, label: "confirmed by investigator", confirmed: true }];
+    const drawn = (env) => env.dataSets[1].items.filter((i) => String(i.id).startsWith("bridge:"));
+    await fakeCanvasEnv(async (env) => {
+      await renderExportCanvas(env.view, storeAB(), { size: computeExportSize("hd", 2), addressFormat: "short", bridgeLinks: links });
+      expect(drawn(env).map((i) => [i.from, i.to, i.label])).toEqual(links.map((l) => [l.a, l.b, l.label]));
+      expect(drawn(env)[0]).toMatchObject(bridgeLinkVisual(false));
+      expect(drawn(env)[1]).toMatchObject(bridgeLinkVisual(true));
+    });
+    class FakePdf { addImage() {} save() {} }
+    const deps = { preset: "hd", addressFormat: "short", onLog: () => {}, bridgeLinks: links };
+    for (const go of [(env) => exportPng(env.view, storeAB(), deps), (env) => exportPdf(env.view, storeAB(), { ...deps, jsPDF: FakePdf }),
+      (env) => exportEvidenceBundle(env.view, storeAB(), bundleDeps({ onLog: () => {}, bridgeLinks: links }))]) {
+      await fakeCanvasEnv(async (env) => { await go(env); expect(drawn(env).length).toBe(2); });
+    }
+  });
 });

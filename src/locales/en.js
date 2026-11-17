@@ -363,6 +363,7 @@ export default {
   "export.footer.partial": "Part of this graph has no logged retrieval (demo, older workspace or dropped log entries)",
   "export.footer.sampling": "Sampled data: latest transactions per address per type — not full on-chain history",
   "export.footer.signals": "Known labels, risk flags, imitation-token, likely-deposit and same-key marks are signals, not facts",
+  "export.footer.bridges": "Dashed bridge links are inferred candidates — verify; 'confirmed by investigator' is the investigator's assertion.",
   "details.bridgeType": "Inferred bridge link — verify",
   "details.bridgeConfidence": "Confidence: {level} — inferred from amount, timing and recipient; not proof",
   "details.bridgeDeposit": "Deposit: {amount} {symbol} into {bridge} on {chain}",

@@ -362,6 +362,7 @@ export default {
   "export.footer.partial": "Une partie de ce graphe n'a aucune récupération consignée au journal (démo, ancien espace de travail ou entrées du journal supprimées)",
   "export.footer.sampling": "Données échantillonnées : dernières transactions par adresse et par type — pas l'historique complet de la chaîne",
   "export.footer.signals": "Les libellés connus, indicateurs de risque et marques de jeton imité, de dépôt probable ou de clé commune sont des indices, pas des faits",
+  "export.footer.bridges": "Les liens de pont en tirets sont des candidats déduits — à vérifier ; « confirmé par l'enquêteur » est une affirmation de l'enquêteur.",
   "details.bridgeType": "Lien de pont déduit — à vérifier",
   "details.bridgeConfidence": "Confiance : {level} — déduite du montant, du délai et du destinataire ; pas une preuve",
   "details.bridgeDeposit": "Dépôt : {amount} {symbol} dans {bridge} sur {chain}",
