@@ -240,3 +240,15 @@ derives off-tag ids another way; the exact wording of new build-report lines.
 3. The rebuild refreshes EVM sanctions from the current OFAC list: accepted, with the exact
    diff and publish dates in the report. No new runtime host, no CSP change, no privacy
    change; anything beyond is NEEDS_OWNER.
+
+## Builder-check rulings (sonnet builder check, 2026-11-17: "nothing important left")
+
+19. **A lowercased `t…` id is not Tron-shaped** (ruling 2 needs a leading `T`): under TRX it
+    is a skipped id (ruling 3); under any other tag it is ignored like any non-address.
+    *Cost if wrong:* none (base58 is case-sensitive; a lowercased `T…` is not an address).
+20. **The EVM SDN set stays EVM-only.** It is used only to mark chain-specific EVM curated
+    rows `sanctioned`; Tron needs no such set, because a curated Tron row on an OFAC Tron
+    address is rejected by ruling 9 before that step. *Cost if wrong:* none.
+21. **Chain-specific EVM curated rows on an OFAC address keep today's behaviour** (merged as
+    `sanctioned` with the OFAC source suffix); the conflict rejection of ruling 9 fires only
+    in a bucket that holds OFAC rows (`"*"` and Tron). *Cost if wrong:* none (unchanged).
