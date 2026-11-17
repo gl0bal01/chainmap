@@ -50,7 +50,9 @@ const PROVIDERS = [
   { source: "defillama", name: "DefiLlama", host: "coins.llama.fi", saw: "coin ids and hour-rounded timestamps while USD values are on, and the client IP address; never investigated addresses" },
 ];
 const fromGraphProviders = (es) => es.filter((e) => e.source !== "defillama");
-const hostOf = (e) => (e.source === "trongrid" ? "api.trongrid.io" : "api.etherscan.io");
+/** Host of a query-log source (undefined = Etherscan), read from PROVIDERS. */
+export const providerHost = (source) => PROVIDERS.find((p) => p.source === source).host;
+const hostOf = (e) => providerHost(e.source);
 
 export function retrievalSummary(state) {
   const es = fromGraphProviders(state.entries);

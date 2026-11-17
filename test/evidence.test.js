@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   CAVEATS, BRIDGE_CAVEAT, PARTIAL_CAVEAT, knownDataSnapshot, retrievalSummary, observedSampling,
   buildManifest, USD_CAVEAT, sha256Sums, queryLogDocument, fileStamp, buildEvidenceZip,
-  TRON_CAVEAT, providersSummary, footerLines,
+  TRON_CAVEAT, providersSummary, footerLines, providerHost,
 } from "../src/evidence.js";
 import { sha256Hex } from "../src/queryLog.js";
 import { APP_VERSION } from "../src/config.js";
@@ -241,6 +241,13 @@ describe("Tron in evidence (ruling 19)", () => {
     expect(providersSummary([T("a")])).toEqual([{ ...TG, queries: 1 }]);
     expect(providersSummary([E("a"), P("b")])).toEqual([{ ...ES, queries: 1 }, { ...DL, queries: 1 }]);
     expect(providersSummary([])).toEqual([]);
+  });
+
+  // Ruling 41: one provider table; main's request indicator host and the MANIFEST hosts read it.
+  test("providerHost reads PROVIDERS (undefined source = Etherscan)", () => {
+    expect(providerHost(undefined)).toBe("api.etherscan.io");
+    expect(providerHost("trongrid")).toBe("api.trongrid.io");
+    expect(providerHost("defillama")).toBe("coins.llama.fi");
   });
 
   test("buildManifest carries providers after retrieval (default [])", async () => {

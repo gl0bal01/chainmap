@@ -1,6 +1,6 @@
 // Tron foundation (DOM-free): chain id, base58check address codec, TronGrid URL
-// builder and per-chain sampling helpers. Imports only config.js.
-import { TRON_API, TRON_FETCH } from "./config.js";
+// builder, per-chain sampling helpers and the edge type label key. Imports only config.js.
+import { TRON_API, TRON_FETCH, TX_TYPE_GROUPS } from "./config.js";
 
 export const TRON_CHAIN_ID = "728126428";
 export const TRON_ACTIONS = ["txlist", "txlistinternal", "tokentx"];
@@ -100,12 +100,19 @@ export function tronUrl(action, params) {
   return `${TRON_API}/v1/accounts/${params.address}/${tronPath(action)}?${qs}`;
 }
 
+const TRC20_KEY = "tx.type.trc20";
+
 /** Keep the actions TronGrid serves; tokentx is relabelled TRC-20. Input is not mutated. */
 export function tronTypes(types) {
   return types
     .filter((t) => TRON_ACTIONS.includes(t.action))
-    .map((t) => (t.action === "tokentx" ? { ...t, labelKey: "tx.type.trc20" } : t));
+    .map((t) => (t.action === "tokentx" ? { ...t, labelKey: TRC20_KEY } : t));
 }
+
+const ACTION_KEYS = new Map(Object.values(TX_TYPE_GROUPS).flat().map((t) => [t.action, t.labelKey]));
+/** i18n key of an edge's tx type (details + hover title): a Tron tokentx is TRC-20, else the action's, else the group's. */
+export const edgeTypeKey = (edge) =>
+  edge.chainId === TRON_CHAIN_ID && edge.action === "tokentx" ? TRC20_KEY : ACTION_KEYS.get(edge.action) || `tx.type.${edge.group}`;
 
 /** Per-address sample size: TronGrid caps limit at 200. */
 export const sampleSize = (chainId, n) => (String(chainId) === TRON_CHAIN_ID ? Math.min(n, TRON_FETCH.maxLimit) : n);

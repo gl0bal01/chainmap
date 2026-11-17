@@ -39,7 +39,7 @@ import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
 import { createQueryLog } from "./queryLog.js";
-import { CAVEATS, retrievalSummary, observedSampling, providersSummary, knownDataSnapshot, queryLogDocument, footerLines, fileStamp } from "./evidence.js";
+import { CAVEATS, retrievalSummary, observedSampling, providersSummary, providerHost, knownDataSnapshot, queryLogDocument, footerLines, fileStamp } from "./evidence.js";
 import { runScan, loadOlder, selectedTypes } from "./scanner.js";
 import { historyState } from "./history.js";
 import { createGraphView } from "./render/network.js";
@@ -305,7 +305,7 @@ const formRps = () => clampInt($("rps").value, LIMITS.rps, DEFAULTS.rps);
 // Ruling 10: TronGrid gets 2 rps keyless, the form rate capped at 10 with a key.
 const rpsFor = (chainId) =>
   !isTron(chainId) ? formRps() : $("tronKey").value.trim() ? Math.min(formRps(), TRON_FETCH.keyedMaxRps) : TRON_FETCH.keylessRps;
-const hostFor = (chainId) => (isTron(chainId) ? "api.trongrid.io" : "api.etherscan.io");
+const hostFor = (chainId) => providerHost(isTron(chainId) ? "trongrid" : undefined);
 // Title on every change; the table only while the panel is open.
 function refreshQueryLogUi() {
   const entries = queryLog.entries();

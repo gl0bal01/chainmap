@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { sha256, toTronBase58, parseTronAddress, isTronAddress, tronPath, tronUrl, tronTypes, sampleSize, tronRows } from "../src/tron.js";
+import { sha256, toTronBase58, parseTronAddress, isTronAddress, tronPath, tronUrl, tronTypes, sampleSize, tronRows, edgeTypeKey } from "../src/tron.js";
 import TX from "./fixtures/tron/transactions.json";
 import INT from "./fixtures/tron/internal.json";
 import T20 from "./fixtures/tron/trc20.json";
@@ -53,6 +53,15 @@ test("tronTypes and sampleSize", () => {
   expect(sampleSize("728126428", 500)).toBe(200);
   expect(sampleSize("728126428", 20)).toBe(20);
   expect(sampleSize("1", 500)).toBe(500);
+});
+
+// Ruling 41: the one edge type label rule (edge details and hover titles).
+test("edgeTypeKey: a Tron tokentx is TRC-20, else the action's key, else the group's", () => {
+  expect(edgeTypeKey({ chainId: "728126428", action: "tokentx", group: "token" })).toBe("tx.type.trc20");
+  expect(edgeTypeKey({ chainId: "1", action: "tokentx", group: "token" })).toBe("tx.type.erc20");
+  expect(edgeTypeKey({ chainId: "728126428", action: "txlist", group: "normal" })).toBe("tx.type.normal");
+  expect(edgeTypeKey({ chainId: "1", action: "token1155tx", group: "token" })).toBe("tx.type.erc1155");
+  expect(edgeTypeKey({ chainId: "1", action: "other", group: "internal" })).toBe("tx.type.internal");
 });
 
 const skipped = (r, cursor) => {

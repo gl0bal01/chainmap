@@ -10,22 +10,12 @@
 // =============================================================================
 
 import { formatTimestamp, formatUnits, isValidAddress, shortAddress, displayAddress, explorerUrl } from "./format.js";
-import { TRON_CHAIN_ID } from "./tron.js";
-import { TX_TYPE_GROUPS } from "./config.js";
+import { edgeTypeKey } from "./tron.js";
 import { methodName } from "./selectors.js";
 import { summarizeCall, decodeCalldataWords, decodeInputText } from "./abiDecode.js";
 import { formatUsdDisplay } from "./usdPrice.js";
 import { flagsForEdge } from "./riskFlags.js";
 import { delayParts } from "./depositDetect.js";
-
-// action -> i18n labelKey (flattened from config.TX_TYPE_GROUPS), used to render
-// the edge "Type" cell (e.g. "tokentx" -> "tx.type.erc20").
-const ACTION_LABEL_KEY = {};
-Object.values(TX_TYPE_GROUPS).forEach((infos) => {
-  infos.forEach((info) => {
-    ACTION_LABEL_KEY[info.action] = info.labelKey;
-  });
-});
 
 // "Check other chains" result state -> details line text key.
 const PROBE_STATE_KEY = { active: "details.probeActive", inactive: "details.probeNone", plan: "details.probePlan", error: "details.probeError" };
@@ -439,10 +429,7 @@ export function renderEdgeDetails(container, edge, deps) {
 
   const table = document.createElement("table");
 
-  const typeKey = edge.chainId === TRON_CHAIN_ID && edge.action === "tokentx"
-    ? "tx.type.trc20"
-    : ACTION_LABEL_KEY[edge.action] || `tx.type.${edge.group}`;
-  table.appendChild(detailRow(i18n.t("details.type"), i18n.t(typeKey)));
+  table.appendChild(detailRow(i18n.t("details.type"), i18n.t(edgeTypeKey(edge))));
   table.appendChild(detailRow(i18n.t("details.from"), getAlias(edge.from) || displayAddress(edge.from)));
   table.appendChild(detailRow(i18n.t("details.to"), getAlias(edge.to) || displayAddress(edge.to)));
 
