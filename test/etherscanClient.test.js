@@ -369,6 +369,18 @@ describe("setApiKey / setChainId", () => {
     expect(u.searchParams.get("chainid")).toBe("137");
   });
 
+  // Ruling 43: the Tron chain id never reaches api.etherscan.io (fail closed before any fetch).
+  test("the Tron chain id is refused at construction and by setChainId", () => {
+    for (const tron of ["728126428", 728126428]) {
+      const fetchImpl = queuedFetch([OK([])]);
+      const e = (() => { try { makeClient(fetchImpl, { chainId: tron }); } catch (err) { return err; } })();
+      expect(e).toBeInstanceOf(EtherscanError);
+      expect(e.kind).toBe("api");
+      const client = makeClient(fetchImpl);
+      expect(() => client.setChainId(tron)).toThrow(EtherscanError);
+      expect(fetchImpl.calls.length).toBe(0);
+    }
+  });
 });
 
 // --- onQuery hook -----------------------------------------------------------

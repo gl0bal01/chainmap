@@ -13,6 +13,7 @@
 // =============================================================================
 
 import { API_BASE, FETCH } from "./config.js";
+import { TRON_CHAIN_ID } from "./tron.js";
 
 /** Discriminated error for the UI to localize by `kind`. */
 export class EtherscanError extends Error {
@@ -173,15 +174,22 @@ export function buildParams(p) {
   };
 }
 
+// Ruling 43: Tron is served by TronGrid only. Fail closed before any request can carry a Tron
+// address or the Etherscan key to api.etherscan.io.
+function notTron(chainId) {
+  if (String(chainId) === TRON_CHAIN_ID) throw new EtherscanError(`chain ${TRON_CHAIN_ID} is not an Etherscan chain`, "api", { chainId });
+  return chainId;
+}
+
 /**
- * Create a client bound to an apiKey + chain.
+ * Create a client bound to an apiKey + chain (never Tron: throws).
  * @param {EtherscanClientOptions} options
  * @returns {EtherscanClient}
  */
 export function createEtherscanClient(options) {
   const opts = options || {};
   let apiKey = opts.apiKey;
-  let chainId = opts.chainId;
+  let chainId = notTron(opts.chainId);
   const apiBase = opts.apiBase ?? API_BASE;
   const timeoutMs = opts.timeoutMs ?? FETCH.timeoutMs;
   const maxRetries = opts.maxRetries ?? FETCH.maxRetries;
@@ -394,7 +402,7 @@ export function createEtherscanClient(options) {
       apiKey = k;
     },
     setChainId(id) {
-      chainId = id;
+      chainId = notTron(id);
     },
   };
 }
