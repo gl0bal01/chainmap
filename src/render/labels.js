@@ -62,3 +62,12 @@ export function edgeLabel(edge) {
   const label = `${edge.amountText} ${edge.symbol}`;
   return label.length > 18 ? "" : label;
 }
+
+/** Visual for an inferred bridge link: dashed, curved so a same-key twin line stays visible. */
+export function bridgeLinkVisual(confirmed) {
+  const c = confirmed ? "#f2f2f2" : "#2bc4d8";
+  return {
+    dashes: [8, 5], width: 2, color: { color: c, inherit: false }, font: { color: c },
+    smooth: { enabled: true, type: "curvedCW", roundness: 0.25 }, physics: false,
+  };
+}

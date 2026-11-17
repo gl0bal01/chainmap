@@ -3147,3 +3147,83 @@ test("usd: every coins.llama.fi request happened while the box was on", () => {
     for (const h of hashes) expect(new RegExp(h + "(?![0-9a-f])").test(u)).toBe(false);
   }
 });
+
+// --- P7 bridge tracing ---------------------------------------------------------
+const viewEnv = async () => {
+  const { GraphStore } = await import("../src/graphStore.js");
+  const { createGraphView } = await import("../src/render/network.js");
+  const { createI18n } = await import("../src/i18n.js");
+  const en = (await import("../src/locales/en.js")).default;
+  const fr = (await import("../src/locales/fr.js")).default;
+  const i18n = createI18n({ dictionaries: { en, fr }, locale: "en" });
+  const store = new GraphStore();
+  const view = createGraphView(document.createElement("div"), store, { i18n, getAddressFormat: () => "short" });
+  return { store, view, i18n, items: () => view.network.edges.get().filter((e) => String(e.id).startsWith("bridge:")) };
+};
+
+test("inferred bridge links: dashed curved overlay, level tooltip, confirmed style, diff-synced, retitled in French", async () => {
+  const { store, view, i18n, items } = await viewEnv();
+  const { TX_TYPE_GROUPS } = await import("../src/config.js");
+  try {
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("137", N2, { depth: 1 });
+    const link = { id: "1|d>137|r", a: ID("1", ROOT), b: ID("137", N2), level: "high", decision: null };
+    const ds = view.network.edges.ds;
+    let adds = 0;
+    const add = ds.add.bind(ds);
+    ds.add = (x) => { adds++; return add(x); };
+    view.setBridgeLinks([link]);
+    view.setBridgeLinks([link]);
+    expect(adds).toBe(1);
+    const it = items()[0];
+    expect(it).toMatchObject({ id: "bridge:1|d>137|r", from: ID("1", ROOT), to: ID("137", N2), overlay: true, bridge: true,
+      label: "inferred — verify", title: "Inferred bridge link (high) — not proof", physics: false, dashes: [8, 5], smooth: { type: "curvedCW" } });
+    expect(it.data).toEqual({ bridge: true, ...link });
+    const inferred = it.color.color;
+    expect([...Object.values(TX_TYPE_GROUPS).flat().map((t) => t.color), "#8b93a3"]).not.toContain(inferred);
+    view.setBridgeLinks([{ ...link, decision: "confirmed" }]);
+    expect(items()[0].label).toBe("confirmed by investigator");
+    expect(items()[0].title).toContain("confirmed by the investigator");
+    expect(items()[0].color.color).not.toBe(inferred);
+    const got = view.getBridgeLinks();
+    got[0].level = "x";
+    expect(view.getBridgeLinks()).toEqual([{ ...link, decision: "confirmed" }]);
+    i18n.setLocale("fr");
+    view.refreshProjection();
+    expect(items()[0].label).toBe("confirmé par l'enquêteur");
+    view.setBridgeLinks([]);
+    expect(items()).toEqual([]);
+  } finally {
+    view.destroy();
+  }
+});
+
+test("bridge links ride through filters and bundles like twins, never make a node visible; reset clears; twins carry overlay", async () => {
+  const { store, view, items } = await viewEnv();
+  try {
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("1", N2, { depth: 1 });
+    store.addNode("137", N3, { depth: 1 });
+    store.addEdge({ chainId: "1", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1000000000000000000", hash: "0x1" } });
+    view.setBridgeLinks([{ id: "x", a: ID("1", ROOT), b: ID("137", N3), level: "low", decision: null }]);
+    view.setDisplayOptions({ minAmount: 999 });
+    expect(view.network.edges.get().map((e) => e.id)).toEqual(["bridge:x"]);
+    expect(view.hasRenderedNode(ID("137", N3))).toBe(false);
+    view.setDisplayOptions({ minAmount: 0 });
+    view.setBundling(true);
+    expect(view.network.edges.get().some((e) => e.id === "bridge:x")).toBe(true);
+    expect(view.getEdgeData("bridge:x")).toMatchObject({ bridge: true, id: "x" });
+    view.setBundling(false);
+    store.reset();
+    expect(view.getBridgeLinks()).toEqual([]);
+    expect(items()).toEqual([]);
+    store.addNode("1", ROOT, { depth: 0, isRoot: true });
+    store.addNode("42161", ROOT, { depth: 0, isRoot: true });
+    store.addNode("42161", N2, { depth: 1 });
+    store.addEdge({ chainId: "42161", action: "txlist", group: "normal", color: "#0", from: ROOT, to: N2, tx: { value: "1", hash: "0x2" } });
+    view.setTwins(true);
+    expect(view.network.edges.get().filter((e) => e.twin).map((e) => [e.twin, e.overlay])).toEqual([[true, true]]);
+  } finally {
+    view.destroy();
+  }
+});
