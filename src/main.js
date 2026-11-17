@@ -39,7 +39,7 @@ import { GraphStore } from "./graphStore.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { createEtherscanClient } from "./etherscanClient.js";
 import { createQueryLog } from "./queryLog.js";
-import { CAVEATS, retrievalSummary, observedSampling, knownDataSnapshot, queryLogDocument, footerLines, fileStamp } from "./evidence.js";
+import { CAVEATS, retrievalSummary, observedSampling, providersSummary, knownDataSnapshot, queryLogDocument, footerLines, fileStamp } from "./evidence.js";
 import { runScan, loadOlder, selectedTypes } from "./scanner.js";
 import { historyState } from "./history.js";
 import { createGraphView } from "./render/network.js";
@@ -1332,7 +1332,7 @@ function exportContext() {
     const confirmed = l.decision === "confirmed";
     return { a: l.a, b: l.b, confirmed, label: t(confirmed ? "bridge.linkConfirmed" : "bridge.link") };
   });
-  const footer = footerLines({ t, appVersion: APP_VERSION, exportedAt, retrieval, bridges: bridgeLinks.length > 0 });
+  const footer = footerLines({ t, appVersion: APP_VERSION, exportedAt, retrieval, bridges: bridgeLinks.length > 0, tron: store.chains().includes(TRON_CHAIN_ID) });
   return { exportedAt, retrieval, bridgeLinks, footer };
 }
 // The live view's badge line (network.js), baked into PNG/PDF.
@@ -1599,6 +1599,7 @@ function wireControls() {
           },
           observed: observedSampling(queryLog.entries()),
         },
+        providers: providersSummary(queryLog.entries()),
         data: { knownAddresses: knownDataSnapshot(knownData) },
         bridges: bridgeCounts(),
         prices: {

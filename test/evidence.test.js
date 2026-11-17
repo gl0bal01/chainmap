@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   CAVEATS, BRIDGE_CAVEAT, PARTIAL_CAVEAT, knownDataSnapshot, retrievalSummary, observedSampling,
   buildManifest, USD_CAVEAT, sha256Sums, queryLogDocument, fileStamp, buildEvidenceZip,
+  TRON_CAVEAT, providersSummary, footerLines,
 } from "../src/evidence.js";
 import { sha256Hex } from "../src/queryLog.js";
 import { APP_VERSION } from "../src/config.js";
@@ -32,7 +33,7 @@ describe("evidence", () => {
       expect(m.files[i].sha256).toBe(await sha256Hex(inp.files[i].bytes));
       expect(m.files[i].bytes).toBe(inp.files[i].bytes.length);
     }
-    expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "data", "prices", "bridges", "caveats", "files", "omitted"]);
+    expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "providers", "data", "prices", "bridges", "caveats", "files", "omitted"]);
     expect(m.format).toBe("chainmap-evidence/1");
     expect(m.app.version).toBe(APP_VERSION);
   });
@@ -60,7 +61,7 @@ describe("evidence", () => {
     expect(retrievalSummary({ entries: [], dropped: 0, unloggedData: false })).toBeNull();
     const es = [E("2026-11-16T10:00:05Z"), E("2026-11-16T10:00:02Z")];
     expect(retrievalSummary({ entries: es, dropped: 0, unloggedData: false }))
-      .toEqual({ queries: 2, dropped: 0, first: "2026-11-16T10:00:02Z", last: "2026-11-16T10:00:05Z", fullyLogged: true });
+      .toEqual({ queries: 2, dropped: 0, first: "2026-11-16T10:00:02Z", last: "2026-11-16T10:00:05Z", fullyLogged: true, hosts: ["api.etherscan.io"] });
     expect(retrievalSummary({ entries: es, dropped: 0, unloggedData: true }).fullyLogged).toBe(false);
     expect(retrievalSummary({ entries: es, dropped: 1, unloggedData: false }).fullyLogged).toBe(false);
     expect(observedSampling([E("a", "100"), E("b", "20"), E("c", "20")]))
@@ -105,7 +106,7 @@ describe("footerLines", () => {
     const fr = (await import("../src/locales/fr.js")).default;
     return createI18n({ dictionaries: { en, fr }, locale });
   };
-  const ret = { queries: 4, dropped: 0, first: "2026-11-16T09:00:00.000Z", last: "2026-11-16T09:30:00.000Z", fullyLogged: true };
+  const ret = { queries: 4, dropped: 0, first: "2026-11-16T09:00:00.000Z", last: "2026-11-16T09:30:00.000Z", fullyLogged: true, hosts: ["api.etherscan.io"] };
   const base = { appVersion: "1.3.0", exportedAt: "2026-11-16T10:15:30.123Z" };
 
   test("footerLines en", async () => {
@@ -191,7 +192,7 @@ describe("price entries in evidence", () => {
 test("manifest bridges block + BRIDGE_CAVEAT only when a candidate exists", async () => {
   const counts = { candidates: 2, low: 1, medium: 0, high: 1, confirmedByInvestigator: 1, rejectedByInvestigator: 0 };
   const m = await buildManifest(mkInput({ bridges: counts }));
-  expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "data", "prices", "bridges", "caveats", "files", "omitted"]);
+  expect(Object.keys(m)).toEqual(["format", "app", "exportedAt", "chains", "roots", "graph", "sampling", "retrieval", "providers", "data", "prices", "bridges", "caveats", "files", "omitted"]);
   expect(m.bridges).toEqual({ note: expect.stringContaining("not proof"), ...counts });
   expect(m.caveats).toEqual([...CAVEATS, BRIDGE_CAVEAT]);
   for (const bridges of [undefined, null, { ...counts, candidates: 0 }]) {
@@ -199,4 +200,68 @@ test("manifest bridges block + BRIDGE_CAVEAT only when a candidate exists", asyn
     expect(x.bridges).toBeNull();
     expect(x.caveats).not.toContain(BRIDGE_CAVEAT);
   }
+});
+
+describe("Tron in evidence (ruling 19)", () => {
+  const TRON_HEX = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e";
+  const T = (at, action = "txlist") => ({ at, source: "trongrid", chainId: "728126428", action, params: { address: TRON_HEX, limit: "20", only_confirmed: "true" } });
+  const P = (at) => ({ at, source: "defillama", action: "batchHistorical", params: { coins: "{}", searchWidth: "30m" } });
+  const st = (entries) => ({ entries, dropped: 0, unloggedData: false });
+  const TRON_CHAINS = [{ chainId: "728126428", name: "Tron" }];
+
+  test("TRON_CAVEAT is the spec text", () => {
+    expect(TRON_CAVEAT).toBe("Tron data comes from TronGrid (api.trongrid.io), latest N per address per type by block time; TRC-20 and internal rows carry no block number; TRC-10 amounts are raw base units; identical TRC-20 transfers within one transaction appear once.");
+  });
+
+  test("a TronGrid-only log is a known, fully logged retrieval: Tron caveat, no partial caveat", async () => {
+    const r = retrievalSummary(st([T("2026-11-17T10:00:02.000Z"), T("2026-11-17T10:00:01.000Z", "tokentx")]));
+    expect(r).toEqual({ queries: 2, dropped: 0, first: "2026-11-17T10:00:01.000Z", last: "2026-11-17T10:00:02.000Z", fullyLogged: true, hosts: ["api.trongrid.io"] });
+    const m = await buildManifest(mkInput({ chains: TRON_CHAINS, retrieval: r }));
+    expect(m.caveats).toContain(TRON_CAVEAT);
+    expect(m.caveats).not.toContain(PARTIAL_CAVEAT);
+    expect((await buildManifest(mkInput())).caveats).not.toContain(TRON_CAVEAT);
+  });
+
+  test("a mixed log lists both hosts, sorted; price entries count for neither", () => {
+    const r = retrievalSummary(st([T("2026-11-17T10:00:03.000Z"), E("2026-11-17T10:00:02.000Z"), P("2026-11-17T10:00:09.000Z")]));
+    expect(r).toMatchObject({ queries: 2, last: "2026-11-17T10:00:03.000Z", hosts: ["api.etherscan.io", "api.trongrid.io"] });
+  });
+
+  test("observedSampling reads the TronGrid limit as a page size", () => {
+    expect(observedSampling([T("a"), E("b", "100"), P("c")])).toEqual({ pageSizes: ["20", "100"], sorts: ["desc"], actions: ["txlist"] });
+    expect(observedSampling([T("a", "tokentx")]).pageSizes).toEqual(["20"]);
+  });
+
+  test("providersSummary: Etherscan v2, TronGrid, DefiLlama in order, only those with entries", () => {
+    const ES = { name: "Etherscan v2", host: "api.etherscan.io", saw: "EVM addresses and request parameters, the Etherscan API key (URL parameter, never logged) and the client IP address" };
+    const TG = { name: "TronGrid", host: "api.trongrid.io", saw: "Tron addresses and request parameters, the optional TronGrid API key (request header, never logged) and the client IP address" };
+    const DL = { name: "DefiLlama", host: "coins.llama.fi", saw: "coin ids and hour-rounded timestamps while USD values are on, and the client IP address; never investigated addresses" };
+    expect(providersSummary([P("a"), T("b"), E("c"), T("d"), E("e"), E("f")]))
+      .toEqual([{ ...ES, queries: 3 }, { ...TG, queries: 2 }, { ...DL, queries: 1 }]);
+    expect(providersSummary([T("a")])).toEqual([{ ...TG, queries: 1 }]);
+    expect(providersSummary([E("a"), P("b")])).toEqual([{ ...ES, queries: 1 }, { ...DL, queries: 1 }]);
+    expect(providersSummary([])).toEqual([]);
+  });
+
+  test("buildManifest carries providers after retrieval (default [])", async () => {
+    const providers = providersSummary([T("a")]);
+    expect((await buildManifest(mkInput({ providers }))).providers).toEqual(providers);
+    expect((await buildManifest(mkInput())).providers).toEqual([]);
+  });
+
+  test("footerLines names every host and adds the Tron line after sampling (en + fr)", async () => {
+    const { createI18n } = await import("../src/i18n.js");
+    const en = (await import("../src/locales/en.js")).default;
+    const fr = (await import("../src/locales/fr.js")).default;
+    const ret = { queries: 6, dropped: 0, first: "2026-11-17T09:00:00.000Z", last: "2026-11-17T09:30:00.000Z", fullyLogged: true, hosts: ["api.etherscan.io", "api.trongrid.io"] };
+    const base = { appVersion: "1.3.0", exportedAt: "2026-11-17T10:15:30.123Z", retrieval: ret };
+    const lines = footerLines({ ...base, t: createI18n({ dictionaries: { en, fr }, locale: "en" }).t, tron: true });
+    expect(lines[1]).toBe("Data retrieved 2026-11-17 09:00:00 to 2026-11-17 09:30:00 UTC from api.etherscan.io + api.trongrid.io — logged requests: 6 (see query log)");
+    expect(lines[2]).toBe("Sampled data: latest transactions per address per type — not full on-chain history");
+    expect(lines[3]).toBe("Tron data from TronGrid (api.trongrid.io): latest rows per address per type by block time; TRC-10 amounts in raw base units.");
+    expect(lines.length).toBe(5);
+    expect(footerLines({ ...base, t: createI18n({ dictionaries: { en, fr }, locale: "fr" }).t, tron: true })[3])
+      .toBe("Données Tron issues de TronGrid (api.trongrid.io) : dernières lignes par adresse et par type selon l'heure du bloc ; montants TRC-10 en unités de base brutes.");
+    expect(footerLines({ ...base, t: createI18n({ dictionaries: { en, fr }, locale: "en" }).t }).some((l) => l.includes("TronGrid (api"))).toBe(false);
+  });
 });

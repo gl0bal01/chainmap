@@ -15,6 +15,9 @@ import {
 import { nodeLabel } from "../src/render/labels.js";
 import { sha256Hex } from "../src/queryLog.js";
 import { readZip } from "./fixtures/readZip.js";
+import { GraphStore } from "../src/graphStore.js";
+import { tronRows } from "../src/tron.js";
+import TRON_TRC20 from "./fixtures/tron/trc20.json";
 
 // ---------------------------------------------------------------------------
 // Minimal DOM shim so exportCsv's `triggerDownload` (anchor-click download) can
@@ -756,5 +759,35 @@ describe("bridge_inferred", () => {
       (env) => exportEvidenceBundle(env.view, storeAB(), bundleDeps({ onLog: () => {}, bridgeLinks: links }))]) {
       await fakeCanvasEnv(async (env) => { await go(env); expect(drawn(env).length).toBe(2); });
     }
+  });
+});
+
+describe("Tron rows (ruling 22)", () => {
+  const TC = "728126428";
+  const ROOT_HEX = "41d1c4bb7b2f39aba5707711719b2236b5b605af2e", ROOT_T = "TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi";
+  // Tron root + its counterparty + the C1 TRC-20 transfer (fixture row 0), as the scanner stores them.
+  const tronStore = () => {
+    const s = new GraphStore();
+    const c1 = tronRows("tokentx", TRON_TRC20)[0];
+    s.addNode(TC, ROOT_HEX, { depth: 0, isRoot: true });
+    s.addNode(TC, c1.from, { depth: 1 });
+    s.addEdge({ chainId: TC, action: "tokentx", group: "token", color: "#4fd67a", from: c1.from, to: c1.to, tx: c1 });
+    return s;
+  };
+
+  test("address/from/to show T…, chain_id stays decimal, line 1 gets a comma-free Tron caveat", () => {
+    const rows = buildCsvRows(tronStore(), { category: () => null, provenance: { exportedAt: "2026-11-17T10:00:00.000Z", retrieval: null } });
+    expect(rows.find((r) => r[0] === "node" && r[4] === "1")[1]).toBe(ROOT_T);
+    const edge = rows.find((r) => r[0] === "edge");
+    expect([edge[6], edge[7], edge[9], edge[18]]).toEqual(["TRAbBfo2TzMJUg5vkL3y4mr8VsFrcvk5Fi", ROOT_T, "USDT", TC]);
+    expect(rows[0][0]).toContain("; tron rows come from TronGrid (api.trongrid.io) - latest N per address per type by block time - TRC-20 and internal rows have no block number - TRC-10 amounts are raw base units - identical TRC-20 transfers within one transaction appear once");
+    expect(rows[0][0]).not.toContain(",");
+    expect(rows.flat().filter((c) => String(c).includes("41d1c4"))).toEqual([]);
+  });
+
+  test("an EVM-only store has no Tron caveat", () => {
+    const rows = buildCsvRows(makeFakeStore([NODE_A, NODE_B], [EDGE_1]), { category: () => null });
+    expect(rows[0][0]).toBe(SINGLE_CAVEAT);
+    expect(rows[0][0]).not.toContain("tron rows");
   });
 });

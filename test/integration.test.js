@@ -7,7 +7,7 @@ import KNOWN from "../data/known-addresses.json";
 import V2 from "./fixtures/workspace-v2.json";
 import { PROBE_CHAIN_IDS, APP_VERSION } from "../src/config.js";
 import { sha256Hex } from "../src/queryLog.js";
-import { USD_CAVEAT, BRIDGE_CAVEAT } from "../src/evidence.js";
+import { USD_CAVEAT, BRIDGE_CAVEAT, TRON_CAVEAT } from "../src/evidence.js";
 import EN from "../src/locales/en.js";
 import { readZip } from "./fixtures/readZip.js";
 import TRON_TX from "./fixtures/tron/transactions.json";
@@ -4126,6 +4126,77 @@ test("Estimate on Tron hits only TronGrid", async () => {
     expect(tronCalls.length).toBe(t + 3);
     expect(apiUrls.length).toBe(n);
   } finally {
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Tron (Task 11): exports and evidence
+// ---------------------------------------------------------------------------
+const TRON_KEY = "TRONSECRET-0123456789";
+const openQueryLog = () => {
+  $("queryLogPanel").open = true;
+  $("queryLogPanel").dispatchEvent(new window.Event("toggle"));
+};
+// PNG export on the fake canvas; resolves with the footer lines drawn.
+const pngFooter = () => withFakeExportCanvas(async (fx) => {
+  const c = logCount(/Image \(PNG\) downloaded/g);
+  $("exportPngBtn").click();
+  await until(() => logCount(/Image \(PNG\) downloaded/g) > c);
+  return fx.texts;
+});
+
+test("Tron exports: CSV shows T…, MANIFEST and the PNG footer name TronGrid", async () => {
+  try {
+    await withDownloads(async (dl) => {
+      await tronScan({ key: TRON_KEY });
+      const csv = await captureCsv();
+      expect(csv).toContain(`node,${TRON_T},`);
+      expect(csv).toContain(",728126428,");
+      expect(csv).not.toContain("41d1c4bb");
+      const files = readZip(await bundleBytes(dl));
+      const m = JSON.parse(dec(files.find((f) => f.name === "MANIFEST.json").bytes));
+      expect(m.providers).toMatchObject([{ name: "TronGrid", host: "api.trongrid.io", queries: 3 }]);
+      expect(m.caveats).toContain(TRON_CAVEAT);
+      expect(m.retrieval.hosts).toEqual(["api.trongrid.io"]);
+      expect((await pngFooter()).some((l) => l.includes("TronGrid"))).toBe(true);
+    });
+  } finally {
+    $("tronKey").value = "";
+    restoreForm();
+  }
+});
+
+test("the TronGrid key is in no artifact, after a scan and after a rejected key", async () => {
+  const canned = { ...TRON_CANNED };
+  try {
+    await withDownloads(async (dl) => {
+      await tronScan({ key: TRON_KEY });
+      expect(tronCalls.at(-1).init.headers["TRON-PRO-API-KEY"]).toBe(TRON_KEY); // sanity: the key really was sent
+      const csv = await captureCsv();
+      const ws = await (await nextBlob(dl, "saveBtn")).text();
+      const ql = await (await nextBlob(dl, "exportQueryLogBtn")).text();
+      const members = readZip(await bundleBytes(dl)).map((f) => [f.name, dec(f.bytes)]);
+      expect(members.map(([name]) => name)).toEqual(QLOG_FILES);
+      const footer = (await pngFooter()).join("\n");
+      openQueryLog();
+      const artifacts = { csv, ws, ql, ...Object.fromEntries(members), footer, log: $("logContent").textContent, panel: $("queryLogContent").textContent };
+      for (const [name, text] of Object.entries(artifacts)) expect([name, text.includes(TRON_KEY)]).toEqual([name, false]);
+    });
+
+    tronStatus = 401;
+    for (const k of Object.keys(TRON_CANNED)) TRON_CANNED[k] = { Error: "ApiKey not exists" };
+    await tronScan({ key: TRON_KEY });
+    expect(tronCalls.at(-1).init.headers["TRON-PRO-API-KEY"]).toBe(TRON_KEY);
+    expect($("logContent").textContent).toContain(`Fetch failed for ${TRON_T} (txlist): TronGrid rejected the API key`);
+    openQueryLog();
+    expect($("logContent").textContent).not.toContain(TRON_KEY);
+    expect($("queryLogContent").textContent).not.toContain(TRON_KEY);
+  } finally {
+    tronStatus = 200;
+    Object.assign(TRON_CANNED, canned);
+    $("queryLogPanel").open = false;
     $("tronKey").value = "";
     restoreForm();
   }
