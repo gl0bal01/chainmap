@@ -13,7 +13,7 @@
 // =============================================================================
 
 import { API_BASE, FETCH } from "./config.js";
-import { TRON_CHAIN_ID } from "./tron.js";
+import { TRON_CHAIN_ID, isTronAddress } from "./tron.js";
 
 /** Discriminated error for the UI to localize by `kind`. */
 export class EtherscanError extends Error {
@@ -204,6 +204,7 @@ export function createEtherscanClient(options) {
    * @returns {Promise<RawTx[]>}
    */
   async function fetchAction(address, action, fetchOpts) {
+    if (isTronAddress(address)) throw new EtherscanError("Tron address refused by the Etherscan client (" + action + ")", "api", { action });
     const {
       offset,
       page,

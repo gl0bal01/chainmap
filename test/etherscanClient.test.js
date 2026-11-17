@@ -222,6 +222,17 @@ describe("fetchAction throttling & retries", () => {
     expect(retries[0]).toMatchObject({ attempt: 1, waitMs: 3, reason: "throttled" });
   });
 
+  test("a Tron address is refused before any fetch or onQuery", async () => {
+    const fetchImpl = queuedFetch([OK([])]);
+    const queries = [];
+    const client = makeClient(fetchImpl, { onQuery: (q) => queries.push(q) });
+    const err = await catchError(client.fetchAction("41" + "a".repeat(40), "txlist", { offset: 10 }));
+    expect(err).toBeInstanceOf(EtherscanError);
+    expect(err.kind).toBe("api");
+    expect(fetchImpl.calls.length).toBe(0);
+    expect(queries.length).toBe(0);
+  });
+
   test("paid-only chain message → 'plan_required', never retried", async () => {
     const fetchImpl = queuedFetch([
       NOTOK("Free API access is not supported for this chain. Please upgrade your api plan for full chain coverage."),
