@@ -708,6 +708,7 @@ const probeCache = new Map();
 async function checkOtherChains(id) {
   const node = store.getNode(id);
   if (!node) return;
+  if (isTron(node.chainId)) return rerenderDetails(); // ruling 40: never probe a Tron address on Etherscan
   if (scanning || detecting) return rerenderDetails();
   if (!$("apiKey").value.trim()) {
     logger.log({ level: "error", key: "error.apiKeyRequired" });
@@ -732,6 +733,7 @@ async function checkOtherChains(id) {
 async function loadOnChain(id, chainId) {
   const src = store.getNode(id);
   if (!src) return;
+  if (isTron(src.chainId)) return rerenderDetails(); // ruling 40: a Tron address has no EVM twin
   return loadNewNode(chainId, src.address, { depth: src.depth, isRoot: src.isRoot }, formTypes());
 }
 
@@ -1791,3 +1793,7 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
+// Test seam (ruling 40): Tron details offer no other-chain actions, so the Tron guards in these two
+// are unreachable from the UI; the integration test calls them directly on the same instance.
+export { checkOtherChains, loadOnChain };

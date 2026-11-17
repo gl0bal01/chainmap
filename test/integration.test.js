@@ -4337,3 +4337,26 @@ test("the Look chain list and the Load-on-chain picker never offer Tron for an E
   expect(pick).toContain("42161");
   expect(pick).not.toContain(TRON_ID);
 }));
+
+// Ruling 40: belt-and-braces guards, unreachable from the UI (main.js exports them as a test seam).
+async function tronGuardEnv(fn) {
+  try {
+    await tronScan();
+    $("apiKey").value = "TESTKEY";
+    clickNode(TRON_ROOT_ID);
+    const n = apiUrls.length, t = tronCalls.length, nodes = nodeIds();
+    await fn(await import("../src/main.js"));
+    await sleep(0);
+    expect([apiUrls.length, tronCalls.length]).toEqual([n, t]);
+    expect(nodeIds()).toEqual(nodes);
+    expect($("detailsContent").textContent).toContain(TRON_T);
+  } finally {
+    $("apiKey").value = "";
+    window.vis.Network.first.setSelection({ nodes: [] });
+    restoreForm();
+  }
+}
+
+test("checkOtherChains does nothing for a Tron node (ruling 40)", () => tronGuardEnv(({ checkOtherChains }) => checkOtherChains(TRON_ROOT_ID)));
+
+test("loadOnChain does nothing for a Tron node (ruling 40)", () => tronGuardEnv(({ loadOnChain }) => loadOnChain(TRON_ROOT_ID, "1")));
