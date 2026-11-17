@@ -3872,7 +3872,7 @@ test("no TronGrid request without choosing Tron", async () => {
     await until(() => /Demo workspace loaded/.test($("logContent").textContent || ""));
     await dropWorkspace(JSON.stringify(v3ws([v3Node(TRON_ID, TRON_A, { depth: 0, isRoot: true }), v3Node(TRON_ID, TRON_B)], [tronEdge()])));
     expect($("chainSelect").value).toBe("1");
-    expect($("tronBox").hidden).toBe(true);
+    expect($("tronBox").hidden).toBe(false); // ruling 38: the graph holds a Tron node
     const n = priceCalls.length;
     tick(true);
     await sleep(0);
@@ -4219,6 +4219,31 @@ test("a legacy v2 file never falls back to Tron: it loads on the stored EVM chai
     expect($("tronBox").hidden).toBe(true);
     expect(tronCalls.length).toBe(t);
   } finally {
+    restoreForm();
+  }
+});
+
+test("the TronGrid notice shows while the graph holds a Tron node, whatever the selector (ruling 38)", async () => {
+  const net = window.vis.Network.first;
+  try {
+    $("resetBtn").click();
+    setChain("1");
+    await dropWorkspace(JSON.stringify(v3ws([v3Node("1", ROOT, { depth: 0, isRoot: true }), v3Node(TRON_ID, TRON_A, { depth: 0, isRoot: true }), v3Node(TRON_ID, TRON_B)], [tronEdge()])));
+    expect($("chainSelect").value).toBe("1");
+    expect($("tronBox").hidden).toBe(false);
+    net.setSelection({ nodes: [TRON_ROOT_ID, ID(TRON_ID, TRON_B)] });
+    $("deleteNodesBtn").click();
+    await until(() => $("tronBox").hidden);
+    expect($("tronBox").hidden).toBe(true);
+    await tronScan();
+    setChain("1");
+    expect($("tronBox").hidden).toBe(false);
+    $("resetBtn").click();
+    await until(() => $("tronBox").hidden);
+    expect($("tronBox").hidden).toBe(true);
+  } finally {
+    net.setSelection({ nodes: [] });
+    $("tronKey").value = "";
     restoreForm();
   }
 });

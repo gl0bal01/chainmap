@@ -95,6 +95,7 @@ function syncChainUi() {
   $("twinToggleRow").hidden = cs.length < 2;
   $("legendTwinKey").hidden = cs.length < 2 || !$("twinToggle").checked;
   $("bridgeToggleRow").hidden = cs.length < 2;
+  syncTronBox();
   refreshChainFilter();
   applyDisplayOptions(); // also refreshes the projection
 }
@@ -494,9 +495,10 @@ function populateChains() {
   syncTronBox();
 }
 
-// The TronGrid notice + key field show only while Tron is the selected chain.
+// Ruling 38: the TronGrid notice + key field show while Tron is the selected chain OR the graph
+// holds a Tron node (its Load older contacts TronGrid whatever the selector says).
 function syncTronBox() {
-  $("tronBox").hidden = $("chainSelect").value !== TRON_CHAIN_ID;
+  $("tronBox").hidden = !isTron($("chainSelect").value) && !store?.chains().includes(TRON_CHAIN_ID);
 }
 
 // Bundled local datasets: known-address labels + spam token list. Same-origin
