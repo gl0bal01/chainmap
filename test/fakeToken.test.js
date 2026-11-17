@@ -92,3 +92,16 @@ test("real shipped data: no canonical token is ever flagged fake", () => {
   }
   expect(n).toBeGreaterThan(0);
 });
+
+test("real shipped data: the official Tron USDT is canonical; another contract or a confusable symbol is imitation; EVM USDT unchanged", async () => {
+  const KNOWN = (await import("../data/known-addresses.json")).default;
+  const ri = buildCanonicalIndex(KNOWN);
+  const TRON = "728126428", USDT_HEX = "41a614f803b6fd780986a42c78ec9c7f77e6ded13c", FAKE = "41" + "ab".repeat(20);
+  expect([...ri.get(TRON).get("USDT")]).toEqual([USDT_HEX]);
+  const tron = (o) => ({ action: "tokentx", chainId: TRON, symbol: "USDT", tokenContract: USDT_HEX, ...o });
+  expect(isFakeToken(tron(), TRON, ri)).toBe(false);
+  expect(isFakeToken(tron({ tokenContract: FAKE }), TRON, ri)).toBe(true);
+  expect(isFakeToken(tron({ symbol: "UЅDT", tokenContract: FAKE }), TRON, ri)).toBe(true); // Cyrillic DZE (Review Focus 4)
+  expect(isFakeToken(tx({ chainId: "1" }), "1", ri)).toBe(false);
+  expect(isFakeToken(tx({ chainId: "1", tokenContract: OTHER }), "1", ri)).toBe(true);
+});
