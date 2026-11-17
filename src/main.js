@@ -90,6 +90,7 @@ function syncChainUi() {
   $("legendChainTag").hidden = cs.length < 2;
   $("twinToggleRow").hidden = cs.length < 2;
   $("legendTwinKey").hidden = cs.length < 2 || !$("twinToggle").checked;
+  $("bridgeToggleRow").hidden = cs.length < 2;
   refreshChainFilter();
   applyDisplayOptions(); // also refreshes the projection
 }
@@ -183,11 +184,32 @@ function recomputeBridges() {
 // is not resent, since setBridgeLinks rebuilds bundles (never mid-scan for nothing).
 function syncBridgeLinks() {
   const links = [];
-  for (const c of bridgeState.candidates) {
-    const decision = decisionOf(c)?.decision ?? null;
-    if (decision !== "rejected") links.push({ id: c.id, a: c.a, b: c.b, level: c.level, decision });
+  if ($("bridgeToggle").checked) {
+    for (const c of bridgeState.candidates) {
+      const decision = decisionOf(c)?.decision ?? null;
+      if (decision !== "rejected") links.push({ id: c.id, a: c.a, b: c.b, level: c.level, decision });
+    }
   }
   if (JSON.stringify(links) !== JSON.stringify(view.getBridgeLinks())) view.setBridgeLinks(links);
+  $("legendBridgeInferred").hidden = !links.some((l) => l.decision !== "confirmed");
+  $("legendBridgeConfirmed").hidden = !links.some((l) => l.decision === "confirmed");
+}
+// Decisions that still point at two edges of the graph: all a saved workspace may carry.
+const savedDecisions = () =>
+  [...bridgeDecisions.values()]
+    .filter((d) => store.hasEdgeKey(d.deposit) && store.hasEdgeKey(d.release))
+    .map(({ deposit, release, decision, at }) => ({ deposit, release, decision, at }));
+// Spec ruling 9: rejected candidates still count in `candidates` and their level.
+function bridgeCounts() {
+  const n = { candidates: 0, low: 0, medium: 0, high: 0, confirmedByInvestigator: 0, rejectedByInvestigator: 0 };
+  for (const c of bridgeState.candidates) {
+    n.candidates++;
+    n[c.level]++;
+    const d = decisionOf(c)?.decision;
+    if (d === "confirmed") n.confirmedByInvestigator++;
+    else if (d === "rejected") n.rejectedByInvestigator++;
+  }
+  return n;
 }
 function decideBridge(id, decision) {
   const c = bridgeState.candidates.find((x) => x.id === id);
@@ -1238,7 +1260,12 @@ async function startDetectChain() {
 function exportContext() {
   const exportedAt = new Date().toISOString();
   const retrieval = retrievalSummary(queryLog.toJSON());
-  return { exportedAt, retrieval, footer: footerLines({ t, appVersion: APP_VERSION, exportedAt, retrieval }) };
+  const bridgeLinks = view.getBridgeLinks().map((l) => {
+    const confirmed = l.decision === "confirmed";
+    return { a: l.a, b: l.b, confirmed, label: t(confirmed ? "bridge.linkConfirmed" : "bridge.link") };
+  });
+  const footer = footerLines({ t, appVersion: APP_VERSION, exportedAt, retrieval, bridges: bridgeLinks.length > 0 });
+  return { exportedAt, retrieval, bridgeLinks, footer };
 }
 // The live view's badge line (network.js), baked into PNG/PDF.
 const depositBadge = (n) => {
@@ -1256,6 +1283,7 @@ function currentFilters() {
     maxTime: dateToEpoch($("dateTo").value),
     hiddenChains: [...hiddenChains],
     showTwins: $("twinToggle").checked,
+    showBridges: $("bridgeToggle").checked,
   };
 }
 
@@ -1269,6 +1297,7 @@ const workspaceText = (savedAt) =>
       filters: currentFilters(),
       layout: $("layoutSelect").value,
       annotations: view.getAnnotations(),
+      bridgeDecisions: savedDecisions(),
       queryLog: queryLog.toJSON(),
       provenance: { savedAt, appVersion: APP_VERSION, caveats: CAVEATS },
     }),
@@ -1317,6 +1346,8 @@ function applyWorkspace(ws) {
   view.refreshLabels();
   $("twinToggle").checked = f.showTwins !== false;
   view.setTwins($("twinToggle").checked);
+  $("bridgeToggle").checked = f.showBridges !== false;
+  syncBridgeLinks();
   view.setBundling(!!f.bundle);
   applyDisplayOptions();
   syncChainUi();
@@ -1344,6 +1375,7 @@ function loadWorkspaceFromText(text) {
     queryLog.clear();
     queryLog.markUnlogged();
   }
+  if (ws.bridgeDecisionsInvalid > 0) logger.log({ level: "error", key: "log.bridgeDecisionsInvalid", params: { n: ws.bridgeDecisionsInvalid } });
   if (ws.queryLogInvalid) logger.log({ level: "error", key: "log.queryLogInvalid", params: { n: ws.queryLogInvalid } });
   refreshQueryLogUi();
   newPriceEpoch();
@@ -1440,24 +1472,25 @@ function wireControls() {
 
   const onLog = (e) => logger.log(e);
   // Image deps shared by PNG, PDF and the bundle's graph.png (footer = provenance band).
-  const imageDeps = (footer) => ({
+  const imageDeps = ({ footer, bridgeLinks }) => ({
     preset: $("exportResolution").value,
     addressFormat: $("addressFormat").value,
     annotations: view.getAnnotations(),
     chainTag: getChainTag,
     twinLinks: view.getTwinLinks(),
     twinLabel: t("details.twinKey"),
+    bridgeLinks,
     footer,
     badge: depositBadge,
     onLog,
   });
-  $("exportPngBtn").addEventListener("click", () => exportPng(view, store, imageDeps(exportContext().footer)));
+  $("exportPngBtn").addEventListener("click", () => exportPng(view, store, imageDeps(exportContext())));
   $("exportPdfBtn").addEventListener("click", () =>
-    exportPdf(view, store, { ...imageDeps(exportContext().footer), jsPDF: window.jspdf.jsPDF })
+    exportPdf(view, store, { ...imageDeps(exportContext()), jsPDF: window.jspdf.jsPDF })
   );
   $("exportCsvBtn").addEventListener("click", () => {
     const { exportedAt, retrieval } = exportContext();
-    exportCsv(store, { onLog, ...flagCtx, deposits: depositMap, usd: usdFn(), provenance: { exportedAt, retrieval } });
+    exportCsv(store, { onLog, ...flagCtx, deposits: depositMap, usd: usdFn(), bridges: { candidates: bridgeState.candidates, decisions: bridgeDecisions }, provenance: { exportedAt, retrieval } });
   });
   $("exportQueryLogBtn").addEventListener("click", () => {
     const now = new Date();
@@ -1468,12 +1501,14 @@ function wireControls() {
   });
   // Never rejects: exportEvidenceBundle logs its own failure (log.bundleFailed).
   $("evidenceBundleBtn").addEventListener("click", () => {
-    const { exportedAt, retrieval, footer } = exportContext();
+    const ctx = exportContext();
+    const { exportedAt, retrieval } = ctx;
     const usd = usdFn();
     exportEvidenceBundle(view, store, {
-      ...imageDeps(footer),
+      ...imageDeps(ctx),
       ...flagCtx,
       deposits: depositMap,
+      bridges: { candidates: bridgeState.candidates, decisions: bridgeDecisions },
       usd,
       exportedAt,
       retrieval,
@@ -1492,6 +1527,7 @@ function wireControls() {
           observed: observedSampling(queryLog.entries()),
         },
         data: { knownAddresses: knownDataSnapshot(knownData) },
+        bridges: bridgeCounts(),
         prices: {
           shown: !!usd,
           queries: queryLog.entries().filter((e) => e.source === "defillama").length,
@@ -1511,6 +1547,7 @@ function wireControls() {
     view.setTwins($("twinToggle").checked);
     syncChainUi();
   });
+  $("bridgeToggle").addEventListener("change", syncBridgeLinks);
   $("address").addEventListener("input", renderAddressDetect);
   // History row + load button follow the selected types and page size.
   // `input` (not `change`) for the page size: a blur-time rebuild would swallow the next Load click.

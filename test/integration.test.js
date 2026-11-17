@@ -7,7 +7,7 @@ import KNOWN from "../data/known-addresses.json";
 import V2 from "./fixtures/workspace-v2.json";
 import { PROBE_CHAIN_IDS, APP_VERSION } from "../src/config.js";
 import { sha256Hex } from "../src/queryLog.js";
-import { USD_CAVEAT } from "../src/evidence.js";
+import { USD_CAVEAT, BRIDGE_CAVEAT } from "../src/evidence.js";
 import EN from "../src/locales/en.js";
 import { readZip } from "./fixtures/readZip.js";
 
@@ -3585,3 +3585,117 @@ test("an open deposit panel clears when its deposit edge is pruned: no stale lev
   expect(bridgeItems()).toEqual([]);
   expect(panel()).toBe(EN["details.empty"]);
 }));
+
+const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+
+test("a confirmed decision: CSV status + caveat; the saved workspace carries it; drop-loading it restores it; an invalid entry is logged", () => withBridgeEnv(() => withDownloads(async (dl) => {
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(bridgeItems()[0].id);
+  detailBtn("Confirm (investigator)").click();
+  const csv = await (await nextBlob(dl, "exportCsvBtn")).text();
+  expect(csv.split("\n")[0]).toContain("bridge_inferred lists");
+  const dep = csv.split("\n").find((l) => l.includes(",0xbd1,"));
+  const rel = csv.split("\n").find((l) => l.includes(",0xbr1,"));
+  expect(dep.endsWith(`,release=137:0xbr1;to=${RECIP};confidence=high;status=confirmed-by-investigator`)).toBe(true);
+  expect(rel.endsWith(`,deposit=1:0xbd1;from=${DEPOSITOR};confidence=high;status=confirmed-by-investigator`)).toBe(true);
+  const saved = await (await nextBlob(dl, "saveBtn")).text();
+  const ws = JSON.parse(saved);
+  expect(ws.version).toBe(3);
+  expect(ws.bridgeDecisions).toEqual([{ deposit: DEP_KEY, release: REL_KEY, decision: "confirmed", at: expect.stringMatching(ISO) }]);
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems()[0]?.label === "inferred — verify");
+  await dropWorkspace(saved);
+  await until(() => bridgeItems()[0]?.label === "confirmed by investigator");
+  await dropWorkspace(JSON.stringify({ ...ws, bridgeDecisions: [...ws.bridgeDecisions, { deposit: "x", release: "y", decision: "confirmed", at: "nope" }] }));
+  expect($("logContent").textContent).toContain("1 invalid bridge decision(s) in the file were ignored.");
+})));
+
+test("toggle off hides links and legend; PNG/PDF omit them and their footer line; CSV still lists the candidate; showBridges is saved and restored", () => withBridgeEnv(() => withDownloads((dl) => withFakeExportCanvas(async (fx) => {
+  const box = $("bridgeToggle");
+  try {
+    await loadAsDemo(bridgeWs());
+    await until(() => bridgeItems().length === 1);
+    expect($("bridgeToggleRow").hidden).toBe(false);
+    expect($("legendBridgeInferred").hidden).toBe(false);
+    expect($("legendBridgeConfirmed").hidden).toBe(true);
+    const draw = async (btn, done) => {
+      const n = logCount(done);
+      fx.texts.length = 0;
+      $(btn).click();
+      await until(() => logCount(done) > n);
+      return window.vis.Network.last.edges.get().some((e) => String(e.id).startsWith("bridge:"));
+    };
+    const PNG = /Image \(PNG\) downloaded/g, PDF = /PDF downloaded/g;
+    expect(await draw("exportPngBtn", PNG)).toBe(true);
+    expect(fx.texts.at(-1)).toBe(EN["export.footer.bridges"]);
+    box.checked = false;
+    box.dispatchEvent(new window.Event("change"));
+    expect(bridgeItems()).toEqual([]);
+    expect($("legendBridgeInferred").hidden).toBe(true);
+    expect($("legendBridgeConfirmed").hidden).toBe(true);
+    for (const [btn, done] of [["exportPngBtn", PNG], ["exportPdfBtn", PDF]]) {
+      expect(await draw(btn, done)).toBe(false);
+      expect(fx.texts).not.toContain(EN["export.footer.bridges"]);
+    }
+    const csv = await (await nextBlob(dl, "exportCsvBtn")).text();
+    expect(csv.split("\n")[0]).toContain("bridge_inferred lists");
+    expect(csv).toContain("confidence=high;status=unreviewed");
+    const saved = await (await nextBlob(dl, "saveBtn")).text();
+    expect(JSON.parse(saved).filters.showBridges).toBe(false);
+    await dropWorkspace(saved);
+    expect(box.checked).toBe(false);
+    expect(bridgeItems()).toEqual([]);
+  } finally {
+    box.checked = true;
+    box.dispatchEvent(new window.Event("change"));
+  }
+}))));
+
+test("evidence bundle: MANIFEST bridges block + BRIDGE_CAVEAT; workspace.json carries the decision", () => withBridgeEnv(() => withDownloads(async (dl) => {
+  await loadAsDemo(bridgeWs());
+  await until(() => bridgeItems().length === 1);
+  clickEdge(bridgeItems()[0].id);
+  detailBtn("Confirm (investigator)").click();
+  const files = readZip(await bundleBytes(dl));
+  const file = (n) => dec(files.find((f) => f.name === n).bytes);
+  const manifest = JSON.parse(file("MANIFEST.json"));
+  expect(manifest.bridges).toEqual({ note: expect.any(String), candidates: 1, low: 0, medium: 0, high: 1, confirmedByInvestigator: 1, rejectedByInvestigator: 0 });
+  expect(manifest.caveats).toContain(BRIDGE_CAVEAT);
+  expect(JSON.parse(file("workspace.json")).bridgeDecisions.length).toBe(1);
+})));
+
+test("reset clears investigator decisions: the same pair rebuilt by scan + Look is inferred again, and a save carries none", () => withBridgeEnv(() => withDownloads(async (dl) => {
+  // A real scan of the depositor on chain 1 (no workspace/demo load: those clear decisions themselves), then Look on 137.
+  const rebuild = async () => {
+    $("resetBtn").click();
+    $("apiKey").value = "TESTKEY";
+    CANNED.txlist = [{ from: DEPOSITOR, to: RCM, value: "20000000000000000000", hash: "0xbd1", input: etherFor(RECIP), isError: "0",
+      txreceipt_status: "1", timeStamp: String(BT), blockNumber: "100" }];
+    CANNED.tokentx = [];
+    setChain("1");
+    $("address").value = DEPOSITOR;
+    $("depth").value = "1";
+    $("startBtn").click();
+    await until(() => /Done/.test($("status").textContent || ""));
+    CANNED.txlist = [];
+    CANNED.tokentx = [{ from: ZERO, to: RECIP, value: "20000000000000000000", hash: "0xbr1", tokenSymbol: "WETH", tokenDecimal: "18",
+      contractAddress: WETH137, timeStamp: String(BT + 1800), blockNumber: "200" }];
+    clickEdge(window.vis.Network.first.edges.get().find((e) => String(e.id).includes("|0xbd1|")).id);
+    await until(() => panel().includes("Look for the release on"));
+    $("detailsContent").querySelector("select").value = "137";
+    detailBtn("Look").click();
+    await until(() => bridgeItems().length === 1 && !$("startBtn").disabled);
+  };
+  await rebuild();
+  const id1 = bridgeItems()[0].id;
+  clickEdge(id1);
+  detailBtn("Confirm (investigator)").click();
+  expect(bridgeItems()[0].label).toBe("confirmed by investigator");
+  $("resetBtn").click();
+  expect(bridgeItems()).toEqual([]);
+  await rebuild();
+  expect(bridgeItems()[0].id).toBe(id1);
+  expect(bridgeItems()[0].label).toBe("inferred — verify");
+  expect(JSON.parse(await (await nextBlob(dl, "saveBtn")).text()).bridgeDecisions).toBeUndefined();
+})));
