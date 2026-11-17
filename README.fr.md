@@ -19,7 +19,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
   choix explicite de Tron, et `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
   case facultative **Afficher les valeurs en USD** — imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **992 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **1009 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -225,7 +225,11 @@ seulement quand vous la demandez.
   transferts TRX/TRC-10 natifs, internes et TRC-20 sont récupérés, du plus récent au plus ancien.
 - **Charger les plus anciennes** pagine par **heure de bloc** (les lignes TRC-20 et internes n'ont pas
   de numéro de bloc), le curseur étant enregistré dans l'espace de travail.
-- **Non pris en charge sur Tron :** étiquettes d'adresses connues et sanctions, valeurs en USD,
+- **Sanctions et faux USDT :** les nœuds Tron reçoivent le libellé et le drapeau de sanction
+  OFAC SDN (un instantané daté, pas un flux en direct) et la détection des USDT d'imitation par
+  rapport au contrat USDT TRC-20 officiel de Tether. Il n'y a pas d'autres étiquettes Tron
+  (ni exchange, ni pont, ni mixeur), donc pas de marque de dépôt vers un exchange.
+- **Non pris en charge sur Tron :** les autres étiquettes d'adresses connues, valeurs en USD,
   liens de ponts, jumeaux même clé / inter-chaînes et recherches sur d'autres chaînes, NFT,
   testnets. Un échantillon Tron n'est jamais complet.
 
@@ -271,7 +275,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 992 tests unitaires + d'intégration
+bun test        # 1009 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :

@@ -3,8 +3,7 @@
 ## 1. Runtime loading
 
 The app loads these files at runtime with `fetch('./data/*.json')` from its own
-origin (CSP `connect-src` allows only `'self'` and `api.etherscan.io`). **No
-third party is ever contacted for labels.** A missing or broken file leaves the
+origin (`'self'` serves them). **No third party is ever contacted for labels.** A missing or broken file leaves the
 app working without labels.
 
 ## 2. `known-addresses.json` (GENERATED, never hand-edit)
@@ -22,6 +21,8 @@ Written by `bun run data:build` from the sources below. Edit
 - `"*"` holds entries valid on **all EVM chains** (an EVM address is the same on
   every chain; OFAC designations follow the owner). At lookup the chain-specific
   entry wins, then `"*"`.
+- Tron has its own bucket, `"728126428"`, keyed by canonical lowercase `41…` hex (never
+  `"*"`, which stays off Tron). It holds OFAC `sanctioned` rows and `token` rows only.
 - `category` is one of `KNOWN_CATEGORIES` (`src/config.js`). `token` entries
   always carry an uppercase `symbol` and integer `decimals` (the build rejects
   token rows without them).
@@ -44,6 +45,12 @@ GITHUB_TOKEN=$(gh auth token) bun run data:build --verify-sources # after editin
   so does a 0x address under a `Digital Currency Address` tag the parser does not
   know yet (format drift, e.g. a new chain tag): extend the allowlist in
   `parseOfacXml`, then rebuild.
+- Tron ids: the id's format decides, not the tag. Any checksum-valid base58check `T…` id
+  (TRX, USDT, or another tag) is a Tron row. `TRX` is a Tron-only tag: anything under it that
+  is not a valid `T…` (even a `0x`) is a skipped id, not drift. A `T`-shaped id failing the
+  checksum is skipped under any tag. Zero Tron ids aborts the build ("no Tron addresses
+  found (format drift?)"). The report prints the Tron count, "OFAC Tron ids under other
+  tags" and malformed Tron-shaped ids.
 - `--verify-sources` is **mandatory after editing `data/sources/curated.json`**:
   it fetches each cited `source` URL and drops (and lists) every row whose page
   does not contain the address. If a cited page cannot be fetched at all, the
@@ -56,7 +63,7 @@ GITHUB_TOKEN=$(gh auth token) bun run data:build --verify-sources # after editin
 
 ## 4. Curation rules (`data/sources/curated.json`)
 
-Each row: `{ chainId: "1" | "*" | …, address, label, category, source, added, symbol?, decimals?, note?, ofacDesignated? }`.
+Each row: `{ chainId: "1" | "*" | "728126428" | …, address, label, category, source, added, symbol?, decimals?, note?, ofacDesignated? }`.
 
 - Cite **official issuer / protocol pages only**, and the address must appear in
   the cited page. For JS-rendered pages, cite a raw/static file instead (e.g. the
@@ -67,6 +74,11 @@ Each row: `{ chainId: "1" | "*" | …, address, label, category, source, added, 
   Ronin bridge) still cite an explorer public label. They are kept pending an
   official source and marked `note: "needs official source"`; the build lists
   them on every run.
+- Tron rows (chainId `"728126428"`): `address` is the `T…` form exactly as cited
+  (checksum-verified; `41…` hex also accepted), written as `41…` hex. Category must be
+  `token` ("tron: token rows only"). A curated row on an address the bucket already holds
+  as OFAC is rejected ("curated conflicts with OFAC"), for `"*"` and Tron alike.
+  `--verify-sources` looks for the `T…` form, case-sensitive.
 - Curated rows **never** say `sanctioned` (category or label text). For a
   designated entity use its base category plus `ofacDesignated: "YYYY-MM-DD"`;
   the build marks it ` (OFAC SDN)` while it is on the current SDN file and
@@ -80,7 +92,8 @@ Each row: `{ chainId: "1" | "*" | …, address, label, category, source, added, 
   `https://sanctionslistservice.ofac.treas.gov/api/publicationpreview/exports/sdn.xml`.
   A work of the U.S. Government, public domain (17 U.S.C. §105). Every
   `Digital Currency Address` with a 0x id (ETH, USDT, USDC, ARB, BSC, ETC tags)
-  becomes a `"*"` `sanctioned` entry.
+  becomes a `"*"` `sanctioned` entry; a checksum-valid Tron `T…` id becomes a
+  `"728126428"` `sanctioned` entry keyed by `41…` hex.
 - **ethereum-optimism/superchain-registry** —
   `https://github.com/ethereum-optimism/superchain-registry`
   (`superchain/extra/addresses/addresses.json` + `chainList.json`, read at main
