@@ -18,7 +18,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
   `api.etherscan.io` — plus `coins.llama.fi` (DefiLlama) uniquement tant que vous cochez la
   case facultative **Afficher les valeurs en USD** — imposé par une Content-Security-Policy stricte.
 - **Anglais + français**, entièrement localisé.
-- **867 tests** unitaires / d'intégration sur le cœur sans DOM.
+- **966 tests** unitaires / d'intégration sur le cœur sans DOM.
 
 ![vue graphe chainmap](docs/img/graph.png)
 
@@ -30,6 +30,7 @@ appels de contrat, détection de cycles, hubs puits/source et score de risque pa
 - [Fonctionnalités](#fonctionnalités)
 - [Comprendre la blockchain](#comprendre-la-blockchain)
 - [Architecture](#architecture)
+- [Tron (sur demande, via TronGrid)](#tron-sur-demande-via-trongrid)
 - [Confidentialité, sécurité et éthique](#confidentialité-sécurité-et-éthique)
 - [Développement et tests](#développement-et-tests)
 - [Chaînes prises en charge](#chaînes-prises-en-charge)
@@ -204,17 +205,51 @@ pour les contrats de modules figés.
 
 ---
 
+## Tron (sur demande, via TronGrid)
+
+Tron n'est pas une chaîne Etherscan : elle est lue via **TronGrid** (`api.trongrid.io`), et
+seulement quand vous la demandez.
+
+- **La choisir :** sélectionnez **Tron — via TronGrid (sur demande)** dans *Chaîne*. Le choix
+  vaut pour la session (jamais enregistré : après rechargement, le sélecteur revient à votre
+  dernière chaîne EVM). Collez une adresse `T…` (somme de contrôle vérifiée, casse conservée)
+  ou `41…` en hex. Une adresse `T…` collée avec une chaîne EVM sélectionnée n'affiche qu'une
+  indication ; aucune requête n'est envoyée.
+- **Clé (facultative) :** une clé API TronGrid relève la limite de débit (2 requêtes/s sans
+  clé, jusqu'à 10 avec). Elle n'est envoyée que dans l'en-tête `TRON-PRO-API-KEY`, à
+  `api.trongrid.io`, et conservée comme la clé Etherscan (l'option *Mémoriser* s'applique).
+  Aucune clé Etherscan n'est nécessaire pour Tron.
+- **Échantillonnage :** TronGrid renvoie au plus **200 lignes** par requête ; l'échantillon par
+  adresse est donc plafonné à 200 (le journal l'indique si le formulaire en demande plus). Les
+  transferts TRX/TRC-10 natifs, internes et TRC-20 sont récupérés, du plus récent au plus ancien.
+- **Charger les plus anciennes** pagine par **heure de bloc** (les lignes TRC-20 et internes n'ont pas
+  de numéro de bloc), le curseur étant enregistré dans l'espace de travail.
+- **Non pris en charge sur Tron :** étiquettes d'adresses connues et sanctions, valeurs en USD,
+  liens de ponts, jumeaux même clé / inter-chaînes et recherches sur d'autres chaînes, NFT,
+  testnets. Un échantillon Tron n'est jamais complet.
+
+---
+
 ## Confidentialité, sécurité et éthique
 
+**Qui voit quoi :**
+
+| Fournisseur | Quand | Voit |
+|---|---|---|
+| Etherscan | Scans EVM | Adresses EVM, clé Etherscan, IP |
+| TronGrid | Scans Tron | Adresses Tron, clé TronGrid facultative, IP |
+| DefiLlama | USD activé | Identifiants de monnaies, heures arrondies, IP |
+
 - **Rien ne quitte votre navigateur** hormis les appels à `api.etherscan.io` — aucun backend,
-  proxy, analytics ou balise tierce. Seule exception, facultative : uniquement tant que
+  proxy, analytics ou balise tierce. `api.trongrid.io` n'est contacté qu'après avoir choisi
+  Tron (voir le tableau ci-dessus). Autre exception, facultative : uniquement tant que
   **Afficher les valeurs en USD** est cochée, `coins.llama.fi` (DefiLlama) reçoit des
   identifiants de contrats de jetons (ou de monnaies natives) et des heures arrondies à
   l'heure, jamais les adresses que vous examinez, un hash de transaction ni votre clé API.
   Vérifiez-le dans DevTools → Réseau.
 - **Bibliothèques vendorisées** (`vis-network`, `jsPDF`) — sans CDN — épinglées avec
   **Subresource Integrity**. Une **CSP** stricte limite `script-src` à `'self'` et
-  `connect-src` à l'API Etherscan et à `coins.llama.fi`.
+  `connect-src` à l'API Etherscan, à `coins.llama.fi` et à `api.trongrid.io`.
 - **La clé d'API n'est jamais écrite dans un export, un journal ou un nom de fichier.** Le
   journal des requêtes ne garde que les paramètres de la requête sans la clé et un SHA-256 de
   chaque réponse, jamais les corps de réponse.
@@ -235,7 +270,7 @@ pas nécessaires pour utiliser l'app).
 
 ```bash
 bun install     # dépendances de dev uniquement (happy-dom, playwright-core)
-bun test        # 867 tests unitaires + d'intégration
+bun test        # 966 tests unitaires + d'intégration
 ```
 
 `bun run ci` reproduit localement tous les jobs de la CI (`scripts/ci-local.sh`). Activez une fois le hook pre-push versionné :
@@ -257,6 +292,8 @@ bibliothèques vendorisées (SRI + SHA-256) à chaque push.
 Toutes les 64 chaînes Etherscan v2 (Ethereum, L2s comme Base/Arbitrum/Optimism/Linea/Blast, chaînes latérales comme BNB/Polygon/Gnosis/Avalanche, Sonic, et ~30 testnets). La même clé API sert pour toutes les chaînes — Etherscan v2 est un point d'accès multichaîne unifié (mais voir la note sur le forfait payant ci-dessous). Chaque chaîne porte son **symbole de monnaie native** (les tx natives affichent donc BNB/POL/AVAX/S/… au lieu de « ETH » partout). En ajouter une = une seule entrée dans `src/config.js` (`{id, name, explorer, native}`, validée contre la liste de chaînes Etherscan v2).
 
 Base, BNB Chain, OP Mainnet, Avalanche (et Gnosis) exigent désormais un **forfait API Etherscan payant** (changement de politique d'Etherscan, pas une limite de chainmap) ; avec une clé gratuite, l'app l'indique comme cause au lieu d'une erreur générique.
+
+**Tron** (sur demande) est lue via TronGrid, pas Etherscan : voir [Tron](#tron-sur-demande-via-trongrid). Elle ne fait pas partie des 64 chaînes ci-dessus.
 
 ## Crédits
 

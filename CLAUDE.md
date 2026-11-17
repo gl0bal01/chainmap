@@ -21,7 +21,7 @@ python3 -m http.server 8000   # open http://localhost:8000/
 Tests are **dev-only** (bun + happy-dom, NOT required to run the app):
 
 ```bash
-bun test        # 867 tests
+bun test        # 966 tests
 ```
 
 `vis-network` (10.1.5) and `jsPDF` (4.2.1) are **vendored** in `vendor/` (no CDN).
@@ -37,6 +37,7 @@ subscribing. This replaces the reference app's four hand-synced state blobs.
 DOM-free, Node-testable modules (pure logic; the heart of the app):
 - `config.js` — CHAINS, TX_TYPE_GROUPS, limits, resolution presets, storage keys, data paths.
 - `format.js` — formatUnits (BigInt), edgeDedupKey, escapeHtml, csvEscape, isValidAddress, isFailedTx.
+- `tron.js` — Tron codec (SHA-256, base58check), TronGrid URL builder, `sampleSize`, `tronRows` row mapping. `tronClient.js` — TronGrid fetch (key header-only, 429 backoff, fingerprint hops paced inside the client).
 - `rateLimiter.js` — serialized req/s queue with cancellation.
 - `etherscanClient.js` — request building + resilient fetch (timeout/abort, 429/Retry-After, error taxonomy).
 - `graphStore.js` — **single source of truth**; NodeRecord/EdgeRecord; invariants; events; `loadSnapshot`.
@@ -71,7 +72,7 @@ Frozen module contracts live in `INTERFACES.md`.
 - **Filters/overlays are a display projection** over the store mirror (vis DataViews) — the store keeps the full graph so CSV/detail stay complete.
 - **Sampling is explicit**: scans fetch the latest N per address (page 1, sort desc, offset N), extendable per node via **Load older** (block cursor on `NodeRecord.history`) — not full history, surfaced in UI + exports. A graph can hold several chains: a scan on another chain adds a root on that chain, and Load older uses the node's own chain. Never present sampled data as complete.
 - **i18n**: no hardcoded UI text in logic. Modules emit `{level, key, params}`; `ui`+`i18n` render it. en/fr key sets must stay at parity (a test enforces it).
-- **Security**: strict CSP (script-src 'self', connect-src limited to api.etherscan.io and coins.llama.fi); user/API strings reach the DOM via `textContent`/escaped only; no inline `onclick`.
+- **Security**: strict CSP (script-src 'self', connect-src limited to api.etherscan.io, coins.llama.fi and api.trongrid.io); user/API strings reach the DOM via `textContent`/escaped only; no inline `onclick`.
 - Adding a chain / tx-type / selector = one entry in the relevant table
   (`config.js` / `selectors.js`); a known-address = one row in `data/sources/curated.json`, then rebuild (below). A new selector gets an entry in
   `SELECTORS` (signature) and, if its leading static args are worth naming, a matching
@@ -91,3 +92,4 @@ Frozen module contracts live in `INTERFACES.md`.
   through `knownEntry`. `token` rows are the per-chain canonical set that drives imitation-token
   detection — curate all legit same-symbol variants or none.
 - **USD is opt-in and derived**: the `#usdToggle` box is off at every load and never persisted; `priceKeyFor` alone decides what reaches `coins.llama.fi` (coin ids + hour-rounded times only; never imitation/spam/NFT/zero/root-contract); `usdForEdge` is the one valuation for details/CSV/manifest; box off = zero price requests; fail closed if the known-address or spam data did not load. It is a display projection like filters: it never mutates `graphStore`, and unknown/pending is blank, never `0`.
+- **Tron is opt-in (TronGrid)**: id `728126428:41…` — canonical lowercase `41`+40 hex; `T…` base58check is display-only (`displayAddress`/`shortAddress`/`explorerUrl`), never lowercased, never an id, never read from a workspace. Tron is in `chainInfo` (config) but **not** in `CHAINS`, so Look/Load-on-chain/probe/twins/bridges/USD/`"*"` known rows never see it: use `chainInfo` for a record's own chain, `CHAINS` for EVM-only lists. Every sample size goes through `sampleSize(chainId, n)` (TronGrid caps at 200; the client rejects more). The Load-older cursor is block time in ms (`cursor`, `HistoryEntry.oldestBlock` = ms). Tron is never persisted as the selected chain (`STORAGE_KEYS.chainId`); nothing contacts TronGrid before an explicit Tron choice. The TronGrid key lives only in the `TRON-PRO-API-KEY` header: never in a URL, log, workspace, export or error message.
